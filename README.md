@@ -64,7 +64,7 @@ The basic file for genomic analysis, known as a GenBank file, requires both sequ
 
    - **Note:** ............
 
-** EggNOG-mapper **
+**EggNOG-mapper **
 
 ```for fasta in faa/*.faa; do
 emapper.py --cpu 20 --mp_start_method forkserver --data_dir /Users/Jaeyoon/miniconda3/lib/python3.8/site-packages/data/ --output $fasta.emapper --output_dir ~/Desktop/eggnog_output --temp_dir ~/Desktop/eggnog_output --override -m diamond --dmnd_ignore_warnings --dmnd_algo ctg -i $fasta --evalue 0.001 --score 60 --pident 40 --query_cover 20 --subject_cover 20 --itype proteins --tax_scope auto --target_orthologs all --go_evidence non-electronic --pfam_realign none --decorate_gff no --excel; done
@@ -72,7 +72,7 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir /Users/Jaeyoon/minic
 
 - **Note:** xlsx output
 
-** InterProScan **
+**InterProScan **
 
 ```for fasta in *.faa; do
    ../.././interproscan.sh -i "{$fasta}" -f tsv -cpu 20 -iprlookup -goterms -pa; done
@@ -80,6 +80,9 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir /Users/Jaeyoon/minic
 ```
 
 - **Note:** tsv output
+
+
+**Promotech **
 
 ## Docker images
 We are providing ready-to-use Docker images that can be downloaded from the [Docker hub](https://hub.docker.com/).

@@ -5,6 +5,9 @@ In the realm of microbiology, the domestication of non-model bacteria (DNMB) pre
 ## Project Introduction
 
 Welcome to our GitHub repository, where we're excited to share a series of workflows designed to streamline processes in systems biology. This repository is composed of various scripts, each tailored to specific tasks within our broader research framework. Additionally, we're providing access to a curated database to enhance your research capabilities.
+- Project lead: Jae-Yoon Sung
+- Maintainers: Jae-Yoon Sung, Jung-Su Park
+- Contributors: Jae-Yoon Sung, Seong-Do kim
 
 ## Key Features
 Diverse Scripts: Our collection includes a range of scripts, each developed to address unique challenges in systems biology research.

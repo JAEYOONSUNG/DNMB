@@ -63,7 +63,7 @@ The basic file for genomic analysis, known as a GenBank file, requires both sequ
 `setwd([GenBank directory])` 
 
 
-   - **Note:** The environment was made on Ubuntu 20.04, different versions of the packages could be required for different operating systems.
+   - **Note:** ............
 
 ## Docker images
 We are providing ready-to-use Docker images that can be downloaded from the [Docker hub](https://hub.docker.com/).

@@ -8,13 +8,15 @@ Herein, we provide a detailed overview of the DNMB pipeline, highlighting its ke
 
 Welcome to our GitHub repository, where we're excited to share a series of workflows designed to streamline processes in systems biology. This repository is composed of various scripts, each tailored to specific tasks within our broader research framework. Additionally, we're providing access to a curated database to enhance your research capabilities.
 - Project lead: Jae-Yoon Sung
-- Maintainers: Jae-Yoon Sung, Jung-Su Park
-- Contributors: Jae-Yoon Sung, Seong-Do kim
+- Maintainers: Jae-Yoon Sung, Jungsoo Park
+- Contributors: Jae-Yoon Sung, Seong Do Kim
 
 ## Key Features
 Diverse Scripts: Our collection includes a range of scripts, each developed to address unique challenges in systems biology research.
 
-Curated Database: Access to a comprehensive database, meticulously compiled to support and enhance your research projects.
+Curated Database: Access to a comprehensive database, meticulously compiled to support and enhance your research projects. 
+                  We provide a package to facilitate tabulating data from various databases including [REBASE](http://rebase.neb.com), [MEROPS]([https://www.ebi.ac.uk/merops/](https://www.ebi.ac.uk/merops/download_list.shtml)), and [CAzy](). The tables, which can be easily converted into                   FASTA format, allow for seamless integration with various sequence analysis tools, 
+                  providing flexibility and ease of use for researchers. enabling users to extract desired information using various sequence analysis tools, including BLAST.
 
 User-Friendly Documentation: Detailed documentation is available to guide you through the installation, setup, and utilization of both the scripts and the database.
 
@@ -89,8 +91,8 @@ Please, cite also the underlying algorithm if it was used for the search step of
                    Ana Hernandez-Plaza, Ivica Letunic, Peer Bork, Jaime Huerta-Cepas. 2021.
                    Molecular Biology and Evolution, msab293, https://doi.org/10.1093/molbev/msab293
 
-[InterProScan] 
+[InterProScan] InterProScan 5: genome-scale protein function classification Philip Jones, David Binns, Hsin-Yu Chang, Matthew Fraser, Weizhong Li, Craig                         McAnulla, Hamish McWilliam, John Maslen, Alex Mitchell, Gift Nuka, Sebastien Pesseat, Antony F. Quinn, Amaia Sangrador-Vegas, Maxim Scheremetjew,                 Siew-Yit Yong, Rodrigo Lopez, Sarah Hunter Bioinformatics (2014), PMID: 24451626
 
-[Promotech] 
+[Promotech] Promotech: A general tool for bacterial promoter recognition. Ruben Chevez-Guardado and Lourdes Peña-Castillo. Genome Biol 22(1):318 (2021). PMID:                34789306. [DOI: 10.1186/s13059-021-02514-9 ] (https://doi.org/10.1186/s13059-021-02514-9)
 
 ```

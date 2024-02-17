@@ -18,9 +18,9 @@ Curated Database: Access to a comprehensive database, meticulously compiled to s
 
 User-Friendly Documentation: Detailed documentation is available to guide you through the installation, setup, and utilization of both the scripts and the database.
 
-#### Algorithms for analysis
+### Algorithms for analysis
 
-Ribosomal binding site:
+Ribosomal binding site: The RBS algorithm begins by extracting the last 9 nucleotides of the full-length 16S ribosomal RNA. It then identifies all instances of the reverse complement sequence within the genome, allowing up to 2 mismatches. From these, it selects sequences based on their proximity to an annotated start codon—typically within a range of 1 to 10 nucleotides (this range is the default setting). Finally, it statistically calculates the preference for selected RBS sequences and the distance (spacer) between the start codon and the RBS sequence.
 
 Codon usage:
 

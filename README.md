@@ -75,8 +75,7 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir /Users/Jaeyoon/minic
 **InterProScan**
 
 ```for fasta in *.faa; do
-   ../.././interproscan.sh -i "{$fasta}" -f tsv -cpu 20 -iprlookup -goterms -pa; done
- cd ..; done
+`./interproscan.sh -i [input_file] -f tsv -iprlookup -etra -goterms -pa -cpu 20`
 ```
 
 - **Note:** tsv output

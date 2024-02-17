@@ -156,27 +156,3 @@ names(LED_structures)[3] <- "SF [superfamily]"
 names(LED_structures)[4] <- "HF# [homologous family]"
 names(LED_structures)[5] <- "HF [homologous family]"
 
-
-
-
-
-
-
-
-#
-for (counter in Database_list)
-{
-  assign(x = strsplit(x = counter,
-                      split = "[-.]")[[1]][3], # for the pattern in your filenames
-         value = readxl::read_xlsx(file = counter))
-}
-
-gg<-df_list_rbindlist %>% filter (locus_tag %in% F)
-
-locustag<- select(a, contains('locus')) ##locus ??? ???????????? ??? 추출
-
-##추출??? ????????? ??????????????? 각각 ????????? 분리
-F<- F %>% unlist() %>% unique() 
-
-
-

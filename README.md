@@ -15,7 +15,7 @@ Welcome to our GitHub repository, where we're excited to share a series of workf
 Diverse Scripts: Our collection includes a range of scripts, each developed to address unique challenges in systems biology research.
 
 Curated Database: Access to a comprehensive database, meticulously compiled to support and enhance your research projects. 
-                  We provide a package to facilitate tabulating data from various databases including [REBASE](http://rebase.neb.com), [MEROPS](https://www.ebi.ac.uk/merops/download_list.shtml), and [CAZy](). The tables, which can be easily converted into                   FASTA format, allow for seamless integration with various sequence analysis tools, 
+                  We provide a package to facilitate tabulating data from various databases including [REBASE](http://rebase.neb.com), [MEROPS](https://www.ebi.ac.uk/merops/download_list.shtml), and [CAZy_dbCAN3](). The tables, which can be easily converted into                   FASTA format, allow for seamless integration with various sequence analysis tools, 
                   providing flexibility and ease of use for researchers. enabling users to extract desired information using various sequence analysis tools, including BLAST.
 
 User-Friendly Documentation: Detailed documentation is available to guide you through the installation, setup, and utilization of both the scripts and the database.
@@ -62,8 +62,19 @@ The basic file for genomic analysis, known as a GenBank file, requires both sequ
 
 `setwd([GenBank directory])` 
 
-
    - **Note:** ............
+
+** EggNOG-mapper **
+`for fasta in faa/*.faa; do
+emapper.py --cpu 20 --mp_start_method forkserver --data_dir /Users/Jaeyoon/miniconda3/lib/python3.8/site-packages/data/ --output $fasta.emapper --output_dir ~/Desktop/eggnog_output --temp_dir ~/Desktop/eggnog_output --override -m diamond --dmnd_ignore_warnings --dmnd_algo ctg -i $fasta --evalue 0.001 --score 60 --pident 40 --query_cover 20 --subject_cover 20 --itype proteins --tax_scope auto --target_orthologs all --go_evidence non-electronic --pfam_realign none --decorate_gff no --excel; done`
+
+- **Note:** xlsx output
+
+** InterProScan **
+`for fasta in *.faa; do
+   ../.././interproscan.sh -i "{$fasta}" -f tsv -cpu 20 -iprlookup -goterms -pa; done
+ cd ..; done`
+- **Note:** tsv output
 
 ## Docker images
 We are providing ready-to-use Docker images that can be downloaded from the [Docker hub](https://hub.docker.com/).

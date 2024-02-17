@@ -1,11 +1,11 @@
 ![Fig  1](https://github.com/JAEYOONSUNG/DNMB/assets/42233037/b97087a1-ecd5-4293-afe7-a0fb3b7c6e8a)
 
 # Welcome to the DNMB, a comprehensive and combined genomics scripts for domesticating non-model bacteria
-**Project Introduction**
+
+## Project Introduction
 
 Welcome to our GitHub repository, where we're excited to share a series of workflows designed to streamline processes in systems biology. This repository is composed of various scripts, each tailored to specific tasks within our broader research framework. Additionally, we're providing access to a curated database to enhance your research capabilities.
 
-**Key Features:**
 ## Key Features
 Diverse Scripts: Our collection includes a range of scripts, each developed to address unique challenges in systems biology research.
 Curated Database: Access to a comprehensive database, meticulously compiled to support and enhance your research projects.
@@ -20,8 +20,8 @@ It requires R version >=4.2.1 for release, and R version >=4.3 for devel.
 Some of the third-party functionalities are not 
 available for Windows machines (InterProScan). 
 To download and install R, see the [R-project website](https://www.r-project.org/).
-To download and install InterProScan, see the [InterProScan website](https://github.com/ebi-pf-team/interproscan)
-To download and install EggNOG-mapper, see the [EggNOG]
+To download and install InterProScan, see the [InterProScan website](https://github.com/ebi-pf-team/interproscan).
+To download and install EggNOG-mapper, see the [EggNOG-mapper](https://github.com/eggnogdb/eggnog-mapper).
 
 
 ## Anaylsis flow

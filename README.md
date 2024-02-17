@@ -13,6 +13,21 @@ User-Friendly Documentation: Detailed documentation is available to guide you th
 Getting Started:
 To begin using our resources, please follow the steps outlined in our documentation. Whether you're looking to integrate our scripts into your existing projects or explore our database for new insights, we've provided all the necessary instructions to get you started.
 
+### Requirements
+
+The crisprVerse is supported for macOS, Linux and Windows machines.
+It requires R version >=4.2.1 for release, and R version >=4.3 for devel.
+Some of the third-party functionalities are not 
+available for Windows machines (InterProScan). 
+To download and install R, see the [R-project website](https://www.r-project.org/).
+To download and install InterProScan, see the [InterProScan website](https://github.com/ebi-pf-team/interproscan)
+To download and install EggNOG-mapper, see the [EggNOG]
+
+
+## Anaylsis flow
+![Fig S1  DNMB pipeline](https://github.com/JAEYOONSUNG/DNMB/assets/42233037/33e7f91f-9d6c-4e26-9982-6da79ee35999)
+
+
 **Contributing:**
 We welcome contributions from the community! If you have suggestions for improvements, additional scripts, or updates to the database, please see our contributing guidelines for more information on how to get involved.
 

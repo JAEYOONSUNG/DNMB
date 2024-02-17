@@ -45,6 +45,8 @@ To download and install InterProScan, see the [InterProScan website](https://git
 
 To download and install EggNOG-mapper, see the [EggNOG-mapper](https://github.com/eggnogdb/eggnog-mapper).
 
+#### Warning
+The basic file for genomic analysis, known as a GenBank file, requires both sequence and annotation in full-format files such as GBFF, GBK, or GB. Additionally, GenBank prefers a format based on the GeneMarkS2+ pipeline, and using a different annotation pipeline to obtain GenBank files may lead to errors.
 
 
 ## Anaylsis flow

@@ -25,10 +25,11 @@ Whether you're looking to integrate our scripts into your existing projects or e
 
 ### Requirements
 
-The crisprVerse is supported for macOS, Linux and Windows machines.
+The DNMB is supported for macOS, Linux and Windows machines, which can provide an environment for using R.
 It requires R version >=4.2.1 for release, and R version >=4.3 for devel.
-Some of the third-party functionalities are not 
-available for Windows machines (InterProScan). 
+Some of the third-party functionalities are not available for Windows and MacOS machines (InterProScan).
+InterProScan requires a Linux operating system. Without access to Linux, you can proceed with the analysis up to Eggnog-mapper in the annotation stage, but you won't be able to obtain information about motif analysis.
+
 
 To download and install R, see the [R-project website](https://www.r-project.org/).
 

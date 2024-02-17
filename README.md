@@ -1,6 +1,6 @@
 ![Fig  1](https://github.com/JAEYOONSUNG/DNMB/assets/42233037/b97087a1-ecd5-4293-afe7-a0fb3b7c6e8a)
 
-**Project Introduction**
+##**Project Introduction**
 
 Welcome to our GitHub repository, where we're excited to share a series of workflows designed to streamline processes in systems biology. This repository is composed of various scripts, each tailored to specific tasks within our broader research framework. Additionally, we're providing access to a curated database to enhance your research capabilities.
 

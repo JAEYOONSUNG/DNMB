@@ -20,9 +20,11 @@ User-Friendly Documentation: Detailed documentation is available to guide you th
 
 ### Algorithms for analysis
 
-Ribosomal binding site: The RBS algorithm begins by extracting the last 9 nucleotides of the full-length 16S ribosomal RNA. It then identifies all instances of the reverse complement sequence within the genome, allowing up to 2 mismatches. From these, it selects sequences based on their proximity to an annotated start codon—typically within a range of 1 to 10 nucleotides (this range is the default setting). Finally, it statistically calculates the preference for selected RBS sequences and the distance (spacer) between the start codon and the RBS sequence.
+#### Ribosomal binding site: 
+The RBS algorithm begins by extracting the last 9 nucleotides of the full-length 16S ribosomal RNA. It then identifies all instances of the reverse complement sequence within the genome, allowing up to 2 mismatches. From these, it selects sequences based on their proximity to an annotated start codon—typically within a range of 1 to 10 nucleotides (this range is the default setting). Finally, it statistically calculates the preference for selected RBS sequences and the distance (spacer) between the start codon and the RBS sequence.
 
-Codon usage:
+#### Codon usage:
+Codon usage analysis quantifies the total count of amino acids and nucleotides (codons) across the entire coding sequence. This analysis is performed using the uco function from the seqinr package, calculating three key indices: eff for codon counts, freq for relative frequencies of codons, and rscu for the Relative Synonymous Codon Usage index. The terms "eff", "freq", and "rscu" are equivalent to "R0", "R1", and "R3", respectively, as defined in Suzuki et al. (2005) under the section "2.2 Normalization of codon usage data". Furthermore, "eff" and "rscu" correspond to "AF" and "RSCU", respectively, in Suzuki et al. (2008) "2.2. Definitions of codon usage data".
 
 
 ### Getting Started:

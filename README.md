@@ -71,7 +71,7 @@ devtools::install_github("crisprVerse/crisprDesignData")
 
 **EggNOG-mapper**
 
-```
+```python
 emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directory] -o out --output_dir [eggnog_output] --temp_dir [eggnog_output] --override -m diamond --dmnd_ignore_warnings --dmnd_algo ctg -i [fasta] --evalue 0.001 --score 60 --pident 40 --query_cover 20 --subject_cover 20 --itype proteins --tax_scope auto --target_orthologs all --go_evidence non-electronic --pfam_realign none --report_orthologs --decorate_gff yes --excel
 
 ```
@@ -80,7 +80,7 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directo
 
 **InterProScan**
 
-```
+```python
 ./interproscan.sh -i [input_file] -f tsv -iprlookup -etra -goterms -pa -cpu 20
 ```
 
@@ -89,7 +89,7 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directo
 
 **Promotech**
 
-```
+```python
 python promotech.py -pg -m RF-HOT -f examples/genome/[my_fasta].fna -g -o results 
 ```
 - **Note:** fasta must have only capital letters

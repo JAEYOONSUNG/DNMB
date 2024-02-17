@@ -15,7 +15,7 @@ Welcome to our GitHub repository, where we're excited to share a series of workf
 Diverse Scripts: Our collection includes a range of scripts, each developed to address unique challenges in systems biology research.
 
 Curated Database: Access to a comprehensive database, meticulously compiled to support and enhance your research projects. 
-                  We provide a package to facilitate tabulating data from various databases including [REBASE](http://rebase.neb.com), [MEROPS]([https://www.ebi.ac.uk/merops/](https://www.ebi.ac.uk/merops/download_list.shtml)), and [CAzy](). The tables, which can be easily converted into                   FASTA format, allow for seamless integration with various sequence analysis tools, 
+                  We provide a package to facilitate tabulating data from various databases including [REBASE](http://rebase.neb.com), [MEROPS](https://www.ebi.ac.uk/merops/download_list.shtml), and [CAZy](). The tables, which can be easily converted into                   FASTA format, allow for seamless integration with various sequence analysis tools, 
                   providing flexibility and ease of use for researchers. enabling users to extract desired information using various sequence analysis tools, including BLAST.
 
 User-Friendly Documentation: Detailed documentation is available to guide you through the installation, setup, and utilization of both the scripts and the database.

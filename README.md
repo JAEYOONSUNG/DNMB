@@ -74,3 +74,23 @@ We welcome contributions from the community! If you have suggestions for improve
 This project is released under MIT licence, which allows for both personal and commercial use, modification, and distribution of our work, provided that proper credit is given.
 
 We hope our resources will prove invaluable to your research in systems biology. For any questions or feedback, please don't hesitate to reach out through our GitHub issues or contact section.
+
+## Citation
+If you use this piepline, please cite:
+```
+[1] DNMB: Accelerating the Domestication of Non-model Thermophilic Microorganisms Geobacillus stearothermohpilus as a Thermophilic Platform Cell.
+          Jae-Yoon Sung, Hyungbin Kim, Seong Do Kim, Sang Jae Lee, Seong Bo Kim, and Dong-Woo Lee. 2024.
+          XXX, XXX, https://doi.org/XXX
+```
+Please, cite also the underlying algorithm if it was used for the search step of DNMB:
+```
+[eggNOG-mapper v2] Accelerating the Domestication of Non-model Thermophilic Microorganisms Geobacillus stearothermohpilus as a Thermophilic Platform Cell.
+                   Jae-Yoon Sung, Hyungbin Kim, Seong Do Kim, Sang Jae Lee, Seong Bo Kim, and Dong-Woo Lee. 2024.
+                   XXX, XXX, https://doi.org/XXX
+
+[InterProScan] 
+
+[Promotech] Prodigal: prokaryotic gene recognition and translation initiation site identification.
+           Hyatt et al. 2010. BMC Bioinformatics 11, 119. https://doi.org/10.1186/1471-2105-11-119.
+
+```

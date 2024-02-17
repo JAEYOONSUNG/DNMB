@@ -66,16 +66,17 @@ The basic file for genomic analysis, known as a GenBank file, requires both sequ
 
 **EggNOG-mapper**
 
-```for fasta in faa/*.faa; do
-emapper.py --cpu 20 --mp_start_method forkserver --data_dir /Users/Jaeyoon/miniconda3/lib/python3.8/site-packages/data/ --output $fasta.emapper --output_dir ~/Desktop/eggnog_output --temp_dir ~/Desktop/eggnog_output --override -m diamond --dmnd_ignore_warnings --dmnd_algo ctg -i $fasta --evalue 0.001 --score 60 --pident 40 --query_cover 20 --subject_cover 20 --itype proteins --tax_scope auto --target_orthologs all --go_evidence non-electronic --pfam_realign none --decorate_gff no --excel; done
+```
+emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directory] -o out --output_dir [eggnog_output] --temp_dir [eggnog_output] --override -m diamond --dmnd_ignore_warnings --dmnd_algo ctg -i [fasta] --evalue 0.001 --score 60 --pident 40 --query_cover 20 --subject_cover 20 --itype proteins --tax_scope auto --target_orthologs all --go_evidence non-electronic --pfam_realign none --report_orthologs --decorate_gff yes --excel
+
 ```
 
 - **Note:** xlsx output
 
 **InterProScan**
 
-```for fasta in *.faa; do
-`./interproscan.sh -i [input_file] -f tsv -iprlookup -etra -goterms -pa -cpu 20`
+```
+./interproscan.sh -i [input_file] -f tsv -iprlookup -etra -goterms -pa -cpu 20
 ```
 
 - **Note:** tsv output

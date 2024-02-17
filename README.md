@@ -18,6 +18,12 @@ Curated Database: Access to a comprehensive database, meticulously compiled to s
 
 User-Friendly Documentation: Detailed documentation is available to guide you through the installation, setup, and utilization of both the scripts and the database.
 
+#### Algorithms for analysis
+
+Ribosomal binding site:
+
+Codon usage:
+
 
 ### Getting Started:
 To begin using our resources, please follow the steps outlined in our documentation. 

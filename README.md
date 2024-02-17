@@ -12,7 +12,8 @@ Curated Database: Access to a comprehensive database, meticulously compiled to s
 User-Friendly Documentation: Detailed documentation is available to guide you through the installation, setup, and utilization of both the scripts and the database.
 
 ### Getting Started:
-To begin using our resources, please follow the steps outlined in our documentation. Whether you're looking to integrate our scripts into your existing projects or explore our database for new insights, we've provided all the necessary instructions to get you started.
+To begin using our resources, please follow the steps outlined in our documentation. 
+Whether you're looking to integrate our scripts into your existing projects or explore our database for new insights, we've provided all the necessary instructions to get you started.
 
 ### Requirements
 

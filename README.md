@@ -13,8 +13,11 @@ Welcome to our GitHub repository, where we're excited to share a series of workf
 
 ## Key Features
 Diverse Scripts: Our collection includes a range of scripts, each developed to address unique challenges in systems biology research.
+
 Curated Database: Access to a comprehensive database, meticulously compiled to support and enhance your research projects.
+
 User-Friendly Documentation: Detailed documentation is available to guide you through the installation, setup, and utilization of both the scripts and the database.
+
 
 ### Getting Started:
 To begin using our resources, please follow the steps outlined in our documentation. 

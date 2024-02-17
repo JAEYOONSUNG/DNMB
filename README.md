@@ -40,16 +40,16 @@ It requires R version >=4.2.1 for release, and R version >=4.3 for devel.
 
 One of the third-party functionalities is not available for Windows and MacOS machines (InterProScan).
 
-The [EggNOG-mapper](http://eggnog-mapper.embl.de), allows users to input sequences in FASTA format based on locus_tag identifiers and receive results in either XLSX or CSV format. Additionally, the standalone version available on GitHub is compatible with DNMB.
+The [EggNOG-mapper webserver](http://eggnog-mapper.embl.de), allows users to input sequences in FASTA format based on locus_tag identifiers and receive results in either XLSX or CSV format. Additionally, the standalone version available on GitHub is compatible with DNMB.
 
 InterProScan requires a Linux operating system. Without access to Linux, you can proceed with the analysis up to Eggnog-mapper in the annotation stage, but you won't be able to obtain information about motif analysis.
 
 
 To download and install R, see the [R-project website](https://www.r-project.org/).
 
-To download and install InterProScan, see the [InterProScan website](https://github.com/ebi-pf-team/interproscan).
+To download and install InterProScan, see the [InterProScan github](https://github.com/ebi-pf-team/interproscan).
 
-To download and install EggNOG-mapper, see the [EggNOG-mapper](https://github.com/eggnogdb/eggnog-mapper).
+To download and install EggNOG-mapper, see the [EggNOG-mapper github](https://github.com/eggnogdb/eggnog-mapper).
 
 #### Warning
 The basic file for genomic analysis, known as a GenBank file, requires both sequence and annotation in full-format files such as gbff, gb, or gbk. Additionally, GenBank prefers a format based on the GeneMarkS2+ pipeline, and using a different annotation pipeline to obtain GenBank files may lead to errors.

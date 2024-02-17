@@ -1,6 +1,6 @@
 ![Fig  1](https://github.com/JAEYOONSUNG/DNMB/assets/42233037/b97087a1-ecd5-4293-afe7-a0fb3b7c6e8a)
 
-# Welcome to the DNMB, a comprehensive and combined genomics scripts for domesticating non-model bacteria
+# Welcome to the DNMB, a comprehensive and combined scripts for genomics analysis of domesticating non-model bacteria
 
 ## Project Introduction
 

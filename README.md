@@ -66,7 +66,7 @@ setwd([GenBank directory])
 if (!requireNamespace("devtools", quietly = TRUE))
     install.packages("devtools")
     
-devtools::install_github("crisprVerse/crisprDesignData")
+devtools::install_github("JAEYOONSUNG/DNMB")
 ```
    - **Note:** ............
 

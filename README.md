@@ -75,7 +75,7 @@ if (!requireNamespace("BiocManager", quietly = TRUE))
 
 BiocManager::install(c("Biostrings", "ComplexHeatmap", "Peptides"))
 
-install.packages(c("qdap", "seqinr", "stringr", "stringi, "splitstackshape", "gtools", "ggplot2", "ggseqlogo", "circlize", "grid", "gridExtra","plyr", "dplyr", "tidyr", "readr", "reshape2", "data.table", "tibble", "qdap", "openxlsx"))
+install.packages(c("qdap", "seqinr", "stringr", "stringi", "splitstackshape", "gtools", "ggplot2", "ggseqlogo", "circlize", "grid", "gridExtra","plyr", "dplyr", "tidyr", "readr", "reshape2", "data.table", "tibble", "qdap", "openxlsx"))
 ```
 
 ```r

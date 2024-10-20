@@ -91,7 +91,9 @@ run_DNMB()
 ```r
 install.packages("rJava")
 ```
+
 3. Set $JAVA_HOME Path:
+
 You need to set the environment variable JAVA_HOME to point to the location of your JDK installation.
 	
  •	On Windows:

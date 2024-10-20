@@ -124,7 +124,7 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directo
 ./interproscan.sh -i [input_file] -f tsv -iprlookup -etra -goterms -pa -cpu 20
 ```
 
-- **Note:** tsv output
+- **Note:** Files with .tsv and .tsv.sites extensions are used for merging data.
 
 
 **Promotech**
@@ -133,10 +133,6 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directo
 python promotech.py -pg -m RF-HOT -f examples/genome/[my_fasta].fna -g -o results 
 ```
 - **Note:** fasta must have only capital letters
-
-## Docker images
-We are providing ready-to-use Docker images that can be downloaded from the [Docker hub](https://hub.docker.com/).
-See our [Docker page](https://github.com/DNMB/Docker) for more information. 
 
 
 ## Contributing

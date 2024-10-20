@@ -8,6 +8,9 @@ Description: Our pipeline integrates multiple scripts and computational tools to
 License: MIT
 Encoding: UTF-8
 Imports:
+    Biostrings,
+    ComplexHeatmap,
+    Peptides,    
     circlize,
     gtools,
     ggplot2,
@@ -28,6 +31,9 @@ Imports:
     openxlsx
 Depends:
     R (>= 3.5.0),
+Biostrings,
+    ComplexHeatmap,
+    Peptides,    
     circlize,
     gtools,
     ggplot2,

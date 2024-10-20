@@ -76,24 +76,23 @@ if (!requireNamespace("BiocManager", quietly = TRUE))
 
 BiocManager::install(c("Biostrings", "ComplexHeatmap", "Peptides"))
 
-install.packages(c("qdap", "seqinr", "circlize", "splitstackshape"))
+install.packages(c("qdap", "seqinr", "stringi, "circlize", "splitstackshape","gtools"))
 
 ```
-
 
 ```r
 run_DNMB()
 ```
-   - **Note:** 
-    1. Install Java Development Kit (JDK):
+   
+- **Note:** Java and the rJava package must be installed and configured to enable .xlsx output using this package.
+1. Install Java Development Kit (JDK):
         Download and install the appropriate JDK for your operating system from the Oracle website or OpenJDK.
-    2. Install rJava Package in R:
+2. Install rJava Package in R:
 ```r
-     install.packages("rJava")
+install.packages("rJava")
 ```
-    3. Set $JAVA_HOME Path:
+3. Set $JAVA_HOME Path:
 You need to set the environment variable JAVA_HOME to point to the location of your JDK installation.
-
 	•	On Windows:
 	1.	Open Control Panel > System > Advanced system settings > Environment Variables.
 	2.	Under “System Variables,” click New and add:
@@ -101,12 +100,13 @@ You need to set the environment variable JAVA_HOME to point to the location of y
 	•	Variable value: The path to your JDK installation (e.g., C:\Program Files\Java\jdk-11).
 	3.	Restart R or RStudio.
 	•	On macOS/Linux:
+
 Add this line to your .bash_profile or .bashrc (depending on the shell):
 ```bash
 export JAVA_HOME=$(/usr/libexec/java_home)
 source ~/.bash_profile  # or ~/.bashrc
-echo $JAVA_HOME
-Sys.getenv("JAVA_HOME")
+echo $JAVA_HOME # validation
+Sys.getenv("JAVA_HOME") 
 ```
 
 **EggNOG-mapper**

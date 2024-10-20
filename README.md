@@ -115,7 +115,6 @@ echo %JAVA_HOME%  #(e.g., C:\Program Files\Java\jdk-18)
 setx JAVA_HOME "C:\Program Files\Java\jdk[version]"
 
 # Update the system PATH to include the bin directory of the JDK.
-# %JAVA_HOME%\bin points to the JDK's bin folder where executables like java.exe are located.
 setx PATH "%JAVA_HOME%\bin;%path%"
 
 # Check the installed Java version to confirm that the correct version is being used.

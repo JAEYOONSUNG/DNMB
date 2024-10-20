@@ -1,6 +1,5 @@
-![Fig  1](https://github.com/JAEYOONSUNG/DNMB/assets/42233037/b97087a1-ecd5-4293-afe7-a0fb3b7c6e8a)
-
 # Welcome to the DNMB, a combined scripts-based pipeline for comprehensive genomics analysis of non-model bacteria.
+![Fig  1](https://github.com/JAEYOONSUNG/DNMB/assets/42233037/b97087a1-ecd5-4293-afe7-a0fb3b7c6e8a)
 In the realm of microbiology, the domestication of non-model bacteria (DNMB) presents a unique set of challenges and opportunities. To address these, we introduce a novel approach—the DNMB pipeline—a comprehensive genomics analysis tool tailored specifically for non-model bacterial species. Unlike traditional model organisms, non-model bacteria often lack well-defined genetic resources and established analytical pipelines. Consequently, researchers face hurdles in elucidating the genetic basis underlying phenotypic traits relevant to domestication efforts. Our pipeline integrates multiple scripts and computational tools to streamline various stages of genomic analysis, from making comprehensive functional annotation in user-friendly table format to genomic features including codon usage and ribosomal binding site preference and distance. 
 Herein, we provide a detailed overview of the DNMB pipeline, highlighting its key components and functionalities. Additionally, we demonstrate its utility through a case study involving the domestication of a non-model bacterial strain. The DNMB pipeline not only accelerates genomic analysis but also enhances our understanding of non-model bacterial physiology, thereby facilitating the exploitation of microbial diversity for biotechnological applications.
 
@@ -52,6 +51,7 @@ To download and install R, see the [R-project website](https://www.r-project.org
 To download and install InterProScan, see the [InterProScan github](https://github.com/ebi-pf-team/interproscan).
 
 To download and install EggNOG-mapper, see the [EggNOG-mapper github](https://github.com/eggnogdb/eggnog-mapper).
+
 
 #### Warning
 The basic file for genomic analysis, known as a GenBank file, requires both sequence and annotation in full-format files such as gbff, gb, or gbk. Additionally, GenBank prefers a format based on the GeneMarkS2+ pipeline, and using a different annotation pipeline to obtain GenBank files may lead to errors.

@@ -101,17 +101,22 @@ You need to set the environment variable JAVA_HOME to point to the location of y
 	
  •	On Windows:
 
-1.	Open Control Panel > System > Advanced system settings > Environment Variables.
-2.	Under “System Variables,” click New and add:
+1.	Install Java jdk (https://www.oracle.com/kr/java/technologies/downloads/)
+2.	Check the “System Variables,” :
 	•	Variable name: JAVA_HOME
 	•	Variable value: The path to your JDK installation 
+
 ```bash
- echo $JAVA_HOME% #(e.g., C:\Program Files\Java\jdk-18).
+ echo %JAVA_HOME% #(e.g., C:\Program Files\Java\jdk-18).
+ setx JAVA_HOME "C:\Program Files\Java\jdk[version]
+ setx PATH "%JAVA_HOME%\bin;%path%"
+ 
+ JAVA -version
 ```
 3.	Restart R or RStudio.
 	
  •	On macOS/Linux:
-
+-If Xcode is not installed, you may encounter compiler issues during package installation. To resolve this, install Xcode from the App Store.
 Add this line to your .bash_profile or .bashrc (depending on the shell):
 ```bash
 export JAVA_HOME=$(/usr/libexec/java_home)

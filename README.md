@@ -140,9 +140,6 @@ source ~/.bash_profile  ## or ~/.bashrc #apply changes
 
 # Verify that JAVA_HOME is set correctly by printing its value
 echo $JAVA_HOME # validation
-
-# Optionally, in R, check if JAVA_HOME is recognized correctly in the current R session
-Sys.getenv("JAVA_HOME") # validation within R
 ```
 
 ## Install DNMB R package

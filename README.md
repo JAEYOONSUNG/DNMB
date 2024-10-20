@@ -78,11 +78,11 @@ BiocManager::install(c("Biostrings", "ComplexHeatmap", "Peptides"))
 
 install.packages(c("qdap", "seqinr", "stringr", "stringi", "splitstackshape", "gtools", "ggplot2", "ggseqlogo", "circlize", "grid", "gridExtra","plyr", "dplyr", "tidyr", "readr", "reshape2", "data.table", "tibble", "qdap", "openxlsx"))
 ```
-
+- **Note:** If you encounter issues installing the qdap package, try installing it with the following command:
 ```r
-setwd([GenBank directory])
-run_DNMB()
+install.packages("qdap", INSTALL_opts = "--no-multiarch")
 ```
+
    
 - **Note:** Java and the rJava package must be installed and configured to enable .xlsx output using this package.
 1. Install Java Development Kit (JDK):
@@ -119,6 +119,13 @@ source ~/.bash_profile  # or ~/.bashrc
 echo $JAVA_HOME # validation
 Sys.getenv("JAVA_HOME") 
 ```
+
+## Run DNMB analysis
+```r
+setwd([GenBank directory])
+run_DNMB()
+```
+
 
 **EggNOG-mapper**
 

@@ -89,8 +89,6 @@ install.packages("qdap", INSTALL_opts = "--no-multiarch")
         Download and install the appropriate JDK for your operating system from the Oracle website or OpenJDK.
 2. Install rJava Package in R:
 ```r
-remotes::install_github("talgalili/installr")
-installr::install.java()
 install.packages("rJava")
 library(rJava)
 ```

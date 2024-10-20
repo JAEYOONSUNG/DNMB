@@ -89,7 +89,10 @@ run_DNMB()
         Download and install the appropriate JDK for your operating system from the Oracle website or OpenJDK.
 2. Install rJava Package in R:
 ```r
+remotes::install_github("talgalili/installr")
+installr::install.java()
 install.packages("rJava")
+library(rJava)
 ```
 
 3. Set $JAVA_HOME Path:

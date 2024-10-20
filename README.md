@@ -119,18 +119,31 @@ You need to set the environment variable JAVA_HOME to point to the location of y
 -If Xcode is not installed, you may encounter compiler issues during package installation. To resolve this, install Xcode from the App Store.
 Add this line to your .bash_profile or .bashrc (depending on the shell):
 ```bash
+# Navigate to your Java installation directory to check available Java versions
 /Library/Java/JavaVirtualMachines/[my_java_folder]/Contents/Home # check my java list
+
+# Open your .bash_profile (or .bashrc) file for editing
 vi ~/.bash_profile # edit bash profile
+
+# Press 'i' to enter insert mode in the vi editor
 i # insert mode
 
-export JAVA=HOME=/Library/Java/JavaVirtualMachines/[my_java_folder]/Contents/Home
+# Add or update the JAVA_HOME environment variable with the path to your Java installation
+export JAVA_HOME=/Library/Java/JavaVirtualMachines/[my_java_folder]/Contents/Home
+# Add Java's bin directory to the system PATH variable so that Java commands can be run from the terminal
 export PATH=${PATH}:$JAVA_HOME/bin
 
+# Save the changes and exit the vi editor. ":wq!" means "write" (save) and "quit" (exit) forcefully
 :wq! # save
 
-source ~/.bash_profile  ## or ~/.bashrc #save
+# Apply the changes made to the .bash_profile or .bashrc immediately (without needing to restart the terminal)
+source ~/.bash_profile  ## or ~/.bashrc #apply changes
+
+# Verify that JAVA_HOME is set correctly by printing its value
 echo $JAVA_HOME # validation
-Sys.getenv("JAVA_HOME") 
+
+# Optionally, in R, check if JAVA_HOME is recognized correctly in the current R session
+Sys.getenv("JAVA_HOME") # validation within R
 ```
 
 ## Run DNMB analysis

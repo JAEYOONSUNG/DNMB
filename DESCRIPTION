@@ -31,7 +31,7 @@ Imports:
     openxlsx
 Depends:
     R (>= 3.5.0),
-Biostrings,
+    Biostrings,
     ComplexHeatmap,
     Peptides,    
     circlize,

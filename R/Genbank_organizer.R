@@ -149,7 +149,7 @@ for (genbank_file in gb_files) {
       contig_seq_final <- contig_1_seq_final_temp
       for(i in (1:nrow(contig_length))[-c(1)]){
         if(!is.na(get(paste("contig",i,"seq","final","temp",sep="_")))[1]){
-          contig_seq_final <- rbind.fill(get(paste("contig","seq","final",sep="_")),
+          contig_seq_final <- plyr::rbind.fill(get(paste("contig","seq","final",sep="_")),
                                          get(paste("contig",i,"seq","final","temp",sep="_"))
           )
         }else{}

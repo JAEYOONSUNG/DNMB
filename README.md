@@ -128,7 +128,7 @@ export PATH=${PATH}:$JAVA_HOME/bin
 
 :wq! # save
 
-source ~/.bash_profile  # or ~/.bashrc
+source ~/.bash_profile  ## or ~/.bashrc #save
 echo $JAVA_HOME # validation
 Sys.getenv("JAVA_HOME") 
 ```

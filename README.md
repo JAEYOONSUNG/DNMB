@@ -93,13 +93,15 @@ install.packages("rJava")
 ```
 3. Set $JAVA_HOME Path:
 You need to set the environment variable JAVA_HOME to point to the location of your JDK installation.
-	•	On Windows:
+	
+ •	On Windows:
 	1.	Open Control Panel > System > Advanced system settings > Environment Variables.
 	2.	Under “System Variables,” click New and add:
 	•	Variable name: JAVA_HOME
 	•	Variable value: The path to your JDK installation (e.g., C:\Program Files\Java\jdk-11).
 	3.	Restart R or RStudio.
-	•	On macOS/Linux:
+	
+ •	On macOS/Linux:
 
 Add this line to your .bash_profile or .bashrc (depending on the shell):
 ```bash

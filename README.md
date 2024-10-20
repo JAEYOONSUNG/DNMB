@@ -69,7 +69,45 @@ if (!requireNamespace("devtools", quietly = TRUE))
     
 devtools::install_github("JAEYOONSUNG/DNMB")
 ```
-   - **Note:** ............
+
+```r
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install(c("Biostrings", "ComplexHeatmap", "Peptides"))
+
+install.packages(c("qdap", "seqinr", "circlize", "splitstackshape"))
+
+```
+
+
+```r
+run_DNMB()
+```
+   - **Note:** 
+    1. Install Java Development Kit (JDK):
+        Download and install the appropriate JDK for your operating system from the Oracle website or OpenJDK.
+    2. Install rJava Package in R:
+```r
+     install.packages("rJava")
+```
+    3. Set $JAVA_HOME Path:
+You need to set the environment variable JAVA_HOME to point to the location of your JDK installation.
+
+	•	On Windows:
+	1.	Open Control Panel > System > Advanced system settings > Environment Variables.
+	2.	Under “System Variables,” click New and add:
+	•	Variable name: JAVA_HOME
+	•	Variable value: The path to your JDK installation (e.g., C:\Program Files\Java\jdk-11).
+	3.	Restart R or RStudio.
+	•	On macOS/Linux:
+Add this line to your .bash_profile or .bashrc (depending on the shell):
+```bash
+export JAVA_HOME=$(/usr/libexec/java_home)
+source ~/.bash_profile  # or ~/.bashrc
+echo $JAVA_HOME
+Sys.getenv("JAVA_HOME")
+```
 
 **EggNOG-mapper**
 
@@ -78,7 +116,7 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directo
 
 ```
 
-- **Note:** xlsx output
+- **Note:** xlsx or csv output
 
 **InterProScan**
 

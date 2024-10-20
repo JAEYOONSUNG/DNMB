@@ -200,8 +200,8 @@ We hope our resources will prove invaluable to your research in systems biology.
 ## Citation
 If you use this piepline, please cite:
 ```
-[DNMB] DNMB: Accelerating the Domestication of Non-model Thermophilic Microorganisms Geobacillus stearothermohpilus as a Thermophilic Platform Cell.
-             Jae-Yoon Sung, Hyungbin Kim, Seong Do Kim, Sang Jae Lee, Seong Bo Kim, and Dong-Woo Lee. 2024.
+[DNMB] DNMB: A Strategic Blueprint for the Domestication of Geobacillus stearothermophilus as a Thermophilic Platform using the DNMB Suite.
+             Jae-Yoon Sung, Mun Hoe Lee, Hyungbin Kim, Dariimaa Ganbat, Hyun-Woo Cho, Sang Jae Lee, Seong Bo Kim, and Dong-Woo Lee. 2024.
              XXX, XXX, https://doi.org/XXX
 ```
 Please, cite also the underlying algorithm if it was used for the search step of DNMB:
@@ -216,3 +216,11 @@ Please, cite also the underlying algorithm if it was used for the search step of
 [Promotech] Promotech: A general tool for bacterial promoter recognition. Ruben Chevez-Guardado and Lourdes Peña-Castillo. Genome Biol 22(1):318 (2021). PMID:                34789306. [DOI: 10.1186/s13059-021-02514-9 ] (https://doi.org/10.1186/s13059-021-02514-9)
 
 ```
+Please, cite also the underlying Database if it was used for the search step of DNMB:
+```
+[REBASE]
+[MEROPS]
+[CAZy]
+[LED]
+```
+

@@ -101,14 +101,14 @@ You need to set the environment variable JAVA_HOME to point to the location of y
 	
  •	On Windows:
 
-	1.	Open Control Panel > System > Advanced system settings > Environment Variables.
-	2.	Under “System Variables,” click New and add:
+1.	Open Control Panel > System > Advanced system settings > Environment Variables.
+2.	Under “System Variables,” click New and add:
 	•	Variable name: JAVA_HOME
 	•	Variable value: The path to your JDK installation 
 ```bash
  echo $JAVA_HOME% #(e.g., C:\Program Files\Java\jdk-18).
 ```
-	3.	Restart R or RStudio.
+3.	Restart R or RStudio.
 	
  •	On macOS/Linux:
 

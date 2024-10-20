@@ -119,6 +119,19 @@ You need to set the environment variable JAVA_HOME to point to the location of y
 -If Xcode is not installed, you may encounter compiler issues during package installation. To resolve this, install Xcode from the App Store.
 Add this line to your .bash_profile or .bashrc (depending on the shell):
 ```bash
+/usr/libexec/java_home # check my java
+/Library/Java/JavaVirtualMachines/[my_java_folder]/Contents/Home # check my java list
+vi ~/.bash_profile
+i
+`
+export JAVA=HOME=/Library/Java/JavaVirtualMachines/[my_java_folder]/Contents/Home
+`
+`
+export PATH=${PATH}:$JAVA_HOME/bin
+`
+:wq!
+
+echo $path
 export JAVA_HOME=$(/usr/libexec/java_home)
 source ~/.bash_profile  # or ~/.bashrc
 echo $JAVA_HOME # validation

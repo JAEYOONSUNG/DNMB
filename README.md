@@ -156,7 +156,7 @@ devtools::install_github("JAEYOONSUNG/DNMB")
 
 ## Run DNMB analysis
 ```r
-setwd([GenBank directory])
+setwd([GenBank directory]) # Set the working directory to the location where your GenBank files are stored.
 run_DNMB()
 ```
 

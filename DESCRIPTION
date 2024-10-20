@@ -26,6 +26,26 @@ Imports:
     tibble,
     qdap,
     openxlsx
+Depends:
+    R (>= 3.5.0),
+    circlize,
+    gtools,
+    ggplot2,
+    ggseqlogo,
+    grid,
+    gridExtra,
+    openxlsx,
+    plyr,
+    dplyr,
+    tidyr,
+    readr,
+    reshape2,
+    seqinr,
+    stringr,
+    data.table,
+    tibble,
+    qdap,
+    openxlsx
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.1
 Suggests: 

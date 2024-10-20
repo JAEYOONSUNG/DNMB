@@ -46,7 +46,7 @@ for (genbank_file in gb_files) {
       {
         contig_length<-as.data.frame(grep("source + 1..",origin$V1, ignore.case = TRUE, value=TRUE))
         colnames(contig_length)<-"contig_length"
-        contig_length<-separate(contig_length, col = `contig_length`, into=c("start","end"),sep="\\.\\.")
+        contig_length<-tidyr::separate(contig_length, col = `contig_length`, into=c("start","end"),sep="\\.\\.")
         contig_length<-as.data.frame(contig_length$end)
         contig_length<-cbind(contig_length, as.data.frame(order(as.character(1:1))))
         colnames(contig_length)<-c("length","order")

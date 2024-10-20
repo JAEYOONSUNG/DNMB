@@ -43,11 +43,11 @@ EggNOG_annotations <- function(EggNOG_dir = NULL, save_output = FALSE) {
     # Clean up the 'query' column
     eggNOG <- eggNOG %>%
       mutate(
-        query = gsub("gnl\\|", "", query),
-        query = gsub("\\|", ":", query),
-        query = gsub("lcl:(AC|NC|BG|NT|NW|NZ)_([a-zA-Z]+)?[0-9]+\\.[0-9]+_prot_", "", query),
-        query = gsub("_[0-9]+$", "", query),
-        query = gsub("^extdb:", "", query)
+        query = if_else(str_detect(query, "gnl\\|"), gsub("gnl\\|", "", query), query),
+        query = if_else(str_detect(query, "\\|"), gsub("\\|", ":", query), query),
+        query = if_else(str_detect(query, "lcl:(AC|NC|BG|NT|NW|NZ)_([a-zA-Z]+)?[0-9]+\\.[0-9]+_prot_"), gsub("lcl:(AC|NC|BG|NT|NW|NZ)_([a-zA-Z]+)?[0-9]+\\.[0-9]+_prot_", "", query), query),
+        query = if_else(str_detect(query, "_[0-9]{1,4}$"), gsub("_[0-9]{1,4}$", "", query), query),
+        query = if_else(str_detect(query, "^extdb:"), gsub("^extdb:", "", query), query)
       ) %>%
       filter(!str_detect(query, "^[0-9]+$"))
   } else {

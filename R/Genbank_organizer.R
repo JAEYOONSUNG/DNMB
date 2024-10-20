@@ -193,7 +193,7 @@ for (genbank_file in gb_files) {
     }
     for(i in (1:nrow(contig_length))){
       if(!is.na(get(paste0("contig_start_",i)))){
-        assign(paste("location",i,sep="_"),as.data.frame(str_extract((get(paste("gene",i,sep = "_")))[,1], "[0-9]{1,}[\\.]{2}>?[0-9]{1,}")))}
+        assign(paste("location",i,sep="_"),as.data.frame(stringr::str_extract((get(paste("gene",i,sep = "_")))[,1], "[0-9]{1,}[\\.]{2}>?[0-9]{1,}")))}
       else{
       }
     }

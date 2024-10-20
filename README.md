@@ -9,7 +9,7 @@ Herein, we provide a detailed overview of the DNMB pipeline, highlighting its ke
 Welcome to our GitHub repository, where we're excited to share a series of workflows designed to streamline processes in systems biology. This repository is composed of various scripts, each tailored to specific tasks within our broader research framework. Additionally, we're providing access to a curated database to enhance your research capabilities.
 - Principal investigator: Dong-Woo Lee
 - Project lead: Jae-Yoon Sung
-- Maintainers: Jae-Yoon Sung, Jungsoo Park
+- Maintainers: Jae-Yoon Sung
 - Contributors: Jae-Yoon Sung, Seong Do Kim
 
 ## Key Features

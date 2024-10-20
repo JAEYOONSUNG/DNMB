@@ -63,13 +63,7 @@ The basic file for genomic analysis, known as a GenBank file, requires both sequ
 
 ![Fig S1  DNMB pipeline](https://github.com/JAEYOONSUNG/DNMB/assets/42233037/33e7f91f-9d6c-4e26-9982-6da79ee35999)
 
-```r
-if (!requireNamespace("devtools", quietly = TRUE))
-    install.packages("devtools")
-    
-devtools::install_github("JAEYOONSUNG/DNMB")
-```
-
+## Prerequisites
 ```r
 if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
@@ -150,6 +144,15 @@ echo $JAVA_HOME # validation
 # Optionally, in R, check if JAVA_HOME is recognized correctly in the current R session
 Sys.getenv("JAVA_HOME") # validation within R
 ```
+
+## Install DNMB R package
+```r
+if (!requireNamespace("devtools", quietly = TRUE))
+    install.packages("devtools")
+    
+devtools::install_github("JAEYOONSUNG/DNMB")
+```
+
 
 ## Run DNMB analysis
 ```r

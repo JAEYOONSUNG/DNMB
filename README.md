@@ -179,7 +179,7 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directo
 
 
 **Promotech**
-
+https://github.com/BioinformaticsLabAtMUN/PromoTech
 ```python
 python promotech.py -pg -m RF-HOT -f examples/genome/[my_fasta].fna -g -o results 
 ```

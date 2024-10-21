@@ -508,7 +508,7 @@ for (genbank_file in gb_files) {
 
   contig_final <- contig_final %>%
     dplyr::mutate(
-      "product" = gsub("\n", " ", product), # Replace \n with a space
+      "product" = gsub("\n|\r", " ", product), # Replace \n with a space
       "product" = stringr::str_squish(product)  # Apply str_squish to remove extra spaces
     )
   # export faa

@@ -133,7 +133,8 @@ export JAVA_HOME=/Library/Java/JavaVirtualMachines/[my_java_folder]/Contents/Hom
 export PATH=${PATH}:$JAVA_HOME/bin
 
 # Save the changes and exit the vi editor. ":wq!" means "write" (save) and "quit" (exit) forcefully
-:wq! # save
+: # activate command line
+wq! # save
 
 # Apply the changes made to the .bash_profile or .bashrc immediately (without needing to restart the terminal)
 source ~/.bash_profile  ## or ~/.bashrc #apply changes

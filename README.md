@@ -213,9 +213,14 @@ Please, cite also the underlying algorithm if it was used for the search step of
                    Ana Hernandez-Plaza, Ivica Letunic, Peer Bork, Jaime Huerta-Cepas. 2021.
                    Molecular Biology and Evolution, msab293, https://doi.org/10.1093/molbev/msab293
 
-[InterProScan] InterProScan 5: genome-scale protein function classification Philip Jones, David Binns, Hsin-Yu Chang, Matthew Fraser, Weizhong Li, Craig                         McAnulla, Hamish McWilliam, John Maslen, Alex Mitchell, Gift Nuka, Sebastien Pesseat, Antony F. Quinn, Amaia Sangrador-Vegas, Maxim Scheremetjew,                 Siew-Yit Yong, Rodrigo Lopez, Sarah Hunter Bioinformatics (2014), PMID: 24451626
+[InterProScan] InterProScan 5: genome-scale protein function classification Philip Jones, David Binns,
+			       Hsin-Yu Chang, Matthew Fraser, Weizhong Li, Craig McAnulla, Hamish McWilliam,
+			       John Maslen, Alex Mitchell, Gift Nuka, Sebastien Pesseat, Antony F. Quinn,
+			       Amaia Sangrador-Vegas, Maxim Scheremetjew, Siew-Yit Yong, Rodrigo Lopez,
+			       Sarah Hunter Bioinformatics (2014), PMID: 24451626
 
-[Promotech] Promotech: A general tool for bacterial promoter recognition. Ruben Chevez-Guardado and Lourdes Peña-Castillo. Genome Biol 22(1):318 (2021). PMID:                34789306. [DOI: 10.1186/s13059-021-02514-9 ] (https://doi.org/10.1186/s13059-021-02514-9)
+[Promotech] Promotech: A general tool for bacterial promoter recognition. Ruben Chevez-Guardado and Lourdes Peña-Castillo.
+		       Genome Biol 22(1):318 (2021). PMID: 34789306. (https://doi.org/10.1186/s13059-021-02514-9)
 
 ```
 Please, cite also the underlying Database if it was used for the search step of DNMB:

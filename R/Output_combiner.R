@@ -112,6 +112,8 @@ DNMB_table <- function(
   addWorksheet(wb, "5.RBS")
   addWorksheet(wb, "6.CRISPR_table")
 
+  no_wrap_style <- createStyle(wrapText = FALSE)
+
   # Write data to worksheets
   writeData(wb, "1.GenBank_table", genbank_table, startRow = 1, startCol = 1)
   writeData(wb, "2.Codon_usage", codon_usage, startRow = 1, startCol = 1)
@@ -119,6 +121,8 @@ DNMB_table <- function(
   writeData(wb, "4.tRNA_distribution", tRNA_distribution, startRow = 1, startCol = 1)
   writeData(wb, "5.RBS", RBS_table, startRow = 1, startCol = 1)
   writeData(wb, "6.CRISPR_table", CRISPR_by_spacer, startRow = 1, startCol = 1)
+
+  addStyle(wb, sheet = "1.GenBank_table", style = no_wrap_style, rows = 1:nrow(genbank_table) + 1, cols = 1:ncol(genbank_table), gridExpand = TRUE)
 
   # Adding the worksheet only if InterProScan_site exists
   if (!is.null(InterProScan_site)) {

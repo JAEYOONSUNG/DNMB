@@ -160,7 +160,7 @@ run_DNMB()
 ```
 
 
-**EggNOG-mapper**
+**EggNOG-mapper** (Optional)
 
 ```python
 emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directory] -o out --output_dir [eggnog_output] --temp_dir [eggnog_output] --override -m diamond --dmnd_ignore_warnings --dmnd_algo ctg -i [fasta] --evalue 0.001 --score 60 --pident 40 --query_cover 20 --subject_cover 20 --itype proteins --tax_scope auto --target_orthologs all --go_evidence non-electronic --pfam_realign none --report_orthologs --decorate_gff yes --excel
@@ -169,7 +169,7 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directo
 
 - **Note:** xlsx or csv output
 
-**InterProScan**
+**InterProScan** (Optional)
 
 ```python
 ./interproscan.sh -i [input_file] -f tsv -iprlookup -etra -goterms -pa -cpu 20
@@ -178,7 +178,7 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directo
 - **Note:** Files with .tsv and .tsv.sites extensions are used for merging data.
 
 
-**Promotech**
+**Promotech** (Optional)
 
 https://github.com/BioinformaticsLabAtMUN/PromoTech
 ```python

@@ -167,7 +167,7 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directo
 
 ```
 
-- **Note:** xlsx or csv output
+- **Note:** [Strain of interest].emapper.annotations.xlsx or [Strain of interest]emapper.annotations.csv output are used for merging data.
 
 **InterProScan** (Optional)
 
@@ -175,7 +175,7 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directo
 ./interproscan.sh -i [input_file] -f tsv -iprlookup -etra -goterms -pa -cpu 20
 ```
 
-- **Note:** Files with .tsv and .tsv.sites extensions are used for merging data.
+- **Note:** Files with [Strain of interest].tsv and [Strain of interest].tsv.sites extensions are used for merging data.
 
 
 **Promotech** (Optional)

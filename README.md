@@ -160,6 +160,7 @@ run_DNMB()
 ```
 
 **DefenseFinder** (Optional)
+
 ![DefenseFinder_Heatmap](https://github.com/user-attachments/assets/68e953c1-d568-4b56-89f2-1107a60a6f6c)
 ```r
 DefenseFinder_Heatmap()

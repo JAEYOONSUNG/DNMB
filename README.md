@@ -227,6 +227,9 @@ Please, cite also the underlying algorithm if it was used for the search step of
 			       Amaia Sangrador-Vegas, Maxim Scheremetjew, Siew-Yit Yong, Rodrigo Lopez,
 			       Sarah Hunter Bioinformatics (2014), PMID: 24451626
 
+[DefenseFinder] DefenseFinder: Systematic and quantitative view of the antiviral arsenal of prokaryotes. Tesson, F., Hervé, A., Mordret, E. et al. 
+				Nat Commun 13, 2561 (2022). https://doi.org/10.1038/s41467-022-30269-9 
+
 [Promotech] Promotech: A general tool for bacterial promoter recognition. Ruben Chevez-Guardado and Lourdes Peña-Castillo.
 		       Genome Biol 22(1):318 (2021). PMID: 34789306. (https://doi.org/10.1186/s13059-021-02514-9)
 

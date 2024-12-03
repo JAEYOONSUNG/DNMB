@@ -166,6 +166,7 @@ run_DNMB()
 DefenseFinder_Heatmap()
 ```
 - **Note:** [Strain of interest].defense_finder_systems.tsv output are used for merging data. GenBank’s SOURCE field is used for extracting names.
+- **Note:** protien coding sequence (.faa) output was used for defense-finder analysis (https://github.com/mdmparis/defense-finder)
 
 **EggNOG-mapper** (Optional)
 

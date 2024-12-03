@@ -159,6 +159,12 @@ library(DNMB)
 run_DNMB()
 ```
 
+**DefenseFinder** (Optional)
+![DefenseFinder_Heatmap](https://github.com/user-attachments/assets/68e953c1-d568-4b56-89f2-1107a60a6f6c)
+```r
+DefenseFinder_Heatmap()
+```
+- **Note:** [Strain of interest].defense_finder_systems.tsv output are used for merging data. GenBank’s SOURCE field is used for extracting names.
 
 **EggNOG-mapper** (Optional)
 

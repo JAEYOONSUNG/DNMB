@@ -20,8 +20,6 @@ DNMB_table <- function(
     CRISPR_by_spacer = TRUE,
     save_dir = NULL
 ) {
-  library(openxlsx)
-
   # Set the save directory to the current working directory if not provided
   if (is.null(save_dir)) {
     save_dir <- getwd()
@@ -36,7 +34,7 @@ DNMB_table <- function(
     }
   }
 
-  # Check for InterProScan_table
+  # Check for EggNOG_table
   if (EggNOG_table == TRUE) {
     if (exists("EggNOG_table", envir = .GlobalEnv)) {
       InterPro_table <- get("EggNOG_table", envir = .GlobalEnv)
@@ -45,7 +43,7 @@ DNMB_table <- function(
     }
   }
 
-  # Check for codon_usage_table
+  # Check for codon_usage
   if (codon_usage == TRUE) {
     if (exists("codon_usage", envir = .GlobalEnv)) {
       codon_usage <- get("codon_usage", envir = .GlobalEnv)
@@ -54,7 +52,7 @@ DNMB_table <- function(
     }
   }
 
-  # Check for tRNA_anticodon_table
+  # Check for tRNA_anticodon
   if (tRNA_anticodon == TRUE) {
     if (exists("tRNA_anticodon", envir = .GlobalEnv)) {
       tRNA_anticodon <- get("tRNA_anticodon", envir = .GlobalEnv)
@@ -63,7 +61,7 @@ DNMB_table <- function(
     }
   }
 
-  # Check for tRNA_distribution_table
+  # Check for tRNA_distribution
   if (tRNA_distribution == TRUE) {
     if (exists("tRNA_distribution", envir = .GlobalEnv)) {
       tRNA_distribution <- get("tRNA_distribution", envir = .GlobalEnv)
@@ -86,7 +84,8 @@ DNMB_table <- function(
     if (exists("CRISPR_by_spacer", envir = .GlobalEnv)) {
       CRISPR_by_spacer <- get("CRISPR_by_spacer", envir = .GlobalEnv)
     } else {
-      stop("CRISPR_by_spacer is set to TRUE but not found in the environment.")
+      warning("CRISPR_by_spacer is set to TRUE but not found in the environment. Creating an empty sheet.")
+      CRISPR_by_spacer <- NULL
     }
   }
 
@@ -102,48 +101,51 @@ DNMB_table <- function(
   }
 
   # Create a new workbook
-  wb <- createWorkbook()
+  wb <- openxlsx::createWorkbook()
 
   # Add worksheets
-  addWorksheet(wb, "1.GenBank_table")
-  addWorksheet(wb, "2.Codon_usage")
-  addWorksheet(wb, "3.tRNA_anticodon")
-  addWorksheet(wb, "4.tRNA_distribution")
-  addWorksheet(wb, "5.RBS")
-  addWorksheet(wb, "6.CRISPR_table")
+  openxlsx::addWorksheet(wb, "1.GenBank_table")
+  openxlsx::addWorksheet(wb, "2.Codon_usage")
+  openxlsx::addWorksheet(wb, "3.tRNA_anticodon")
+  openxlsx::addWorksheet(wb, "4.tRNA_distribution")
+  openxlsx::addWorksheet(wb, "5.RBS")
+  openxlsx::addWorksheet(wb, "6.CRISPR_table")
 
   no_wrap_style <- createStyle(wrapText = FALSE)
 
   # Write data to worksheets
-  writeData(wb, "1.GenBank_table", genbank_table, startRow = 1, startCol = 1)
-  writeData(wb, "2.Codon_usage", codon_usage, startRow = 1, startCol = 1)
-  writeData(wb, "3.tRNA_anticodon", tRNA_anticodon, startRow = 1, startCol = 1)
-  writeData(wb, "4.tRNA_distribution", tRNA_distribution, startRow = 1, startCol = 1)
-  writeData(wb, "5.RBS", RBS_table, startRow = 1, startCol = 1)
-  writeData(wb, "6.CRISPR_table", CRISPR_by_spacer, startRow = 1, startCol = 1)
+  openxlsx::writeData(wb, "1.GenBank_table", genbank_table, startRow = 1, startCol = 1)
+  openxlsx::writeData(wb, "2.Codon_usage", codon_usage, startRow = 1, startCol = 1)
+  openxlsx::writeData(wb, "3.tRNA_anticodon", tRNA_anticodon, startRow = 1, startCol = 1)
+  openxlsx::writeData(wb, "4.tRNA_distribution", tRNA_distribution, startRow = 1, startCol = 1)
+  openxlsx::writeData(wb, "5.RBS", RBS_table, startRow = 1, startCol = 1)
 
-  addStyle(wb, sheet = "1.GenBank_table", style = no_wrap_style, rows = 1:nrow(genbank_table) + 1, cols = 1:ncol(genbank_table), gridExpand = TRUE)
+  # Handle CRISPR table (empty or not)
+  if (is.null(CRISPR_by_spacer)) {
+    openxlsx::writeData(wb, "6.CRISPR_table", data.frame(), startRow = 1, startCol = 1)
+  } else {
+    openxlsx::writeData(wb, "6.CRISPR_table", CRISPR_by_spacer, startRow = 1, startCol = 1)
+  }
+
+  openxlsx::addStyle(wb, sheet = "1.GenBank_table", style = no_wrap_style, rows = 1:nrow(genbank_table) + 1, cols = 1:ncol(genbank_table), gridExpand = TRUE)
 
   # Adding the worksheet only if InterProScan_site exists
   if (!is.null(InterProScan_site)) {
-    addWorksheet(wb, "7.InterPro_site")
-    writeData(wb, "7.InterPro_site", InterProScan_site, startRow = 1, startCol = 1)
+    openxlsx::addWorksheet(wb, "7.InterPro_site")
+    openxlsx::writeData(wb, "7.InterPro_site", InterProScan_site, startRow = 1, startCol = 1)
     message("InterProScan_site sheet added.")
-  } else {
-    message("InterProScan_site sheet skipped.")
   }
 
   # Construct the file name
-    gb_dir <- getwd()
-    gb_files <- list.files(gb_dir,pattern = "\\.gbk$|\\.gb$|\\.gbff$",full.names = FALSE)
-  # Exclude temporary files starting with '~$'
-    gb_files <- gb_files[!grepl("^~\\$", gb_files)]
+  gb_dir <- getwd()
+  gb_files <- list.files(gb_dir, pattern = "\\.gbk$|\\.gb$|\\.gbff$", full.names = FALSE)
+  gb_files <- gb_files[!grepl("^~\\$", gb_files)]
 
   file_name <- paste0(qdap::beg2char(gb_files, "."), "_total.xlsx")
   save_path <- file.path(save_dir, file_name)
 
   # Save the workbook
-  saveWorkbook(wb, file = save_path, overwrite = TRUE)
+  openxlsx::saveWorkbook(wb, file = save_path, overwrite = TRUE)
 
   message(paste("Workbook saved as", save_path))
 }

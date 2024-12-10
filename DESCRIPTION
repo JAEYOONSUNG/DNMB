@@ -1,39 +1,18 @@
 Package: DNMB
 Title: Comprehensive genomics analysis for the Domestication of Non-Model Bacteria (DNMB)
-Version: 1.0.0
+Version: 1.0.1
 Authors@R: 
     person("Jae-Yoon", "Sung", , "o3wodbs@gmail.com", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-2475-8743"))
 Description: Our pipeline integrates multiple scripts and computational tools to streamline various stages of genomic analysis, from making comprehensive functional annotation in user-friendly table format to genomic features including codon usage and ribosomal binding site preference and distance. Herein.
 License: MIT
 Encoding: UTF-8
+Depends:
+    dplyr
 Imports:
     Biostrings,
     ComplexHeatmap,
-    Peptides,    
-    circlize,
-    gtools,
-    ggplot2,
-    ggseqlogo,
-    grid,
-    gridExtra,
-    openxlsx,
-    plyr,
-    dplyr,
-    tidyr,
-    readr,
-    reshape2,
-    seqinr,
-    stringr,
-    data.table,
-    tibble,
-    qdap,
-    openxlsx
-Depends:
-    R (>= 3.5.0),
-    Biostrings,
-    ComplexHeatmap,
-    Peptides,    
+    Peptides,
     circlize,
     gtools,
     ggplot2,

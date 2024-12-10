@@ -51,7 +51,7 @@ Codon_usage_calculator <- function(target = NULL, save_output = NULL) {
 
   # Merge RSCU back into codon table
   codon <- merge(x = codon, y = codon_rscu, by = "codon", all.x = TRUE, sort = FALSE) %>%
-    arrange(AA, codon) %>%
+    dplyr::arrange(AA, codon) %>%
     dplyr::mutate(codon = tolower(codon))  # Convert codons to uppercase
 
   # Sort codons by order of standard genetic code

@@ -111,7 +111,7 @@ DNMB_table <- function(
   openxlsx::addWorksheet(wb, "5.RBS")
   openxlsx::addWorksheet(wb, "6.CRISPR_table")
 
-  no_wrap_style <- createStyle(wrapText = FALSE)
+  no_wrap_style <- openxlsx::createStyle(wrapText = FALSE)
 
   # Write data to worksheets
   openxlsx::writeData(wb, "1.GenBank_table", genbank_table, startRow = 1, startCol = 1)

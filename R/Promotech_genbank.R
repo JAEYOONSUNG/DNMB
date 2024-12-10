@@ -1,4 +1,3 @@
-
 #' Promotech to sanpgene #
 #'
 #' @param df A data frame containing the data from eggNOG-mapper (http://eggnog-mapper.embl.de).
@@ -8,57 +7,98 @@
 #' @export
 #'
 
-# attach promotech promoter prediction result to genbank for the snapgene visualization
-# processing my promotech_output
-Promoter_prediction_to_genbank <- function(xlsx_dir = getwd(), output_file = "promoter_feature_for_gb") {
+Promoter_to_genbank <- function(promotech = NULL, genbank = NULL) {
+  # Load necessary packages
   library(dplyr)
   library(stringr)
+  library(tools)  # For file path operations
 
-  # Get the list of genome prediction files (csv format)
-  xlsx_file <- list.files(xlsx_dir, pattern = "genome_predictions\\.csv$", full.names = TRUE)
+  # Get the current working directory
+  current_dir <- getwd()
 
-  if (length(xlsx_file) == 0) {
-    stop("No genome_predictions.csv file found in the directory.")
+  # Check and search for files ending with promotech.csv
+  if (is.null(promotech)) {
+    promotech_files <- list.files(current_dir, pattern = "promotech\\.csv$", full.names = TRUE)
+    if (length(promotech_files) == 0) {
+      stop("No files ending with promotech.csv found in the current directory.")
+    } else if (length(promotech_files) > 1) {
+      stop("Multiple files ending with promotech.csv found. Please specify the file using the promotech parameter.")
+    } else {
+      promotech <- promotech_files[1]
+    }
+  } else {
+    if (!file.exists(promotech)) {
+      stop(paste("The specified promotech file does not exist:", promotech))
+    }
   }
 
-  # Read the genome predictions CSV file
-  genome_predictions <- read.csv(xlsx_file, sep = "\t")
+  # Check and search for GenBank files
+  if (is.null(genbank)) {
+    gb_files <- list.files(current_dir, pattern = "\\.(gb|gbk|gbff)$", full.names = TRUE)
+    if (length(gb_files) == 0) {
+      stop("No GenBank files ending with .gb, .gbk, or .gbff found in the current directory.")
+    } else if (length(gb_files) > 1) {
+      stop("Multiple GenBank files found. Please specify the file using the genbank parameter.")
+    } else {
+      genbank <- gb_files[1]
+    }
+  } else {
+    if (!file.exists(genbank)) {
+      stop(paste("The specified GenBank file does not exist:", genbank))
+    }
+  }
 
-  # Add promoter position format for SnapGene (depending on strand direction)
-  genome_predictions <- genome_predictions %>%
+  # Read the promotech.csv file
+  promotech_data <- read.csv(promotech, sep = "\t")
+
+  # Read the GenBank file
+  gb_content <- readLines(genbank)
+
+  # Find the FEATURES section
+  features_start <- which(grepl("^FEATURES", gb_content))
+  if (length(features_start) == 0) {
+    stop("Cannot find the FEATURES section in the GenBank file.")
+  }
+
+  # Find the start position of the ORIGIN section
+  origin_start <- which(grepl("^(ORIGIN|BASE COUNT|CONTIG)", gb_content))
+  if (length(origin_start) == 0) {
+    origin_start <- length(gb_content) + 1
+  }
+
+  # Extract existing FEATURES
+  existing_features <- gb_content[(features_start + 1):(origin_start - 1)]
+
+  # Prepare promoter features with score in the /label qualifier
+  promotech_data <- promotech_data %>%
     mutate(position = case_when(
       strand == "-" ~ paste0("complement(", start, "..", end, ")"),
       strand == "+" ~ paste0(start, "..", end)
+    )) %>%
+    mutate(feature = paste0(
+      "     promoter        ", position, "\n",
+      "                     /label=\"Promoter (score: ", score, ")\""
     ))
 
-  # Generate the SnapGene feature format for promoters
-  Feature <- paste0(
-    str_pad("Promoter", 21, side = "right"), genome_predictions$position, "\n",
-    str_pad("", 21, side = "right"), paste0("/gene=", genome_predictions$score)
+  promoter_features <- promotech_data$feature
+
+  # Combine existing FEATURES with new promoter FEATURES
+  new_features <- c(existing_features, promoter_features)
+
+  # Reconstruct the modified GenBank file content
+  new_gb_content <- c(
+    gb_content[1:features_start],
+    new_features,
+    gb_content[origin_start:length(gb_content)]
   )
 
-  # Write the feature to a file
-  write.table(Feature, file = output_file, col.names = FALSE, row.names = FALSE, quote = FALSE)
+  # Create output file name by adding '_promotech' before the extension
+  base_name <- tools::file_path_sans_ext(genbank)
+  extension <- tools::file_ext(genbank)
+  output_file <- paste0(base_name, "_promotech.", extension)
 
-  message(paste("Promoter features written to", output_file))
+  # Save the modified GenBank content to the output file
+  writeLines(new_gb_content, output_file)
+
+  message(paste("Modified GenBank file has been saved as", output_file))
 }
-# for snapgene format
-#primer_bind     complement(3617..3634)
-#/note="M13 rev"
-#/note="common sequencing primer, one of multiple similar variants"
-#/note="color: #a020f0; direction: LEFT"
-#misc_feature    2591..2806
-#/note="pRplsWT"
-#/note="color: #ffcc99; direction: RIGHT"
-
-# for primers
-#primer_bind     2611..2627
-#/label=James
-#/note="'hello'"
-#/note="color: black; sequence: gtttttgcgccgcccgg"
-
-#primer_bind     complement(2611..2627)
-#/label=James
-#/note="'hello'"
-#/note="color: black; sequence: gtttttgcgccgcccgg"
-

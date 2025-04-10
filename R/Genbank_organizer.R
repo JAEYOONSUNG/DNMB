@@ -513,7 +513,7 @@ for (genbank_file in gb_files) {
     )
 
   # export faa
-  contig_final %>% dplyr::select(locus_tag, translation) %>% dplyr::mutate(translation = str_replace_all(translation, "[[:space:]\n\t\r]", "")) %>% dplyr::filter(!is.na(translation) & stringr::str_trim(translation) != "") %>% dplyr::mutate("locus_tag"=paste0(">",.$locus_tag)) %>% utils::write.table(.,paste0(qdap::beg2char(genbank_file, "."),".faa"), row.names = FALSE, col.names = FALSE, sep = "\n", quote = FALSE)
+  contig_final %>% dplyr::select(locus_tag, translation) %>% dplyr::mutate(translation = stringr::str_replace_all(translation, "[[:space:]\n\t\r]", "")) %>% dplyr::filter(!is.na(translation) & stringr::str_trim(translation) != "") %>% dplyr::mutate("locus_tag"=paste0(">",.$locus_tag)) %>% utils::write.table(.,paste0(qdap::beg2char(genbank_file, "."),".faa"), row.names = FALSE, col.names = FALSE, sep = "\n", quote = FALSE)
 
   delfiles <- dir(path=getwd(), pattern="genenumber_[0-9]{1,}|gene_nt_[0-9]{1,}")
   file.remove(file.path(getwd(), delfiles))

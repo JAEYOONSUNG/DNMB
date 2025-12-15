@@ -159,7 +159,7 @@ library(DNMB)
 run_DNMB()
 ```
 ---
-**DefenseFinder** (Optional)
+**DefenseFinderViz** (Optional)
 
 ![DefenseFinder_Heatmap](https://github.com/user-attachments/assets/68e953c1-d568-4b56-89f2-1107a60a6f6c)
 ```r
@@ -210,8 +210,8 @@ We hope our resources will prove invaluable to your research in systems biology.
 ## Citation
 If you use this piepline, please cite:
 ```
-[DNMB] DNMB: A Strategic Blueprint for the Domestication of Geobacillus stearothermophilus as a Thermophilic Platform using the DNMB Suite.
-             Jae-Yoon Sung, Mun Hoe Lee, Hyungbin Kim, Dariimaa Ganbat, Hyun-Woo Cho, Sang Jae Lee, Seong Bo Kim, and Dong-Woo Lee. 2024.
+[DNMB] DNMB: Deletion of non-canonical defense systems enable domestication of non-model Geobacillus for thermophilic platform engineering.
+             Jae-Yoon Sung, Mun Hoe Lee, Jungsoo Park, Hyungbin Kim, Dariimaa Ganbat, Donggyu Kim, Hyun-Woo Cho, Sang Jae Lee, Seong Bo Kim, and Dong-Woo Lee. 2024.
              XXX, XXX, https://doi.org/XXX
 ```
 Please, cite also the underlying algorithm if it was used for the search step of DNMB:

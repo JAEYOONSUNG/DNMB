@@ -210,11 +210,11 @@ We hope our resources will prove invaluable to your research in systems biology.
 ## Citation
 If you use this piepline, please cite:
 ```
-[DNMB] DNMB: Deletion of non-canonical defense systems enable domestication of non-model Geobacillus for thermophilic platform engineering.
-             Jae-Yoon Sung, Mun Hoe Lee, Jungsoo Park, Hyungbin Kim, Dariimaa Ganbat, Donggyu Kim, Hyun-Woo Cho, Sang Jae Lee, Seong Bo Kim, and Dong-Woo Lee. 2024.
-             XXX, XXX, https://doi.org/XXX
+[DNMB] DNMB: Programmable domestication of thermophilic bacteria through removal of non-canonical defense systems.
+			 Sung, J.Y., Lee, M.H., Park, J.S., Kim, H.B., Ganbat, D., Kim, D.G., Cho, H.W., Suh, M.K., Lee, J.S., Lee, S.J., Kim, S.B.*, and Lee, D.W.*.
+			 *bioRxiv* 2026.03.21.173436. (2026)  
 ```
-Please, cite also the underlying algorithm if it was used for the search step of DNMB:
+Please, cite also the underlying algorithm/database if it was used for the search step of DNMB:
 ```
 [eggNOG-mapper v2] eggNOG-mapper v2: functional annotation, orthology assignments, and domain 
                    prediction at the metagenomic scale. Carlos P. Cantalapiedra, 
@@ -234,11 +234,3 @@ Please, cite also the underlying algorithm if it was used for the search step of
 		       Genome Biol 22(1):318 (2021). PMID: 34789306. (https://doi.org/10.1186/s13059-021-02514-9)
 
 ```
-Please, cite also the underlying Database if it was used for the search step of DNMB:
-```
-[REBASE]
-[MEROPS]
-[CAZy]
-[LED]
-```
-

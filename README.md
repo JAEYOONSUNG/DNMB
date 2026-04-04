@@ -207,122 +207,61 @@ If you use this piepline, please cite:
 ```
 Please, cite also the underlying algorithm/database if it was used for the search step of DNMB:
 ```
-[eggNOG-mapper v2] eggNOG-mapper v2: functional annotation, orthology assignments, and domain 
-                   prediction at the metagenomic scale. Carlos P. Cantalapiedra, 
-                   Ana Hernandez-Plaza, Ivica Letunic, Peer Bork, Jaime Huerta-Cepas. 2021.
-                   Molecular Biology and Evolution, msab293, https://doi.org/10.1093/molbev/msab293
+  [EggNOG-mapper v2]    eggNOG-mapper v2: Functional annotation, orthology assignments, and domain prediction at
+                        the metagenomic scale. Carlos P. Cantalapiedra, Ana Hernandez-Plaza,
+                        Ivica Letunic, Peer Bork, Jaime Huerta-Cepas. 2021. Molecular Biology and Evolution
+                        38(12):5825-5829. https://doi.org/10.1093/molbev/msab293
 
-[InterProScan] InterProScan 5: genome-scale protein function classification Philip Jones, David Binns,
-			       Hsin-Yu Chang, Matthew Fraser, Weizhong Li, Craig McAnulla, Hamish McWilliam,
-			       John Maslen, Alex Mitchell, Gift Nuka, Sebastien Pesseat, Antony F. Quinn,
-			       Amaia Sangrador-Vegas, Maxim Scheremetjew, Siew-Yit Yong, Rodrigo Lopez,
-			       Sarah Hunter Bioinformatics (2014), PMID: 24451626
-
-[DefenseFinder] DefenseFinder: Systematic and quantitative view of the antiviral arsenal of prokaryotes. Tesson, F., Hervé, A., Mordret, E. et al. 
-				Nat Commun 13, 2561 (2022). https://doi.org/10.1038/s41467-022-30269-9 
-
-[Promotech] Promotech: A general tool for bacterial promoter recognition. Ruben Chevez-Guardado and Lourdes Peña-Castillo.
-		       Genome Biol 22(1):318 (2021). PMID: 34789306. (https://doi.org/10.1186/s13059-021-02514-9)
-  [EggNOG-mapper v2]    eggNOG-mapper v2: Functional annotation,
-                        orthology assignments, and domain prediction at
-                        the metagenomic scale.
-                        Carlos P. Cantalapiedra, Ana Hernandez-Plaza,
-                        Ivica Letunic, Peer Bork, Jaime Huerta-Cepas.
-                        2021. Molecular Biology and Evolution
-                        38(12):5825-5829.
-                        https://doi.org/10.1093/molbev/msab293
-
-  [CLEAN]               Enzyme function prediction using contrastive
-                        learning.
-                        Tianhao Yu, Haiyang Cui, Jianan Canal Li,
-                        Yunan Luo, Guangde Jiang, Huimin Zhao. 2023.
-                        Science 379(6639):1358-1363.
+  [CLEAN]               Enzyme function prediction using contrastive learning. Tianhao Yu, Haiyang Cui, Jianan Canal Li,
+                        Yunan Luo, Guangde Jiang, Huimin Zhao. 2023. Science 379(6639):1358-1363. 
                         https://doi.org/10.1126/science.adf2465
 
-  [InterProScan]        InterProScan 5: genome-scale protein function
-                        classification.
-                        Philip Jones, David Binns, Hsin-Yu Chang,
-                        Matthew Fraser, Weizhong Li, Craig McAnulla,
-                        Hamish McWilliam, John Maslen, Alex Mitchell,
-                        Gift Nuka, Sebastien Pesseat, Antony F. Quinn,
-                        Amaia Sangrador-Vegas, Maxim Scheremetjew,
-                        Siew-Yit Yong, Rodrigo Lopez, Sarah Hunter.
-                        2014. Bioinformatics 30(9):1236-1240.
-                        https://doi.org/10.1093/bioinformatics/btu031
+  [InterProScan]        InterProScan 5: genome-scale protein function classification.
+                        Philip Jones, David Binns, Hsin-Yu Chang, Matthew Fraser, Weizhong Li, Craig McAnulla,
+                        Hamish McWilliam, John Maslen, Alex Mitchell, Gift Nuka, Sebastien Pesseat, Antony F. Quinn,
+                        Amaia Sangrador-Vegas, Maxim Scheremetjew, Siew-Yit Yong, Rodrigo Lopez, Sarah Hunter.
+                        2014. Bioinformatics 30(9):1236-1240. https://doi.org/10.1093/bioinformatics/btu031
 
-  [DefenseFinder]       DefenseFinder: Systematic and quantitative view
-                        of the antiviral arsenal of prokaryotes.
-                        Florian Tesson, Alexandre Herve, Ernest Mordret,
-                        Marie Touchon, Camille d'Humieres, Jean Cury,
-                        Aude Bernheim. 2022. Nature Communications
-                        13:2561.
-                        https://doi.org/10.1038/s41467-022-30269-9
+  [DefenseFinder]       DefenseFinder: Systematic and quantitative view of the antiviral arsenal of prokaryotes.
+                        Florian Tesson, Alexandre Herve, Ernest Mordret, Marie Touchon, Camille d'Humieres, Jean Cury,
+                        Aude Bernheim. 2022. Nature Communications 13:2561. https://doi.org/10.1038/s41467-022-30269-9
 
-  [REBASEfinder]        REBASE-a database for DNA restriction and
-                        modification: enzymes, genes and genomes.
-                        Richard J. Roberts, Tamas Vincze, Janos Posfai,
-                        Dana Macelis. 2010. Nucleic Acids Research
-                        38(Database issue):D234-D236.
-                        https://doi.org/10.1093/nar/gkp874
+  [REBASE]              REBASE-a database for DNA restriction and modification: enzymes, genes and genomes.
+                        Richard J. Roberts, Tamas Vincze, Janos Posfai, Dana Macelis. 2010. Nucleic Acids Research
+                        38(Database issue):D234-D236. https://doi.org/10.1093/nar/gkp874
 
-  [GapMindAA]           GapMind: Automated annotation of amino acid
-                        biosynthesis.
-                        Morgan N. Price, Adam M. Deutschbauer,
-                        Adam P. Arkin. 2020. mSystems 5(3):e00291-20.
+  [GapMindAA]           GapMind: Automated annotation of amino acid biosynthesis.
+                        Morgan N. Price, Adam M. Deutschbauer, Adam P. Arkin. 2020. mSystems 5(3):e00291-20.
                         https://doi.org/10.1128/mSystems.00291-20
 
-  [GapMindCarbon]       Filling gaps in bacterial catabolic pathways
-                        with computation and high-throughput genetics.
-                        Morgan N. Price, Adam M. Deutschbauer,
-                        Adam P. Arkin. 2022. PLoS Genetics
-                        18(4):e1010156.
+  [GapMindCarbon]       Filling gaps in bacterial catabolic pathways with computation and high-throughput genetics.
+                        Morgan N. Price, Adam M. Deutschbauer, Adam P. Arkin. 2022. PLoS Genetics 18(4):e1010156.
                         https://doi.org/10.1371/journal.pgen.1010156
 
-  [MEROPS]              The MEROPS database of proteolytic enzymes,
-                        their substrates and inhibitors in 2017 and a
-                        comparison with peptidases in the PANTHER
-                        database.
-                        Neil D. Rawlings, Alan J. Barrett,
-                        Paul D. Thomas, Xiaosong Huang, Alex Bateman,
-                        Robert D. Finn. 2018. Nucleic Acids Research
-                        46(D1):D624-D632.
-                        https://doi.org/10.1093/nar/gkx1134
+  [MEROPS]              The MEROPS database of proteolytic enzymes, their substrates and inhibitors in 2017 and a
+                        comparison with peptidases in the PANTHER database. Neil D. Rawlings, Alan J. Barrett,
+                        Paul D. Thomas, Xiaosong Huang, Alex Bateman, Robert D. Finn. 2018. Nucleic Acids Research
+                        46(D1):D624-D632. https://doi.org/10.1093/nar/gkx1134
 
-  [dbCAN]               dbCAN3: automated carbohydrate-active enzyme
-                        and substrate annotation.
-                        Jinfang Zheng, Qiwei Ge, Yuchen Yan,
-                        Xinpeng Zhang, Le Huang, Yanbin Yin. 2023.
-                        Nucleic Acids Research 51(W1):W115-W121.
-                        https://doi.org/10.1093/nar/gkad328
+  [dbCAN]               dbCAN3: automated carbohydrate-active enzyme and substrate annotation.
+                        Jinfang Zheng, Qiwei Ge, Yuchen Yan, Xinpeng Zhang, Le Huang, Yanbin Yin. 2023.
+                        Nucleic Acids Research 51(W1):W115-W121. https://doi.org/10.1093/nar/gkad328
 
-  [PAZy]                Plastics degradation by hydrolytic enzymes:
-                        The plastics-active enzymes database-PAZy.
-                        Patrick C. F. Buchholz, Golo Feuerriegel,
-                        Hongli Zhang, Pablo Perez-Garcia,
-                        Lena-Luisa Nover, Jennifer Chow,
-                        Wolfgang R. Streit, Jurgen Pleiss. 2022.
-                        Proteins 90(7):1443-1456.
-                        https://doi.org/10.1002/prot.26325
+  [PAZy]                Plastics degradation by hydrolytic enzymes: The plastics-active enzymes database-PAZy.
+                        Patrick C. F. Buchholz, Golo Feuerriegel, Hongli Zhang, Pablo Perez-Garcia,
+                        Lena-Luisa Nover, Jennifer Chow, Wolfgang R. Streit, Jurgen Pleiss. 2022.
+                        Proteins 90(7):1443-1456. https://doi.org/10.1002/prot.26325
 
-  [ISelement]           ISEScan: automated identification of insertion
-                        sequence elements in prokaryotic genomes.
-                        Zhiqun Xie, Haixu Tang. 2017. Bioinformatics
-                        33(21):3340-3347.
+  [ISelement]           ISEScan: automated identification of insertion sequence elements in prokaryotic genomes.
+                        Zhiqun Xie, Haixu Tang. 2017. Bioinformatics 33(21):3340-3347.
                         https://doi.org/10.1093/bioinformatics/btx433
 
-  [ISelement/ISfinder]  ISfinder: the reference centre for bacterial
-                        insertion sequences. 
-                        Philippe Siguier, Jerome Perochon,
-                        Lucie Lestrade, Jacques Mahillon,
-                        Michael Chandler. 2006. Nucleic Acids Research
-                        34(Database issue):D32-D36.
+  [ISelement/ISfinder]  ISfinder: the reference centre for bacterial insertion sequences. 
+                        Philippe Siguier, Jerome Perochon, Lucie Lestrade, Jacques Mahillon,
+                        Michael Chandler. 2006. Nucleic Acids Research 34(Database issue):D32-D36.
                         https://doi.org/10.1093/nar/gkj014
 
-  [Prophage]            PhiSpy: a novel algorithm for finding prophages
-                        in bacterial genomes that combines similarity-
-                        and composition-based strategies.
-                        Sajia Akhter, Rashedul Aziz,
-                        Robert A. Edwards. 2012. Nucleic Acids Research
-                        40(16):e126.
-                        https://doi.org/10.1093/nar/gks406
+  [Prophage]            PhiSpy: a novel algorithm for finding prophages in bacterial genomes that combines similarity-
+                        and composition-based strategies. Sajia Akhter, Rashedul Aziz,
+                        Robert A. Edwards. 2012. Nucleic Acids Research 40(16):e126. https://doi.org/10.1093/nar/gks406
 ```

@@ -256,7 +256,7 @@ Please, cite also the underlying algorithm/database if it was used for the searc
                         Zhiqun Xie, Haixu Tang. 2017. Bioinformatics 33(21):3340-3347.
                         https://doi.org/10.1093/bioinformatics/btx433
 
-  [ISelement/ISfinder]  ISfinder: the reference centre for bacterial insertion sequences. 
+						ISfinder: the reference centre for bacterial insertion sequences. 
                         Philippe Siguier, Jerome Perochon, Lucie Lestrade, Jacques Mahillon,
                         Michael Chandler. 2006. Nucleic Acids Research 34(Database issue):D32-D36.
                         https://doi.org/10.1093/nar/gkj014

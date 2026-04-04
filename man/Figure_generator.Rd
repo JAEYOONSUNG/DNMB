@@ -4,7 +4,7 @@
 \alias{Figure_generator}
 \title{Generate a complex plot with heatmap, seqlogo, and histogram}
 \usage{
-Figure_generator(output_pdf = "plot.pdf", pdf_width = 12, pdf_height = 12)
+Figure_generator(output_pdf = NULL, pdf_width = 12, pdf_height = 12)
 }
 \arguments{
 \item{output_pdf}{The output path for the PDF file.}

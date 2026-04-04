@@ -4,7 +4,7 @@
 \alias{arrange.vars}
 \title{Rearrange Columns in a Data Frame}
 \usage{
-arrange.vars(data, vars)
+\method{arrange}{vars}(data, vars)
 }
 \arguments{
 \item{data}{A data frame in which columns need to be rearranged.}

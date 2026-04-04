@@ -13,20 +13,36 @@ Genbank_organizer <- function(gb_dir = NULL, save_output = FALSE) {
     gb_dir <- getwd()
   }
 
-  # Get the list of .tsv files in the directory
-  gb_files <- list.files(
-    gb_dir,
-    pattern = "\\.gbk$|\\.gb$|\\.gbff$",
-    full.names = FALSE
-  )
+  gb_dir <- path.expand(as.character(gb_dir)[1])
+
+  if (file.exists(gb_dir) && !dir.exists(gb_dir)) {
+    if (!grepl("\\.(gbk|gb|gbff)$", gb_dir, ignore.case = TRUE)) {
+      stop("`gb_dir` must be a directory or a GenBank file path.", call. = FALSE)
+    }
+    gb_files <- basename(gb_dir)
+    gb_dir <- dirname(gb_dir)
+  } else if (dir.exists(gb_dir)) {
+    # Get the list of GenBank files in the directory
+    gb_files <- list.files(
+      gb_dir,
+      pattern = "\\.gbk$|\\.gb$|\\.gbff$",
+      full.names = FALSE
+    )
+  } else {
+    stop("`gb_dir` must exist and be a directory or a GenBank file path.", call. = FALSE)
+  }
+
+  gb_dir <- normalizePath(gb_dir, winslash = "/", mustWork = TRUE)
+
   # Exclude temporary files starting with '~$'
   gb_files <- gb_files[!grepl("^~\\$", gb_files)]
 
 # Loop through each file in gb_files
 for (genbank_file in gb_files) {
+  genbank_path <- file.path(gb_dir, genbank_file)
 
   # Step 1: Read and prepare the data
-  origin <- read.csv(genbank_file, header = FALSE, sep = "\n")
+  origin <- read.csv(genbank_path, header = FALSE, sep = "\n")
   contig_row <- grep("^LOCUS", origin$V1)
   contig_length_row <- grep("source + 1..", origin$V1, ignore.case = TRUE)
   pre_contig_start <- grep("^LOCUS", origin$V1)
@@ -513,7 +529,11 @@ for (genbank_file in gb_files) {
     )
 
   # export faa
-  contig_final %>% dplyr::select(locus_tag, translation) %>% dplyr::mutate(translation = stringr::str_replace_all(translation, "[[:space:]\n\t\r]", "")) %>% dplyr::filter(!is.na(translation) & stringr::str_trim(translation) != "") %>% dplyr::mutate("locus_tag"=paste0(">",.$locus_tag)) %>% utils::write.table(.,paste0(qdap::beg2char(genbank_file, "."),".faa"), row.names = FALSE, col.names = FALSE, sep = "\n", quote = FALSE)
+  faa_output_file <- file.path(
+    gb_dir,
+    paste0(tools::file_path_sans_ext(basename(genbank_file)), ".faa")
+  )
+  contig_final %>% dplyr::select(locus_tag, translation) %>% dplyr::mutate(translation = stringr::str_replace_all(translation, "[[:space:]\n\t\r]", "")) %>% dplyr::filter(!is.na(translation) & stringr::str_trim(translation) != "") %>% dplyr::mutate("locus_tag"=paste0(">",.$locus_tag)) %>% utils::write.table(., faa_output_file, row.names = FALSE, col.names = FALSE, sep = "\n", quote = FALSE)
 
   delfiles <- dir(path=getwd(), pattern="genenumber_[0-9]{1,}|gene_nt_[0-9]{1,}")
   file.remove(file.path(getwd(), delfiles))
@@ -522,7 +542,7 @@ for (genbank_file in gb_files) {
   # Save the output as 'genbank_table.xlsx' if save_output is TRUE
   if (save_output) {
     output_file <- file.path(gb_dir, paste0(gsub("\\:|\\/"," ", definition),".xlsx"))
-    openxlsx::write.xlsx(genbank_file, output_file, rowNames = FALSE)
+    openxlsx::write.xlsx(contig_final, output_file, rowNames = FALSE)
     message(paste("Results have been saved to:", output_file))
   }
 

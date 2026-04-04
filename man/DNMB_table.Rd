@@ -2,7 +2,7 @@
 % Please edit documentation in R/Output_combiner.R
 \name{DNMB_table}
 \alias{DNMB_table}
-\title{Result DNMB table}
+\title{Write the DNMB Excel workbook}
 \usage{
 DNMB_table(
   genbank_table = TRUE,
@@ -18,17 +18,45 @@ DNMB_table(
 )
 }
 \arguments{
-\item{gb_table}{A data frame containing the data.}
+\item{genbank_table}{Main DNMB locus-level table or \code{TRUE} to use the active
+\code{genbank_table} from the global environment.}
 
-\item{InterPro_search}{Logical, whether to include p-values for means.}
+\item{EggNOG_table}{Optional EggNOG annotation table or \code{TRUE} to load the
+active \code{EggNOG_table}.}
 
-\item{InterPro_site}{Logical, whether to include p-values for medians.}
+\item{InterProScan_table}{Reserved for backward compatibility. InterProScan
+results are expected to be merged into \code{genbank_table} before export.}
 
-\item{codon}{Logical, whether to use chi-square test for categorical variables.}
+\item{InterProScan_site}{Optional InterProScan site table or \code{TRUE} to load
+the active \code{InterProScan_site} object.}
+
+\item{codon_usage}{Codon-usage summary table or \code{TRUE} to load the active
+\code{codon_usage} object.}
+
+\item{tRNA_anticodon}{tRNA anticodon summary table or \code{TRUE} to load the
+active \code{tRNA_anticodon} object.}
+
+\item{tRNA_distribution}{tRNA distribution table or \code{TRUE} to load the
+active \code{tRNA_distribution} object.}
+
+\item{RBS_table}{Ribosome-binding-site table or \code{TRUE} to load the active
+\code{RBS_table} object.}
+
+\item{CRISPR_by_spacer}{CRISPR spacer table or \code{TRUE} to load the active
+\code{CRISPR_by_spacer} object.}
+
+\item{save_dir}{Directory where the workbook should be written. Defaults to
+the current working directory.}
 }
 \value{
-A data frame containing the baseline table.
+Invisibly returns \code{NULL}. The workbook is written to disk.
 }
 \description{
-Result DNMB table
+Builds the main DNMB workbook from the active analysis tables and saves it as
+\verb{*_total.xlsx} in \code{save_dir}.
+}
+\details{
+When an argument is set to \code{TRUE}, the function loads the corresponding
+object from the global environment. When a data frame is supplied directly,
+that object is written instead.
 }

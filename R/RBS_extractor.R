@@ -169,15 +169,13 @@ RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, pl
     message("The heatmap has been saved to the R environment variable 'spacer_histogram'.")
 
 
-    # Combine plots
-    grid.arrange(seqlogo_plot, spacer_histogram, nrow = 2)
-
     # Save plot if requested
     if (save_plot) {
       if (is.null(plot_path)) {
         plot_path <- file.path(getwd(), "RBS_plots.pdf")
       }
-      ggsave(plot_path, plot = grid.arrange(seqlogo_plot, spacer_histogram, nrow = 2))
+      combined_plot <- arrangeGrob(seqlogo_plot, spacer_histogram, nrow = 2)
+      ggsave(plot_path, plot = combined_plot)
       message(paste("Plot saved at:", plot_path))
     }
   }

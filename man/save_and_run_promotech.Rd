@@ -12,7 +12,7 @@ save_and_run_promotech(
 }
 \arguments{
 \item{conda_env_path}{A character string specifying the path to the conda environment
-(e.g., \verb{/Users/JaeYoon/miniforge3/envs/promotech_mac_env}).}
+(e.g., \verb{~/miniforge3/envs/promotech_env}).}
 
 \item{promotech_script_path}{A character string specifying the path to the \code{promotech.py} script.}
 
@@ -38,8 +38,8 @@ The function performs the following steps:
 \examples{
 # Example usage:
 save_and_run_promotech(
-  conda_env_path = "/Users/JaeYoon/miniforge3/envs/promotech_mac_env",
-  promotech_script_path = "~/Desktop/Bioinformatics/promotech-master/promotech.py"
+  conda_env_path = "~/miniforge3/envs/promotech_env",
+  promotech_script_path = "~/promotech-master/promotech.py"
 )
 
 }

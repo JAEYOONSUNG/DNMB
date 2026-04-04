@@ -1,0 +1,418 @@
+.dnmb_module_plot_dir <- function(output_dir = getwd()) {
+  dir <- file.path(output_dir, "visualizations")
+  dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  normalizePath(dir, winslash = "/", mustWork = FALSE)
+}
+
+.dnmb_module_plot_save <- function(plot, pdf_path, width = 12, height = 6,
+                                   min_dim = 4, max_dim = 45) {
+  ar <- width / height
+  width  <- max(min_dim, min(max_dim, width))
+  height <- max(min_dim, min(max_dim, height))
+  # Restore aspect ratio after clamping: shrink the larger side
+  if (width / height != ar) {
+    if (ar >= 1) {
+      height <- min(max_dim, max(min_dim, width / ar))
+    } else {
+      width <- min(max_dim, max(min_dim, height * ar))
+    }
+  }
+  ggplot2::ggsave(pdf_path, plot, width = width, height = height, bg = "white")
+}
+
+.dnmb_module_plot_save_multi <- function(plots, pdf_path, labels = "AUTO", ncol = 1, rel_heights = NULL, width = 12, height = 8) {
+  composite <- cowplot::plot_grid(plotlist = plots, labels = labels, ncol = ncol, rel_heights = rel_heights)
+  ggplot2::ggsave(pdf_path, composite, width = width, height = height, bg = "white")
+  invisible(composite)
+}
+
+.dnmb_inline_discrete_legend_plot <- function(title, colors, max_per_row = 5L) {
+  if (is.null(colors) || !length(colors)) {
+    return(NULL)
+  }
+  labels <- names(colors)
+  if (is.null(labels) || !length(labels)) {
+    labels <- as.character(seq_along(colors))
+  }
+  n <- length(labels)
+  n_rows <- ceiling(n / max_per_row)
+  items_per_row <- ceiling(n / n_rows)
+  title_width <- max(0.82, nchar(title) * 0.09)
+  key_width <- 0.18
+  key_gap <- 0.055
+  item_gap <- 0.14
+  label_widths <- pmax(0.56, nchar(labels) * 0.072)
+  item_widths <- key_width + key_gap + label_widths
+  outer_pad <- 0.55
+  row_height <- 0.32
+  row_gap <- 0.18
+  total_height <- n_rows * row_height + (n_rows - 1) * row_gap + 0.36
+  row_items <- split(seq_len(n), ceiling(seq_len(n) / items_per_row))
+  row_max_width <- max(vapply(row_items, function(idx) {
+    sum(item_widths[idx]) + item_gap * max(0, length(idx) - 1)
+  }, numeric(1)))
+  inner_width <- title_width + 0.24 + row_max_width
+  total_width <- inner_width + 2 * outer_pad
+  title_x <- outer_pad + title_width / 2
+  key_left <- outer_pad + title_width + 0.24
+  item_tbl_list <- list()
+  for (r in seq_along(row_items)) {
+    idx <- row_items[[r]]
+    row_y_center <- total_height - 0.18 - (r - 1) * (row_height + row_gap)
+    cum_w <- 0
+    for (j in seq_along(idx)) {
+      i <- idx[[j]]
+      left <- key_left + cum_w
+      item_tbl_list[[length(item_tbl_list) + 1L]] <- data.frame(
+        label = labels[[i]],
+        fill = unname(colors[[i]]),
+        key_xmin = left,
+        key_xmax = left + key_width,
+        key_ymin = row_y_center - 0.12,
+        key_ymax = row_y_center + 0.12,
+        label_x = left + key_width + key_gap,
+        label_y = row_y_center,
+        stringsAsFactors = FALSE
+      )
+      cum_w <- cum_w + item_widths[[i]] + item_gap
+    }
+  }
+  item_tbl <- dplyr::bind_rows(item_tbl_list)
+  title_y <- total_height - 0.18
+  ggplot2::ggplot() +
+    ggplot2::annotate("text", x = title_x, y = title_y, label = title, hjust = 0.5, vjust = 0.5, size = 4.1) +
+    ggplot2::geom_rect(
+      data = item_tbl,
+      ggplot2::aes(xmin = .data$key_xmin, xmax = .data$key_xmax, ymin = .data$key_ymin, ymax = .data$key_ymax, fill = .data$fill),
+      color = "grey35",
+      linewidth = 0.25,
+      inherit.aes = FALSE
+    ) +
+    ggplot2::geom_text(
+      data = item_tbl,
+      ggplot2::aes(x = .data$label_x, y = .data$label_y, label = .data$label),
+      hjust = 0,
+      vjust = 0.5,
+      size = 3.6,
+      inherit.aes = FALSE
+    ) +
+    ggplot2::scale_fill_identity() +
+    ggplot2::coord_cartesian(xlim = c(0, total_width), ylim = c(0, total_height), clip = "off") +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin = ggplot2::margin(0, 0, 0, 0))
+}
+
+.dnmb_fmt_bp_label <- function(bp) {
+  bp <- suppressWarnings(as.numeric(bp)[1])
+  if (is.na(bp) || bp <= 0) {
+    return(NA_character_)
+  }
+  if (bp >= 1e6) {
+    return(paste0(format(round(bp / 1e6, 2), trim = TRUE, nsmall = 2), " Mb"))
+  }
+  paste0(format(round(bp / 1e3, 1), trim = TRUE, nsmall = 1), " kb")
+}
+
+.dnmb_fmt_bp_exact <- function(bp) {
+  bp <- suppressWarnings(as.numeric(bp)[1])
+  if (is.na(bp)) {
+    return(NA_character_)
+  }
+  paste0(format(round(bp), big.mark = ",", scientific = FALSE, trim = TRUE), " bp")
+}
+
+.dnmb_pick_column <- function(tbl, candidates) {
+  found <- candidates[candidates %in% names(tbl)]
+  if (!length(found)) {
+    return(NULL)
+  }
+  found[[1]]
+}
+
+.dnmb_find_gbff_for_plot <- function(output_dir = getwd()) {
+  candidates <- c(
+    list.files(output_dir, pattern = "\\.(gbff|gbk|gb)$", full.names = TRUE, ignore.case = TRUE),
+    list.files(getwd(), pattern = "\\.(gbff|gbk|gb)$", full.names = TRUE, ignore.case = TRUE)
+  )
+  candidates <- unique(candidates[file.exists(candidates)])
+  if (!length(candidates)) {
+    return(NULL)
+  }
+  candidates[[1]]
+}
+
+.dnmb_parse_gbff_records <- function(gbff_path) {
+  if (is.null(gbff_path) || !file.exists(gbff_path)) {
+    return(data.frame())
+  }
+
+  lines <- readLines(gbff_path, warn = FALSE, encoding = "UTF-8")
+  if (!length(lines)) {
+    return(data.frame())
+  }
+
+  trim_field <- function(x) gsub("\\s+", " ", trimws(x))
+  records <- list()
+  current <- NULL
+  i <- 1L
+  while (i <= length(lines)) {
+    line <- lines[[i]]
+    if (startsWith(line, "LOCUS")) {
+      if (!is.null(current)) {
+        records[[length(records) + 1L]] <- current
+      }
+      parts <- strsplit(trimws(line), "\\s+")[[1]]
+      current <- list(
+        order = length(records) + 1L,
+        accession = if (length(parts) >= 2L) parts[[2]] else NA_character_,
+        definition = NA_character_,
+        length_bp = NA_real_
+      )
+      i <- i + 1L
+      next
+    }
+
+    if (is.null(current)) {
+      i <- i + 1L
+      next
+    }
+
+    if (startsWith(line, "DEFINITION")) {
+      definition <- sub("^DEFINITION\\s+", "", line)
+      j <- i + 1L
+      while (j <= length(lines) && grepl("^\\s{12}\\S", lines[[j]])) {
+        definition <- paste(definition, trim_field(lines[[j]]))
+        j <- j + 1L
+      }
+      current$definition <- trim_field(definition)
+      i <- j
+      next
+    }
+
+    if (grepl("^\\s+source\\s+\\d+\\.\\.\\d+", line)) {
+      bounds <- sub("^\\s+source\\s+(\\d+)\\.\\.(\\d+).*$", "\\1;\\2", line)
+      parts <- strsplit(bounds, ";", fixed = TRUE)[[1]]
+      current$length_bp <- suppressWarnings(as.numeric(parts[[2]]))
+      i <- i + 1L
+      next
+    }
+
+    i <- i + 1L
+  }
+
+  if (!is.null(current)) {
+    records[[length(records) + 1L]] <- current
+  }
+  if (!length(records)) {
+    return(data.frame())
+  }
+
+  out <- do.call(rbind, lapply(records, as.data.frame, stringsAsFactors = FALSE))
+  rownames(out) <- NULL
+  out
+}
+
+.dnmb_contig_lengths_for_plot <- function(genbank_table, output_dir = getwd()) {
+  tbl <- as.data.frame(genbank_table, stringsAsFactors = FALSE)
+  tbl$start <- suppressWarnings(as.numeric(tbl$start))
+  tbl$end <- suppressWarnings(as.numeric(tbl$end))
+
+  contigs <- unique(tbl[, intersect(c("contig_number", "contig"), names(tbl)), drop = FALSE])
+  if (!nrow(contigs) || !"contig" %in% names(contigs)) {
+    return(data.frame())
+  }
+  if ("contig_number" %in% names(contigs)) {
+    contigs$contig_number <- suppressWarnings(as.numeric(contigs$contig_number))
+    contigs <- contigs[order(contigs$contig_number, contigs$contig), , drop = FALSE]
+  } else {
+    contigs <- contigs[order(contigs$contig), , drop = FALSE]
+    contigs$contig_number <- seq_len(nrow(contigs))
+  }
+  # Deduplicate by contig name to avoid duplicate factor levels in circlize
+  contigs <- contigs[!duplicated(contigs$contig), , drop = FALSE]
+  rownames(contigs) <- NULL
+
+  max_end <- tbl |>
+    dplyr::group_by(.data$contig) |>
+    dplyr::summarise(max_end = max(.data$end, na.rm = TRUE), .groups = "drop")
+  contigs$max_end <- max_end$max_end[match(contigs$contig, max_end$contig)]
+
+  contig_length_obj <- get0("contig_length", envir = .GlobalEnv, inherits = FALSE)
+  if (is.data.frame(contig_length_obj) && nrow(contig_length_obj) >= nrow(contigs)) {
+    length_col <- contig_length_obj[[1]]
+    if (!is.null(length_col)) {
+      contigs$length_bp <- suppressWarnings(as.numeric(length_col[seq_len(nrow(contigs))]))
+      contigs$length_source <- "global_contig_length"
+    }
+  }
+
+  if (!"length_bp" %in% names(contigs) || all(is.na(contigs$length_bp))) {
+    gbff_records <- .dnmb_parse_gbff_records(.dnmb_find_gbff_for_plot(output_dir))
+    if (nrow(gbff_records) >= nrow(contigs)) {
+      contigs$length_bp <- gbff_records$length_bp[seq_len(nrow(contigs))]
+      contigs$accession <- gbff_records$accession[seq_len(nrow(contigs))]
+      contigs$gbff_definition <- gbff_records$definition[seq_len(nrow(contigs))]
+      contigs$length_source <- "gbff_source"
+    }
+  }
+
+  if (!"length_bp" %in% names(contigs)) {
+    contigs$length_bp <- NA_real_
+  }
+  missing_length <- is.na(contigs$length_bp) | contigs$length_bp <= 0
+  if (any(missing_length)) {
+    contigs$length_bp[missing_length] <- contigs$max_end[missing_length]
+    if (!"length_source" %in% names(contigs)) {
+      contigs$length_source <- NA_character_
+    }
+    contigs$length_source[missing_length] <- "max_gene_end"
+  }
+
+  if (!"accession" %in% names(contigs)) {
+    contigs$accession <- NA_character_
+  }
+  contigs$sector_label <- ifelse(
+    !is.na(contigs$accession) & nzchar(contigs$accession),
+    paste0(contigs$accession, " (", vapply(contigs$length_bp, .dnmb_fmt_bp_label, character(1)), ")"),
+    paste0(contigs$contig, " (", vapply(contigs$length_bp, .dnmb_fmt_bp_label, character(1)), ")")
+  )
+  contigs
+}
+
+.dnmb_contig_ordered_table <- function(genbank_table, required = c("contig", "start", "end")) {
+  tbl <- base::as.data.frame(genbank_table, stringsAsFactors = FALSE)
+  if (!base::all(required %in% base::names(tbl))) {
+    return(data.frame())
+  }
+  tbl$start <- suppressWarnings(base::as.numeric(tbl$start))
+  tbl$end <- suppressWarnings(base::as.numeric(tbl$end))
+  tbl$midpoint <- (tbl$start + tbl$end) / 2
+  contigs <- .dnmb_contig_lengths_for_plot(tbl)
+  if (base::nrow(contigs)) {
+    tbl$contig <- factor(tbl$contig, levels = contigs$contig)
+  }
+  tbl
+}
+
+# ---------- GapMind AA Pathway Map — iPath-style metabolic network ----------
+
+# Metabolite nodes — systematic textbook layout
+# Glycolysis backbone vertical at x=1.0, pathways branch rightward, step ~ 0.5 units
+#' Render DNMB module overview plots
+#'
+#' Attempts to generate the standard DNMB module overview PDFs inside the
+#' `visualizations/` directory for any module whose required inputs are present
+#' in the current output folder.
+#'
+#' The return value is a named list describing the plot files that were
+#' produced. Missing module outputs are skipped silently through `tryCatch()`,
+#' which keeps plot rendering tolerant of partial module runs.
+#'
+#' @param genbank_table Main DNMB locus-level table used by the plotting
+#'   helpers.
+#' @param output_dir DNMB output directory that contains `dnmb_module_*`
+#'   subdirectories and where `visualizations/` should be created.
+#' @param cache_root Optional shared cache root forwarded to plot helpers that
+#'   need cached module assets.
+#'
+#' @return Named list of plot metadata, typically including PDF paths for the
+#'   rendered module overviews.
+#' @export
+dnmb_render_module_plots <- function(genbank_table, output_dir = getwd(), cache_root = NULL) {
+  plots <- list()
+  gapmind_aa_plot <- tryCatch(
+    .dnmb_plot_gapmind_aa_pathway_map(genbank_table, output_dir = output_dir),
+    error = function(e) e
+  )
+  if (is.list(gapmind_aa_plot) && !inherits(gapmind_aa_plot, "error")) {
+    plots$GapMindAA <- gapmind_aa_plot
+  }
+
+  cazy_transport_plot <- tryCatch(
+    .dnmb_plot_cazy_carbon_transport_map(genbank_table, output_dir = output_dir),
+    error = function(e) e
+  )
+  if (is.list(cazy_transport_plot) && !inherits(cazy_transport_plot, "error")) {
+    plots$CAZyTransport <- cazy_transport_plot
+  }
+
+  defensefinder_plot <- tryCatch(
+    .dnmb_plot_defensefinder_module(genbank_table, output_dir = output_dir),
+    error = function(e) e
+  )
+  if (is.list(defensefinder_plot) && !inherits(defensefinder_plot, "error")) {
+    plots$DefenseFinder <- defensefinder_plot
+  }
+
+  iselement_plot <- tryCatch(
+    .dnmb_plot_iselement_module(genbank_table, output_dir = output_dir),
+    error = function(e) e
+  )
+  if (is.list(iselement_plot) && !inherits(iselement_plot, "error")) {
+    plots$ISelement <- iselement_plot
+  }
+
+  prophage_plot <- tryCatch(
+    .dnmb_plot_prophage_module(genbank_table, output_dir = output_dir, cache_root = cache_root),
+    error = function(e) e
+  )
+  if (is.list(prophage_plot) && !inherits(prophage_plot, "error")) {
+    plots$Prophage <- prophage_plot
+  }
+
+  dbcan_plot <- tryCatch(
+    .dnmb_plot_dbcan_module(genbank_table, output_dir = output_dir),
+    error = function(e) e
+  )
+  if (is.list(dbcan_plot) && !inherits(dbcan_plot, "error")) {
+    plots$dbCAN <- dbcan_plot
+  }
+
+  merops_plot <- tryCatch(
+    .dnmb_plot_merops_module(genbank_table, output_dir = output_dir),
+    error = function(e) e
+  )
+  if (is.list(merops_plot) && !inherits(merops_plot, "error")) {
+    plots$MEROPS <- merops_plot
+  }
+
+  pazy_plot <- tryCatch(
+    .dnmb_plot_pazy_module(genbank_table, output_dir = output_dir, cache_root = cache_root),
+    error = function(e) e
+  )
+  if (is.list(pazy_plot) && !inherits(pazy_plot, "error")) {
+    plots$PAZy <- pazy_plot
+  }
+
+  rebase_plot <- tryCatch(
+    .dnmb_plot_rebasefinder_module(genbank_table, output_dir = output_dir),
+    error = function(e) e
+  )
+  if (is.list(rebase_plot) && !inherits(rebase_plot, "error")) {
+    plots$REBASEfinder <- rebase_plot
+  }
+
+  plots
+}
+
+# REBASEfinder overview — delegates to R/plot_rebasefinder.R
+# Falls back to copying DefenseViz PDF if custom plot fails or no data
+.dnmb_plot_rebasefinder_module <- function(genbank_table, output_dir) {
+  result <- tryCatch(
+    .dnmb_plot_rebasefinder_overview(genbank_table, output_dir),
+    error = function(e) NULL
+  )
+  if (!is.null(result)) return(result)
+
+  # Fallback: copy DefenseViz PDF
+  rm_dir <- file.path(output_dir, "dnmb_module_rebasefinder")
+  if (!dir.exists(rm_dir)) return(NULL)
+  plot_dir <- .dnmb_module_plot_dir(output_dir)
+  src_files <- list.files(rm_dir, pattern = "\\.pdf$", full.names = TRUE)
+  if (length(src_files)) {
+    dest_path <- file.path(plot_dir, "REBASE_overview.pdf")
+    file.copy(src_files[1], dest_path, overwrite = TRUE)
+    return(list(pdf = dest_path))
+  }
+  NULL
+}

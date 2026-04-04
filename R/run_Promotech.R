@@ -13,7 +13,7 @@
 #' }
 #'
 #' @param conda_env_path A character string specifying the path to the conda environment
-#'                       (e.g., `/Users/JaeYoon/miniforge3/envs/promotech_mac_env`).
+#'                       (e.g., `~/miniforge3/envs/promotech_env`).
 #' @param promotech_script_path A character string specifying the path to the `promotech.py` script.
 #' @param output_dir A character string specifying the directory to store the results. Default is `results`.
 #'
@@ -23,8 +23,8 @@
 #' @examples
 #' # Example usage:
 #' save_and_run_promotech(
-#'   conda_env_path = "/Users/JaeYoon/miniforge3/envs/promotech_mac_env",
-#'   promotech_script_path = "~/Desktop/Bioinformatics/promotech-master/promotech.py"
+#'   conda_env_path = "~/miniforge3/envs/promotech_env",
+#'   promotech_script_path = "~/promotech-master/promotech.py"
 #' )
 #'
 #' @export
@@ -92,14 +92,3 @@ save_and_run_promotech <- function(conda_env_path, promotech_script_path, output
 #fna_files <- list.files(pattern = "\\.fna$")
 #
 ## Loop over the files
-#for (i in seq_along(fna_files)) {
-#  command <- paste("conda run -n promotech_mac_env python promotech.py -pg -m RF-HOT -f '", normalizePath(fna_files[i]), "' -g -o results", sep = "")
-#  system(command)
-#}
-#
-## Loop over the files
-#for (i in seq_along(fna_files)) {
-#  command <- paste("conda run -p /Users/JaeYoon/miniforge3/envs/promotech_mac_env python ~/Desktop/Bioinformatics/promotech-master/promotech.py -pg -m RF-HOT -f '", normalizePath(fna_files[i]), "' -g -o results", sep = "")
-#  system(command)
-#}
-#

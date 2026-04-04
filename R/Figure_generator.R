@@ -5,12 +5,19 @@
 #' @param pdf_height The height of the output PDF file (default is 12).
 #' @return A PDF file with the arranged plots and labels.
 #' @export
-Figure_generator <- function(output_pdf = "plot.pdf",
+Figure_generator <- function(output_pdf = NULL,
                              pdf_width = 12, pdf_height = 12) {
 
   library(gridExtra)
   library(ComplexHeatmap)
   library(grid)
+
+  # Default output to visualizations/ directory
+  if (is.null(output_pdf)) {
+    vis_dir <- file.path(getwd(), "visualizations")
+    dir.create(vis_dir, recursive = TRUE, showWarnings = FALSE)
+    output_pdf <- file.path(vis_dir, "Codon_RBS_overview.pdf")
+  }
 
   # Check if Codon_usage_tRNA_plot exists in the environment
   if (exists("Codon_usage_tRNA_plot", envir = .GlobalEnv)) {
@@ -37,11 +44,15 @@ Figure_generator <- function(output_pdf = "plot.pdf",
   RBS_seqlogo <- RBS_seqlogo + theme(plot.margin = unit(c(3, 0, 3, 0), "cm"))
   spacer_histogram <- spacer_histogram + theme(plot.margin = unit(c(3, 0, 3, 0), "cm"))
 
-  # Adjust padding in ComplexHeatmap
+  # Open PDF device first to prevent Rplots.pdf
+  pdf(output_pdf, width = pdf_width, height = pdf_height)
+  on.exit(dev.off(), add = TRUE)
+
+  # Adjust padding in ComplexHeatmap (grabExpr renders into current device)
   heatmap_grob <- grid.grabExpr(draw(Codon_usage_tRNA_plot, padding = unit(c(1, 0, 1, 0), "cm")))
 
-  # Create the layout with grid.arrange, ensuring widths and heights are compatible with layout_matrix
-  arranged_plot <- grid.arrange(
+  # Create the layout with grid.arrange directly into PDF device
+  grid.arrange(
     heatmap_grob,
     RBS_seqlogo,
     spacer_histogram,
@@ -51,19 +62,10 @@ Figure_generator <- function(output_pdf = "plot.pdf",
                           c(1, 3))
   )
 
-  # Open a new PDF device
-  pdf(output_pdf, width = pdf_width, height = pdf_height)
-
-  # Draw the plot
-  grid.draw(arranged_plot)
-
   # Add labels (a, b, c) to the plots
-  grid.text("a", x = 0.02, y = 0.98, gp = gpar(fontsize = 32, fontface = "bold"))
-  grid.text("b", x = 0.48, y = 0.98, gp = gpar(fontsize = 32, fontface = "bold"))
-  grid.text("c", x = 0.48, y = 0.48, gp = gpar(fontsize = 32, fontface = "bold"))
-
-  # Close the PDF device
-  dev.off()
+  grid.text("A", x = 0.02, y = 0.98, gp = gpar(fontsize = 32, fontface = "bold"))
+  grid.text("B", x = 0.48, y = 0.98, gp = gpar(fontsize = 32, fontface = "bold"))
+  grid.text("C", x = 0.48, y = 0.48, gp = gpar(fontsize = 32, fontface = "bold"))
 
   # Optionally, return a message indicating completion
   message("Figure generation completed, and saved to: ", output_pdf)

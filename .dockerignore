@@ -1,0 +1,31 @@
+# Build artifacts & caches
+cache/
+results/
+analysis/
+data/
+*.tar.gz
+gurobi.log
+Rplots.pdf
+
+# IDE / editor
+.Rproj.user/
+.Rhistory
+.RData
+*.swp
+*.swo
+.claude/
+.ntm/
+
+# Git
+.git/
+.gitignore
+
+# Test fixtures (not needed at runtime)
+tests/
+
+# Development-only reference script
+R/_iselement_circlize_reference.R
+
+# OS files
+.DS_Store
+Thumbs.db

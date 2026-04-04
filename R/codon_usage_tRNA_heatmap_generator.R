@@ -88,10 +88,10 @@ codon_usage_tRNA_heatmap_generator <- function(codon_usage = NULL,
                                          show_column_names = TRUE,
                                          left_annotation = rowAnnotation(
                                            df = annotation_table %>% dplyr::select(Chemical_property, AA),
-                                           col = list("Chemical_property" = c("acidic" = "#FCDE9C",
-                                                                              "basic" = "#045275",
-                                                                              "polar" = "#DC3977",
-                                                                              "nonpolar" = "#089099",
+                                           col = list("Chemical_property" = c("acidic" = "#ede9d0",
+                                                                              "basic" = "#d0d4ed",
+                                                                              "nonpolar" = "#d0edd9",
+                                                                              "polar" = "#edd0e4",
                                                                               "NA" = "#ECEFF1"),
                                                       "AA" = c("*" = "#cbd2d6",
                                                                "S" = "#f5cadb",
@@ -117,14 +117,13 @@ codon_usage_tRNA_heatmap_generator <- function(codon_usage = NULL,
                                            )
                                          ),
                                          right_annotation = rowAnnotation(
-                                           barplot = anno_barplot(as.matrix(tRNA_distribution_plot)[custom_codon_order, , drop = FALSE],
+                                           "No. of\ntRNA" = anno_barplot(as.matrix(tRNA_distribution_plot)[custom_codon_order, , drop = FALSE],
                                                                   gp = gpar(fill = "#595959", col = NA),
                                                                   border = FALSE)
                                          ),
-                                         column_title = "Codon usage and \ntRNA distribution",
-                                         column_title_gp = gpar(fontsize = 12, fontface = "bold",
-                                                                merge_legends = TRUE,
-                                                                heatmap_legend_side = "bottom")
+                                         column_title = "Codon usage and tRNA distribution",
+                                         column_title_gp = gpar(fontsize = 12, fontface = "bold"),
+                                         column_title_side = "top"
   )
 
   # Conditionally save the heatmap as a PDF if save_pdf is TRUE

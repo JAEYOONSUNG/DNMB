@@ -255,8 +255,13 @@ dnmb_db_check_freshness <- function(module, version, cache_root = NULL, verbose 
   }, error = function(e) NULL)
   if (is.null(json)) return(NULL)
   remote_ver <- json$info$version
-  local_ver <- manifest$emapper_version %||% manifest$version %||% ""
-  list(remote_version = remote_ver, update_available = !identical(local_ver, remote_ver))
+  expected_db_release <- tryCatch(.dnmb_eggnog_default_db_release(), error = function(e) "5.0.2")
+  local_ver <- manifest$emapper_version %||% ""
+  local_db_release <- manifest$db_release %||% ""
+  list(
+    remote_version = paste0("emapper:", remote_ver, " db:", expected_db_release),
+    update_available = (!identical(local_ver, remote_ver)) || (!identical(local_db_release, expected_db_release))
+  )
 }
 
 .dnmb_db_remote_check_gapmind <- function(manifest) {

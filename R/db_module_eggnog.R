@@ -15,6 +15,54 @@ NULL
 
 .dnmb_eggnog_default_db <- function() "auto"
 
+.dnmb_eggnog_default_db_release <- function() {
+  override <- trimws(Sys.getenv("DNMB_EGGNOG_DB_RELEASE", unset = ""))
+  if (nzchar(override)) {
+    return(override)
+  }
+  "5.0.2"
+}
+
+.dnmb_eggnog_default_db_mirror_urls <- function(db_release = .dnmb_eggnog_default_db_release()) {
+  db_release <- trimws(as.character(db_release)[1])
+  c(
+    paste0("https://eggnog6.embl.de/download/emapperdb-", db_release),
+    paste0("http://eggnog6.embl.de/download/emapperdb-", db_release),
+    paste0("http://eggnog5.embl.de/download/emapperdb-", db_release),
+    paste0("http://eggnogdb.embl.de/download/emapperdb-", db_release)
+  )
+}
+
+.dnmb_eggnog_write_db_manifest <- function(data_dir,
+                                           db_name,
+                                           emapper_version = NA_character_,
+                                           db_release = .dnmb_eggnog_default_db_release(),
+                                           cache_root = NULL) {
+  if (is.null(data_dir) || !nzchar(data_dir) || !dir.exists(data_dir)) {
+    return(invisible(NULL))
+  }
+
+  manifest <- list(
+    data_dir = normalizePath(data_dir, winslash = "/", mustWork = FALSE),
+    db_name = as.character(db_name)[1],
+    emapper_version = as.character(emapper_version)[1],
+    db_release = as.character(db_release)[1]
+  )
+
+  try(
+    dnmb_db_write_manifest(
+      .dnmb_eggnog_module_name(),
+      "data",
+      manifest = manifest,
+      cache_root = cache_root,
+      overwrite = TRUE
+    ),
+    silent = TRUE
+  )
+
+  invisible(manifest)
+}
+
 .dnmb_eggnog_detect_tax_scope <- function(genbank = NULL) {
   if (is.null(genbank) || !file.exists(genbank)) return(NULL)
   lines <- tryCatch(readLines(genbank, n = 30L, warn = FALSE), error = function(e) character())
@@ -161,6 +209,10 @@ dnmb_detect_emapper <- function(required = FALSE) {
 dnmb_eggnog_ensure_database <- function(data_dir = NULL,
                                         db_name = .dnmb_eggnog_default_db(),
                                         install = TRUE) {
+  emapper <- dnmb_detect_emapper(required = FALSE)
+  emapper_version <- emapper$version %||% NA_character_
+  db_release <- .dnmb_eggnog_default_db_release()
+
   if (is.null(data_dir)) {
     # Check EGGNOG_DATA_DIR env var first
     env_dir <- Sys.getenv("EGGNOG_DATA_DIR", unset = "")
@@ -178,6 +230,15 @@ dnmb_eggnog_ensure_database <- function(data_dir = NULL,
   diamond_db <- file.path(data_dir, "eggnog_proteins.dmnd")
   taxa_db <- file.path(data_dir, "eggnog.taxa.db")
   db_ok <- file.exists(diamond_db) || file.exists(taxa_db)
+
+  if (db_ok) {
+    .dnmb_eggnog_write_db_manifest(
+      data_dir = data_dir,
+      db_name = db_name,
+      emapper_version = emapper_version,
+      db_release = db_release
+    )
+  }
 
   if (!db_ok && isTRUE(install)) {
     message("[DNMB EggNOG] Downloading eggnog-mapper databases to: ", data_dir)
@@ -197,28 +258,40 @@ dnmb_eggnog_ensure_database <- function(data_dir = NULL,
 
     # Fallback: direct download (eggnogdb.embl.de sometimes down, use eggnog5 mirror)
     if (!db_ok) {
-      message("[DNMB EggNOG] Official downloader failed, trying mirror (eggnog5.embl.de)...")
-      db_ok <- .dnmb_eggnog_fallback_download(data_dir)
+      message("[DNMB EggNOG] Official downloader failed, trying direct mirrors for emapperdb-", db_release, "...")
+      db_ok <- .dnmb_eggnog_fallback_download(data_dir, db_release = db_release)
     }
 
     if (!db_ok) {
       return(list(ok = FALSE, data_dir = data_dir, db_name = db_name,
                   error = "Database download failed. Run manually: download_eggnog_data.py -y --data_dir <path>"))
     }
+
+    .dnmb_eggnog_write_db_manifest(
+      data_dir = data_dir,
+      db_name = db_name,
+      emapper_version = emapper_version,
+      db_release = db_release
+    )
   }
 
-  list(ok = db_ok, data_dir = data_dir, db_name = db_name)
+  list(
+    ok = db_ok,
+    data_dir = data_dir,
+    db_name = db_name,
+    emapper_version = emapper_version,
+    db_release = db_release
+  )
 }
 
 # ---------------------------------------------------------------------------
 # Fallback DB download (mirror)
 # ---------------------------------------------------------------------------
 
-.dnmb_eggnog_fallback_download <- function(data_dir) {
-  base_urls <- c(
-    "http://eggnog5.embl.de/download/emapperdb-5.0.2",
-    "http://eggnogdb.embl.de/download/emapperdb-5.0.2"
-  )
+.dnmb_eggnog_fallback_download <- function(data_dir,
+                                           db_release = .dnmb_eggnog_default_db_release(),
+                                           base_urls = .dnmb_eggnog_default_db_mirror_urls(db_release)) {
+  base_urls <- unique(base_urls[nzchar(base_urls)])
 
   files_needed <- list(
     list(name = "eggnog_proteins.dmnd.gz", final = "eggnog_proteins.dmnd", decompress = "gunzip"),

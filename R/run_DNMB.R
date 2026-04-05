@@ -334,7 +334,10 @@ run_DNMB <- function(
     }
   }
 
-  DNMB_table(genbank_table = get("genbank_table", envir = .GlobalEnv))
+  DNMB_table(
+    genbank_table = get("genbank_table", envir = .GlobalEnv),
+    InterProScan_site = TRUE
+  )
   message("Analysis end: DNMB function executed")
 
   invisible(get("genbank_table", envir = .GlobalEnv))

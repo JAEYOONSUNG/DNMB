@@ -261,6 +261,10 @@
     ))
   }
 
+  if (dir.exists(layout$env_dir)) {
+    unlink(layout$env_dir, recursive = TRUE, force = TRUE)
+  }
+
   if (!isTRUE(install)) {
     return(list(
       status = .dnmb_clean_status_row("clean_python", "missing", "CLEAN Python environment is missing."),

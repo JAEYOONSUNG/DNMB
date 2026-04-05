@@ -40,8 +40,7 @@
 }
 
 .dnmb_defensefinder_resolve_cli <- function(layout) {
-  candidates <- c(layout$cli_path, dnmb_detect_binary("defense-finder", required = FALSE)$path)
-  candidates <- unique(candidates[base::nzchar(candidates)])
+  candidates <- unique(layout$cli_path[base::nzchar(layout$cli_path)])
   for (candidate in candidates) {
     if (!base::file.exists(candidate)) {
       next
@@ -142,8 +141,9 @@
       # Broken symlink or missing python — nuke and recreate
       unlink(layout$env_dir, recursive = TRUE, force = TRUE)
     } else {
-      test <- dnmb_run_external(layout$env_python, args = c("-c", "print('ok')"), required = FALSE)
-      if (!base::isTRUE(test$ok)) {
+      test_python <- dnmb_run_external(layout$env_python, args = c("-c", "print('ok')"), required = FALSE)
+      test_pip <- dnmb_run_external(layout$env_python, args = c("-m", "pip", "--version"), required = FALSE)
+      if (!base::isTRUE(test_python$ok) || !base::isTRUE(test_pip$ok)) {
         unlink(layout$env_dir, recursive = TRUE, force = TRUE)
       }
     }
@@ -161,9 +161,9 @@
   # pip upgrade is optional — don't fail if it doesn't work
   dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "--upgrade", "pip"), required = FALSE)
   # Install defense-finder from cloned repo
-  run <- dnmb_run_external(layout$env_pip, args = c("install", "-U", layout$repo_dir), required = FALSE)
+  run <- dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "-U", layout$repo_dir), required = FALSE)
   if (!base::isTRUE(run$ok)) {
-    return(.dnmb_defensefinder_status_row("defensefinder_cli", "failed", run$error %||% layout$env_pip))
+    return(.dnmb_defensefinder_status_row("defensefinder_cli", "failed", run$error %||% layout$env_python))
   }
   cli_path <- .dnmb_defensefinder_resolve_cli(layout)
   .dnmb_defensefinder_status_row(

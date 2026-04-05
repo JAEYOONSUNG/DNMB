@@ -139,13 +139,6 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
     verbose = verbose
   )
 
-  # Copy output to working directory so InterProScan_annotations() finds it
-  tsv_dest <- file.path(getwd(), basename(result$tsv))
-  file.copy(result$tsv, tsv_dest, overwrite = TRUE)
-  if (!is.null(result$tsv_sites)) {
-    file.copy(result$tsv_sites, file.path(getwd(), basename(result$tsv_sites)), overwrite = TRUE)
-  }
-
   # Parse with existing organizer
   InterProScan_annotations(InterProScan_dir = dirname(result$tsv))
 

@@ -455,6 +455,10 @@ run_module_set <- function(db = NULL,
 
   # DB freshness check for enabled modules
   if (isTRUE(verbose)) {
+    interproscan_version <- .dnmb_interproscan_installed_version(cache_root = module_cache_root)
+    if (!nzchar(interproscan_version)) {
+      interproscan_version <- .dnmb_interproscan_default_version(cache_root = module_cache_root)
+    }
     db_version_map <- list(
       EggNOG = list(module = "eggnog", version = "data"),
       CLEAN = list(module = "clean", version = module_version %||% "split100"),
@@ -465,7 +469,8 @@ run_module_set <- function(db = NULL,
       dbCAN = list(module = "dbcan", version = module_version %||% "current"),
       PAZy = list(module = "pazy", version = module_version %||% "current"),
       ISelement = list(module = "iselement", version = module_version %||% "current"),
-      Prophage = list(module = "prophage", version = module_Prophage_backend %||% "phispy")
+      Prophage = list(module = "prophage", version = module_Prophage_backend %||% "phispy"),
+      InterProScan = list(module = "interproscan", version = interproscan_version)
     )
     for (mod_name in intersect(db, names(db_version_map))) {
       info <- db_version_map[[mod_name]]

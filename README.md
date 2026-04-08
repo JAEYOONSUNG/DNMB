@@ -225,12 +225,15 @@ Please, cite also the underlying algorithm/database if it was used for the searc
   [DefenseFinder]       DefenseFinder: Systematic and quantitative view of the antiviral arsenal of prokaryotes.
                         Florian Tesson, Alexandre Herve, Ernest Mordret, Marie Touchon, Camille d'Humieres, Jean Cury,
                         Aude Bernheim. 2022. Nature Communications 13:2561. https://doi.org/10.1038/s41467-022-30269-9
+
   [PADLOC] 		        Identification and classification of antiviral defence systems in bacteria and archaea with
 						PADLOC reveals new system types. Payne, L. J., Todeschini, T. C., Wu, Y., Perry, B. J.,
 						Ronson, C. W., Fineran, P. C., Nobrega, F. L., Jackson, S. A. .2021. Nucleic Acids Research, 49,
 						10868-10878. doi: https://doi.org/10.1093/nar/gkab883.
 
   [DefensePredictor] 	DefensePredictor: A machine learning model to discover prokaryotic immune systems
+						DeWeirdt, P. C., Mahoney, E. M., & Laub, M. T., Science, 2026, 392.6793: eadv7924.
+						https://doi.org/10.1126/science.adv7924
 
   [REBASE]              REBASE-a database for DNA restriction and modification: enzymes, genes and genomes.
                         Richard J. Roberts, Tamas Vincze, Janos Posfai, Dana Macelis. 2010. Nucleic Acids Research

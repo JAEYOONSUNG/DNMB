@@ -379,11 +379,15 @@
 
 .dnmb_interproscan_state <- function(wd = getwd()) {
   wd <- normalizePath(wd, winslash = "/", mustWork = FALSE)
-  output_dir <- file.path(wd, "dnmb_interproscan")
+  module_output_dir <- file.path(wd, "dnmb_module_interproscan")
+  legacy_output_dir <- file.path(wd, "dnmb_interproscan")
+  output_dir <- if (dir.exists(module_output_dir) || !dir.exists(legacy_output_dir)) module_output_dir else legacy_output_dir
 
   list(
     wd = wd,
     output_dir = output_dir,
+    module_output_dir = module_output_dir,
+    legacy_output_dir = legacy_output_dir,
     metadata_path = file.path(output_dir, ".input_signature.rds"),
     output_tsv = file.path(output_dir, "interproscan_results.tsv"),
     output_tsv_sites = file.path(output_dir, "interproscan_results.tsv.sites"),
@@ -393,12 +397,15 @@
 }
 
 .dnmb_read_interproscan_signature <- function(wd = getwd()) {
-  metadata_path <- .dnmb_interproscan_state(wd)$metadata_path
-  if (!file.exists(metadata_path)) {
-    return(NULL)
+  state <- .dnmb_interproscan_state(wd)
+  for (metadata_path in c(file.path(state$module_output_dir, ".input_signature.rds"),
+                          file.path(state$legacy_output_dir, ".input_signature.rds"))) {
+    if (file.exists(metadata_path)) {
+      parsed <- tryCatch(readRDS(metadata_path), error = function(e) NULL)
+      if (!is.null(parsed)) return(parsed)
+    }
   }
-
-  tryCatch(readRDS(metadata_path), error = function(e) NULL)
+  NULL
 }
 
 .dnmb_write_interproscan_signature <- function(output_dir, genbank_signature) {
@@ -422,6 +429,8 @@
                                             allow_external_without_metadata = TRUE) {
   state <- .dnmb_interproscan_state(wd)
   has_output_results <- file.exists(state$output_tsv)
+  has_module_results <- file.exists(file.path(state$module_output_dir, "interproscan_results.tsv"))
+  has_legacy_results <- file.exists(file.path(state$legacy_output_dir, "interproscan_results.tsv"))
   has_root_results <- file.exists(state$root_tsv)
   metadata <- .dnmb_read_interproscan_signature(wd)
 
@@ -458,12 +467,13 @@
     ))
   }
 
-  if (isTRUE(allow_external_without_metadata) && has_output_results) {
+  if (isTRUE(allow_external_without_metadata) && (has_output_results || has_module_results || has_legacy_results)) {
+    source_dir <- if (has_module_results) state$module_output_dir else if (has_legacy_results) state$legacy_output_dir else state$output_dir
     return(list(
       reusable = TRUE,
       has_metadata = FALSE,
       matches_input = NA,
-      source_dir = state$output_dir,
+      source_dir = source_dir,
       reason = "external_output_results"
     ))
   }
@@ -483,6 +493,6 @@
     has_metadata = FALSE,
     matches_input = NA,
     source_dir = NULL,
-    reason = if (has_output_results || has_root_results) "results_without_metadata" else "missing_results"
+    reason = if (has_output_results || has_module_results || has_legacy_results || has_root_results) "results_without_metadata" else "missing_results"
   )
 }

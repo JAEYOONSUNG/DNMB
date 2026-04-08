@@ -40,7 +40,7 @@ run_interproscan <- function(fasta_path = NULL,
 
   # ── Prepare output directory ────────────────────────────────
   if (is.null(output_dir) || !nzchar(trimws(output_dir))) {
-    output_dir <- file.path(getwd(), "dnmb_interproscan")
+    output_dir <- .dnmb_interproscan_output_dir(getwd())
   }
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   output_dir <- normalizePath(output_dir, winslash = "/", mustWork = FALSE)
@@ -169,6 +169,10 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
 # ── Internal helpers ──────────────────────────────────────────
 
 .dnmb_interproscan_pinned_version <- function() "5.77-108.0"
+
+.dnmb_interproscan_output_dir <- function(wd = getwd()) {
+  file.path(wd, "dnmb_module_interproscan")
+}
 
 .dnmb_interproscan_latest_version <- function() {
   latest <- tryCatch({

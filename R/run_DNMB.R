@@ -239,7 +239,7 @@ run_DNMB <- function(
 
     message("Step9. Running InterProScan...")
     tryCatch({
-      ipr_output_dir <- file.path(getwd(), "dnmb_interproscan")
+      ipr_output_dir <- .dnmb_interproscan_output_dir(getwd())
       ipr_result <- run_interproscan(
         output_dir = ipr_output_dir,
         applications = interproscan_applications,
@@ -543,13 +543,15 @@ dnmb_clean_previous_run <- function(dry_run = FALSE,
     deleted <- c(deleted, collect(.dnmb_module_stage_cache_path(wd)))
   }
 
-  # 2. dnmb_interproscan/ directory
+  # 2. InterProScan output directory
   interpro_state <- .dnmb_interproscan_state(wd)
   if (isTRUE(interpro_status$reusable)) {
     message("[DNMB] Preserving InterProScan outputs for matching GenBank input.")
   } else {
-    if (dir.exists(interpro_state$output_dir)) {
-      deleted <- c(deleted, interpro_state$output_dir)
+    for (cand in unique(c(interpro_state$module_output_dir, interpro_state$legacy_output_dir))) {
+      if (dir.exists(cand)) {
+        deleted <- c(deleted, cand)
+      }
     }
     deleted <- c(
       deleted,

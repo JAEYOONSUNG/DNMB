@@ -920,11 +920,3 @@
 # ======================================================================
 
 # --- CAZy family -> substrate mapping ---
-#' Internal GapMind amino acid plotting helpers
-#'
-#' Plot-construction routines for GapMind amino acid pathway overview figures.
-#'
-#' @name dnmb_internal_plot_gapmind_aa
-#' @keywords internal
-#' @noRd
-NULL

@@ -1342,12 +1342,3 @@
   }
   "low"
 }
-#' Internal helpers for sequence-based mobileome detection
-#'
-#' Sequence-engine routines used by the mobileome pipeline to identify and
-#' refine mobile element candidates from genome sequence evidence.
-#'
-#' @name dnmb_internal_mobileome_sequence_engine
-#' @keywords internal
-#' @noRd
-NULL

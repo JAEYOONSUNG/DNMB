@@ -275,6 +275,12 @@ dnmb_pazy_install_module <- function(version = .dnmb_pazy_default_version(),
     blast_db_prefix = layout$blast_db_prefix
   )
   dnmb_db_write_manifest(module, version, manifest = manifest, cache_root = cache_root, overwrite = TRUE)
+  .dnmb_db_autoprune_default_versions(
+    module = module,
+    version = version,
+    default_version = .dnmb_pazy_default_version(),
+    cache_root = cache_root
+  )
 
   list(
     ok = TRUE,
@@ -614,12 +620,3 @@ dnmb_run_pazy_module <- function(genes,
     module_result = parsed
   )
 }
-#' Internal PAZy module helpers
-#'
-#' Installation, search, parsing, and output-building helpers for the DNMB
-#' PAZy module workflow.
-#'
-#' @name dnmb_internal_pazy_module
-#' @keywords internal
-#' @noRd
-NULL

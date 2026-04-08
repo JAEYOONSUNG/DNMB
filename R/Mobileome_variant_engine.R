@@ -2528,12 +2528,3 @@
   ) %>%
     dplyr::arrange(dplyr::desc(.data$viability_score), dplyr::desc(.data$likelihood_score))
 }
-#' Internal helpers for mobileome variant and target-site modeling
-#'
-#' Variant-scoring, target-site, and scenario-ranking routines used by the
-#' mobileome pipeline.
-#'
-#' @name dnmb_internal_mobileome_variant_engine
-#' @keywords internal
-#' @noRd
-NULL

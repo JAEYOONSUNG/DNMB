@@ -298,26 +298,6 @@
 
 # Metabolite nodes — systematic textbook layout
 # Glycolysis backbone vertical at x=1.0, pathways branch rightward, step ~ 0.5 units
-#' Render DNMB module overview plots
-#'
-#' Attempts to generate the standard DNMB module overview PDFs inside the
-#' `visualizations/` directory for any module whose required inputs are present
-#' in the current output folder.
-#'
-#' The return value is a named list describing the plot files that were
-#' produced. Missing module outputs are skipped silently through `tryCatch()`,
-#' which keeps plot rendering tolerant of partial module runs.
-#'
-#' @param genbank_table Main DNMB locus-level table used by the plotting
-#'   helpers.
-#' @param output_dir DNMB output directory that contains `dnmb_module_*`
-#'   subdirectories and where `visualizations/` should be created.
-#' @param cache_root Optional shared cache root forwarded to plot helpers that
-#'   need cached module assets.
-#'
-#' @return Named list of plot metadata, typically including PDF paths for the
-#'   rendered module overviews.
-#' @export
 dnmb_render_module_plots <- function(genbank_table, output_dir = getwd(), cache_root = NULL) {
   plots <- list()
   gapmind_aa_plot <- tryCatch(
@@ -342,6 +322,22 @@ dnmb_render_module_plots <- function(genbank_table, output_dir = getwd(), cache_
   )
   if (is.list(defensefinder_plot) && !inherits(defensefinder_plot, "error")) {
     plots$DefenseFinder <- defensefinder_plot
+  }
+
+  padloc_plot <- tryCatch(
+    .dnmb_plot_padloc_module(genbank_table, output_dir = output_dir),
+    error = function(e) e
+  )
+  if (is.list(padloc_plot) && !inherits(padloc_plot, "error")) {
+    plots$PADLOC <- padloc_plot
+  }
+
+  defensepredictor_plot <- tryCatch(
+    .dnmb_plot_defensepredictor_module(genbank_table, output_dir = output_dir),
+    error = function(e) e
+  )
+  if (is.list(defensepredictor_plot) && !inherits(defensepredictor_plot, "error")) {
+    plots$DefensePredictor <- defensepredictor_plot
   }
 
   iselement_plot <- tryCatch(
@@ -390,6 +386,14 @@ dnmb_render_module_plots <- function(genbank_table, output_dir = getwd(), cache_
   )
   if (is.list(rebase_plot) && !inherits(rebase_plot, "error")) {
     plots$REBASEfinder <- rebase_plot
+  }
+
+  integrated_defense_plot <- tryCatch(
+    .dnmb_plot_integrated_defense_module(genbank_table, output_dir = output_dir),
+    error = function(e) e
+  )
+  if (is.list(integrated_defense_plot) && !inherits(integrated_defense_plot, "error")) {
+    plots$DefenseOverview <- integrated_defense_plot
   }
 
   plots

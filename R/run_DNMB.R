@@ -1,17 +1,3 @@
-.dnmb_default_cpu <- function() {
-  cores <- tryCatch(parallel::detectCores(logical = TRUE), error = function(e) NA)
-  if (is.na(cores) || cores < 1L) cores <- 1L
-  as.integer(cores)
-}
-
-.dnmb_run_default_prophage_backend <- function() {
-  backend_fn <- get0(".dnmb_prophage_default_backend", mode = "function", inherits = TRUE)
-  if (is.function(backend_fn)) {
-    return(backend_fn())
-  }
-  "phispy"
-}
-
 #' Result DNMB table
 #'
 #' @param module_dbCAN Logical, whether to run and append dbCAN module results.
@@ -20,6 +6,8 @@
 #' @param module_PAZy Logical, whether to run and append PAZy module results.
 #' @param module_GapMind Logical, whether to run and append GapMind module results.
 #' @param module_DefenseFinder Logical, whether to run and append DefenseFinder module results.
+#' @param module_PADLOC Logical, whether to run and append PADLOC module results.
+#' @param module_DefensePredictor Logical, whether to run and append DefensePredictor module results.
 #' @param module_ISelement Logical, whether to run and append IS element module results.
 #' @param module_Prophage Logical, whether to run and append prophage module results.
 #' @param module_EggNOG Logical, whether to run and append eggnog-mapper module results.
@@ -44,14 +32,60 @@
 #' @param clean_previous Logical. If \code{TRUE}, remove prior run artifacts
 #'   before starting. Cached module results and InterProScan outputs are kept
 #'   when their saved input/database signatures still match the current run.
-#' @details The user-facing module sequence for a full DNMB run is
-#'   \code{EggNOG -> CLEAN -> InterProScan -> DefenseFinder -> REBASEfinder ->
-#'   GapMindAA -> GapMindCarbon -> MEROPS -> dbCAN -> PAZy -> ISelement ->
-#'   Prophage}. Internally, \code{InterProScan} is resolved before the
-#'   \code{run_module_set()} stage so DNMB can reuse existing results and merge
-#'   the annotation table early without changing the documented module order.
 #' @return Invisibly returns the final `genbank_table`.
 #' @export
+
+.dnmb_default_cpu <- function() {
+  cores <- tryCatch(parallel::detectCores(logical = TRUE), error = function(e) NA)
+  if (is.na(cores) || cores < 1L) cores <- 1L
+  as.integer(cores)
+}
+
+.dnmb_run_default_prophage_backend <- function() {
+  backend_fn <- get0(".dnmb_prophage_default_backend", mode = "function", inherits = TRUE)
+  if (is.function(backend_fn)) {
+    return(backend_fn())
+  }
+  "phispy"
+}
+
+.dnmb_attach_runtime_packages <- function() {
+  pkgs <- c(
+    "tidyverse",
+    "reshape2",
+    "grid",
+    "circlize",
+    "ComplexHeatmap",
+    "Biostrings",
+    "openxlsx",
+    "seqinr",
+    "Peptides",
+    "ggplotify",
+    "venneuler"
+  )
+
+  missing <- character()
+  for (pkg in pkgs) {
+    ok <- suppressPackageStartupMessages(
+      require(pkg, character.only = TRUE, quietly = TRUE, warn.conflicts = FALSE)
+    )
+    if (!isTRUE(ok)) {
+      missing <- c(missing, pkg)
+    }
+  }
+
+  if (length(missing)) {
+    stop(
+      "DNMB runtime packages are missing: ",
+      paste(unique(missing), collapse = ", "),
+      ". Rebuild the Docker image or reinstall the package dependencies.",
+      call. = FALSE
+    )
+  }
+
+  invisible(TRUE)
+}
+
 run_DNMB <- function(
     module_dbCAN = TRUE,
     module_MEROPS = TRUE,
@@ -59,6 +93,8 @@ run_DNMB <- function(
     module_PAZy = TRUE,
     module_GapMind = TRUE,
     module_DefenseFinder = TRUE,
+    module_PADLOC = TRUE,
+    module_DefensePredictor = TRUE,
     module_REBASEfinder = TRUE,
     module_ISelement = TRUE,
     module_Prophage = TRUE,
@@ -81,6 +117,8 @@ run_DNMB <- function(
     interproscan_path = NULL,
     clean_previous = TRUE
 ) {
+  .dnmb_attach_runtime_packages()
+
   genbank_signature <- .dnmb_genbank_input_signature(getwd())
   eggnog_external_status <- .dnmb_eggnog_reuse_status(
     wd = getwd(),
@@ -95,6 +133,8 @@ run_DNMB <- function(
     module_PAZy = module_PAZy,
     module_GapMind = module_GapMind,
     module_DefenseFinder = module_DefenseFinder,
+    module_PADLOC = module_PADLOC,
+    module_DefensePredictor = module_DefensePredictor,
     module_REBASEfinder = module_REBASEfinder,
     module_ISelement = module_ISelement,
     module_Prophage = module_Prophage,
@@ -150,7 +190,7 @@ run_DNMB <- function(
   # ── EggNOG: auto-detect external results, skip module if found ──
   eggnog_external_found <- FALSE
   if (isTRUE(eggnog_external_status$reusable)) {
-    EggNOG_annotations(EggNOG_dir = eggnog_external_status$source_dir %||% getwd())
+    EggNOG_annotations()
     .dnmb_write_eggnog_signature(getwd(), genbank_signature = genbank_signature)
     message("Step8. EggNOG external results detected and parsed.")
     eggnog_external_found <- TRUE
@@ -166,6 +206,12 @@ run_DNMB <- function(
   }
 
   # ── InterProScan: auto-detect external results OR run module ──
+  if (exists("InterProScan_table", envir = .GlobalEnv, inherits = FALSE)) {
+    rm("InterProScan_table", envir = .GlobalEnv)
+  }
+  if (exists("InterProScan_site", envir = .GlobalEnv, inherits = FALSE)) {
+    rm("InterProScan_site", envir = .GlobalEnv)
+  }
   interpro_external_found <- FALSE
   interpro_status <- .dnmb_interproscan_reuse_status(
     wd = getwd(),
@@ -175,10 +221,6 @@ run_DNMB <- function(
 
   if (isTRUE(interpro_status$reusable)) {
     InterProScan_annotations(InterProScan_dir = interpro_status$source_dir)
-    .dnmb_write_interproscan_signature(
-      output_dir = .dnmb_interproscan_state(getwd())$output_dir,
-      genbank_signature = genbank_signature
-    )
     message("Step9. InterProScan existing results detected and parsed.")
     interpro_external_found <- TRUE
 
@@ -209,6 +251,10 @@ run_DNMB <- function(
         output_dir = ipr_output_dir,
         genbank_signature = genbank_signature
       )
+      file.copy(ipr_result$tsv, file.path(getwd(), basename(ipr_result$tsv)), overwrite = TRUE)
+      if (!is.null(ipr_result$tsv_sites)) {
+        file.copy(ipr_result$tsv_sites, file.path(getwd(), basename(ipr_result$tsv_sites)), overwrite = TRUE)
+      }
       InterProScan_annotations(InterProScan_dir = dirname(ipr_result$tsv))
       interpro_external_found <- TRUE
 
@@ -242,6 +288,8 @@ run_DNMB <- function(
     module_PAZy = module_PAZy,
     module_GapMind = module_GapMind,
       module_DefenseFinder = module_DefenseFinder,
+      module_PADLOC = module_PADLOC,
+      module_DefensePredictor = module_DefensePredictor,
       module_REBASEfinder = module_REBASEfinder,
       module_ISelement = module_ISelement,
       module_Prophage = module_Prophage,
@@ -334,10 +382,7 @@ run_DNMB <- function(
     }
   }
 
-  DNMB_table(
-    genbank_table = get("genbank_table", envir = .GlobalEnv),
-    InterProScan_site = TRUE
-  )
+  DNMB_table(genbank_table = get("genbank_table", envir = .GlobalEnv))
   message("Analysis end: DNMB function executed")
 
   invisible(get("genbank_table", envir = .GlobalEnv))
@@ -349,6 +394,8 @@ dnmb_enabled_module_aliases <- function(module_dbCAN = FALSE,
                                         module_PAZy = FALSE,
                                         module_GapMind = FALSE,
                                         module_DefenseFinder = FALSE,
+                                        module_PADLOC = FALSE,
+                                        module_DefensePredictor = FALSE,
                                         module_REBASEfinder = FALSE,
                                         module_ISelement = FALSE,
                                         module_Prophage = FALSE,
@@ -358,6 +405,8 @@ dnmb_enabled_module_aliases <- function(module_dbCAN = FALSE,
     EggNOG = isTRUE(module_EggNOG),
     CLEAN = isTRUE(module_CLEAN),
     DefenseFinder = isTRUE(module_DefenseFinder),
+    PADLOC = isTRUE(module_PADLOC),
+    DefensePredictor = isTRUE(module_DefensePredictor),
     REBASEfinder = isTRUE(module_REBASEfinder),
     GapMind = isTRUE(module_GapMind),
     MEROPS = isTRUE(module_MEROPS),
@@ -401,7 +450,24 @@ dnmb_resolve_module_results <- function(module_aliases,
     )
   }
 
-  module_flags <- as.list(stats::setNames(rep(TRUE, length(module_aliases)), paste0("module_", module_aliases)))
+  all_module_flags <- c(
+    "dbCAN",
+    "MEROPS",
+    "CLEAN",
+    "PAZy",
+    "GapMind",
+    "DefenseFinder",
+    "PADLOC",
+    "DefensePredictor",
+    "REBASEfinder",
+    "ISelement",
+    "Prophage",
+    "EggNOG"
+  )
+  module_flags <- as.list(stats::setNames(rep(FALSE, length(all_module_flags)), paste0("module_", all_module_flags)))
+  if (length(module_aliases) > 0L) {
+    module_flags[paste0("module_", module_aliases)] <- TRUE
+  }
   module_flags$module_version <- module_version
   module_flags$module_cache_root <- module_cache_root
   module_flags$module_install <- module_install
@@ -459,36 +525,20 @@ dnmb_clean_previous_run <- function(dry_run = FALSE,
   interpro_status <- .dnmb_interproscan_reuse_status(
     wd = wd,
     genbank_signature = genbank_signature,
-    allow_external_without_metadata = TRUE
+    allow_external_without_metadata = FALSE
   )
   eggnog_status <- .dnmb_eggnog_reuse_status(
     wd = wd,
     genbank_signature = genbank_signature,
-    allow_external_without_metadata = TRUE
+    allow_external_without_metadata = FALSE
   )
 
   # 1. dnmb_module_* directories
   module_dirs <- list.dirs(wd, full.names = TRUE, recursive = FALSE)
   module_dirs <- module_dirs[grepl("^dnmb_module_", basename(module_dirs))]
-  preserved_module_dirs <- character(0)
   if (isTRUE(module_cache_status$reusable)) {
     message("[DNMB] Preserving module outputs for matching GenBank and DB state.")
-    preserved_module_dirs <- normalizePath(module_dirs, winslash = "/", mustWork = FALSE)
   } else {
-    if (isTRUE(eggnog_status$reusable) && !is.null(eggnog_status$source_dir) &&
-        dir.exists(eggnog_status$source_dir)) {
-      preserved_module_dirs <- normalizePath(eggnog_status$source_dir, winslash = "/", mustWork = FALSE)
-    }
-    legacy_eggnog_dir <- file.path(wd, "dnmb_module_eggnog")
-    legacy_eggnog_annotations <- file.path(legacy_eggnog_dir, "eggnog_out.emapper.annotations")
-    if (file.exists(legacy_eggnog_annotations)) {
-      preserved_module_dirs <- unique(c(
-        preserved_module_dirs,
-        normalizePath(legacy_eggnog_dir, winslash = "/", mustWork = FALSE)
-      ))
-      message("[DNMB] Preserving legacy EggNOG module outputs for cached module reuse.")
-    }
-    module_dirs <- setdiff(module_dirs, preserved_module_dirs)
     deleted <- c(deleted, module_dirs)
     deleted <- c(deleted, collect(.dnmb_module_stage_cache_path(wd)))
   }
@@ -521,13 +571,7 @@ dnmb_clean_previous_run <- function(dry_run = FALSE,
   if (isTRUE(eggnog_status$reusable)) {
     message("[DNMB] Preserving EggNOG external results for matching GenBank input.")
   } else {
-    eggnog_delete <- eggnog_status$result_files
-    if (length(preserved_module_dirs) && length(eggnog_delete)) {
-      eggnog_delete <- eggnog_delete[!(
-        normalizePath(dirname(eggnog_delete), winslash = "/", mustWork = FALSE) %in% preserved_module_dirs
-      )]
-    }
-    deleted <- c(deleted, eggnog_delete)
+    deleted <- c(deleted, eggnog_status$result_files)
     deleted <- c(deleted, collect(eggnog_status$metadata_path))
     if (isTRUE(eggnog_status$has_metadata) && identical(eggnog_status$reason, "input_changed")) {
       message("[DNMB] Removing stale EggNOG external results because the GenBank input changed.")

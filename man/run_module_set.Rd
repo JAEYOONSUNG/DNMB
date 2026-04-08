@@ -6,17 +6,9 @@
 \usage{
 run_module_set(
   db = NULL,
-  module_dbCAN = TRUE,
-  module_MEROPS = TRUE,
-  module_CLEAN = TRUE,
-  module_PAZy = TRUE,
-  module_GapMind = TRUE,
-  module_DefenseFinder = TRUE,
-  module_REBASEfinder = TRUE,
-  module_ISelement = TRUE,
-  module_Prophage = TRUE,
-  module_EggNOG = TRUE,
-  module_Prophage_backend = .dnmb_module_default_prophage_backend(),
+  module_dbCAN = FALSE,
+  module_MEROPS = FALSE,
+  module_CLEAN = FALSE,
   genbank_table = NULL,
   genbank = NULL,
   output_dir = NULL,
@@ -25,24 +17,16 @@ run_module_set(
   module_install = TRUE,
   module_base_url = NULL,
   module_asset_urls = NULL,
-  module_cpu = .dnmb_default_cpu(),
+  module_cpu = 1L,
   merge = FALSE,
-  verbose = TRUE,
-  iselement_analysis_depth = "standard",
-  iselement_related_genbanks = NULL,
-  iselement_related_metadata = NULL,
-  iselement_auto_discover_related = TRUE,
-  iselement_max_related = 5L
+  verbose = TRUE
 )
 }
 \arguments{
 \item{db}{Optional character vector of module names to run.}
 
-\item{module_dbCAN, module_MEROPS, module_CLEAN, module_PAZy, module_GapMind, module_DefenseFinder, module_REBASEfinder, module_ISelement, module_Prophage, module_EggNOG}{Logical toggles used when
+\item{module_dbCAN, module_MEROPS, module_CLEAN}{Logical toggles used when
 \code{db} is not supplied.}
-
-\item{module_Prophage_backend}{Character backend for \code{Prophage}; one of
-\code{phispy}, \code{virsorter2}, or \code{pide}.}
 
 \item{genbank_table}{Optional gene table to use instead of the global
 \code{genbank_table}.}
@@ -79,8 +63,6 @@ supplied gene table and returns per-module results or a merged locus-level
 table.
 }
 \details{
-Live execution is currently implemented for \code{EggNOG}, \code{CLEAN},
-\code{DefenseFinder}, \code{REBASEfinder}, \code{GapMindAA}, \code{GapMindCarbon}, \code{MEROPS},
-\code{dbCAN}, \code{PAZy}, \code{ISelement}, and \code{Prophage}.
-\code{InterProScan} is orchestrated by \code{run_DNMB()} rather than \code{run_module_set()}.
+Live execution is currently implemented for \code{dbCAN}, \code{MEROPS}, and
+\code{CLEAN}.
 }

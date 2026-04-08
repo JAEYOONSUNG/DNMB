@@ -25,7 +25,7 @@
   lp_path <- base::file.path(module_dir, "iselement_landing_pads.tsv")
   elements_path <- base::file.path(module_dir, "iselement_elements.tsv")
   tm_path <- base::file.path(module_dir, "iselement_target_models.tsv")
-  has_full <- base::file.exists(census_path) && base::file.exists(lp_path)
+  has_full <- base::file.exists(census_path)
 
   if (has_full) {
     result <- tryCatch(
@@ -59,10 +59,14 @@
 .dnmb_plot_iselement_comprehensive <- function(genbank_table, output_dir, plot_dir,
                                                 census_path, lp_path, elements_path, tm_path) {
   census <- utils::read.delim(census_path, check.names = FALSE)
-  landing_pads <- utils::read.delim(lp_path, check.names = FALSE)
+  landing_pads <- if (base::file.exists(lp_path) && isTRUE(file.info(lp_path)$size > 0)) {
+    tryCatch(utils::read.delim(lp_path, check.names = FALSE), error = function(e) data.frame())
+  } else {
+    data.frame()
+  }
   elements <- if (base::file.exists(elements_path)) utils::read.delim(elements_path, check.names = FALSE) else data.frame()
   target_models <- if (base::file.exists(tm_path)) utils::read.delim(tm_path, check.names = FALSE) else data.frame()
-  if (!nrow(census) || !nrow(landing_pads)) return(NULL)
+  if (!nrow(census)) return(NULL)
 
   genbank_candidates <- list.files(output_dir, pattern = "\\.(gbff|gbk|gb)$", full.names = TRUE)
   if (!length(genbank_candidates)) genbank_candidates <- list.files(dirname(output_dir), pattern = "\\.(gbff|gbk|gb)$", full.names = TRUE)
@@ -109,7 +113,7 @@
       if (base::file.exists(p)) { opt_script <- p; break }
     }
   }
-  if (nzchar(opt_script) && base::file.exists(opt_script)) {
+  if (nrow(landing_pads) > 0 && nzchar(opt_script) && base::file.exists(opt_script)) {
     # Set context for the optimized script
     gbff_files <- list.files(output_dir, pattern = "\\.(gbff|gbk|gb)$", full.names = TRUE)
     if (!length(gbff_files)) gbff_files <- list.files(dirname(output_dir), pattern = "\\.(gbff|gbk|gb)$", full.names = TRUE)
@@ -174,7 +178,11 @@
   })
 
   # Track 3: Landing Pad Score (bar chart with top-15 highlighting)
-  lp_bed <- data.frame(chr=main_contig, start=lp_track$region_start, end=lp_track$region_end, score=lp_track$landing_pad_score)
+  lp_bed <- if (nrow(lp_track)) {
+    data.frame(chr=main_contig, start=lp_track$region_start, end=lp_track$region_end, score=lp_track$landing_pad_score)
+  } else {
+    data.frame(chr=character(), start=numeric(), end=numeric(), score=numeric(), stringsAsFactors = FALSE)
+  }
   lp_bed <- lp_bed[!is.na(lp_bed$start) & !is.na(lp_bed$end) & !is.na(lp_bed$score), , drop=FALSE]
   lp_col_fun <- circlize::colorRamp2(c(0.55,0.65,0.73,0.80,0.87), c("#E53935","#FF8F00","#FDD835","#66BB6A","#1B5E20"))
   if (nrow(lp_bed)) circlize::circos.genomicTrack(lp_bed, track.height=0.085, bg.border="grey60", bg.lwd=0.4,
@@ -292,27 +300,33 @@
 
   # ---- Panel 4: Top landing pads table ----
   graphics::par(mar=c(2,1,3,1))
-  top_n <- min(10L, nrow(lp_track))
-  top_lp <- utils::head(lp_track, top_n)
-  plot(0, 0, type="n", xlim=c(0,10), ylim=c(0,top_n+2), axes=FALSE, xlab="", ylab="", main="D) Top Landing Pads")
-  graphics::text(0, top_n+1.5, "Rank", adj=c(0,0.5), cex=0.6, font=2)
-  graphics::text(1, top_n+1.5, "Position", adj=c(0,0.5), cex=0.6, font=2)
-  graphics::text(3, top_n+1.5, "Size", adj=c(0,0.5), cex=0.6, font=2)
-  graphics::text(4.2, top_n+1.5, "Score", adj=c(0,0.5), cex=0.6, font=2)
-  graphics::text(5.5, top_n+1.5, "Flanking genes", adj=c(0,0.5), cex=0.6, font=2)
-  graphics::segments(0, top_n+1.1, 10, top_n+1.1, lwd=0.5)
-  for (i in seq_len(top_n)) {
-    y <- top_n + 1 - i
-    sc <- top_lp$landing_pad_score[i]
-    bg_col <- if (sc >= 0.82) "#E8F5E9" else if (sc >= 0.78) "#F1F8E9" else "#FFFDE7"
-    graphics::rect(-0.2, y-0.4, 10.2, y+0.4, col=bg_col, border=NA)
-    graphics::text(0, y, top_lp$landing_pad_id[i], adj=c(0,0.5), cex=0.55)
-    graphics::text(1, y, paste0(round(top_lp$region_start[i]/1000)," kb"), adj=c(0,0.5), cex=0.55)
-    graphics::text(3, y, paste0(top_lp$region_size_bp[i]," bp"), adj=c(0,0.5), cex=0.55)
-    graphics::text(4.2, y, sprintf("%.3f", sc), adj=c(0,0.5), cex=0.55, font=2)
-    left_p <- substr(top_lp$left_gene_product[i], 1, 18)
-    right_p <- substr(top_lp$right_gene_product[i], 1, 18)
-    graphics::text(5.5, y, paste0(left_p, " | ", right_p), adj=c(0,0.5), cex=0.45)
+  if (nrow(lp_track)) {
+    top_n <- min(10L, nrow(lp_track))
+    top_lp <- utils::head(lp_track, top_n)
+    plot(0, 0, type="n", xlim=c(0,10), ylim=c(0,top_n+2), axes=FALSE, xlab="", ylab="", main="D) Top Landing Pads")
+    graphics::text(0, top_n+1.5, "Rank", adj=c(0,0.5), cex=0.6, font=2)
+    graphics::text(1, top_n+1.5, "Position", adj=c(0,0.5), cex=0.6, font=2)
+    graphics::text(3, top_n+1.5, "Size", adj=c(0,0.5), cex=0.6, font=2)
+    graphics::text(4.2, top_n+1.5, "Score", adj=c(0,0.5), cex=0.6, font=2)
+    graphics::text(5.5, top_n+1.5, "Flanking genes", adj=c(0,0.5), cex=0.6, font=2)
+    graphics::segments(0, top_n+1.1, 10, top_n+1.1, lwd=0.5)
+    for (i in seq_len(top_n)) {
+      y <- top_n + 1 - i
+      sc <- top_lp$landing_pad_score[i]
+      bg_col <- if (sc >= 0.82) "#E8F5E9" else if (sc >= 0.78) "#F1F8E9" else "#FFFDE7"
+      graphics::rect(-0.2, y-0.4, 10.2, y+0.4, col=bg_col, border=NA)
+      graphics::text(0, y, top_lp$landing_pad_id[i], adj=c(0,0.5), cex=0.55)
+      graphics::text(1, y, paste0(round(top_lp$region_start[i]/1000)," kb"), adj=c(0,0.5), cex=0.55)
+      graphics::text(3, y, paste0(top_lp$region_size_bp[i]," bp"), adj=c(0,0.5), cex=0.55)
+      graphics::text(4.2, y, sprintf("%.3f", sc), adj=c(0,0.5), cex=0.55, font=2)
+      left_p <- substr(top_lp$left_gene_product[i], 1, 18)
+      right_p <- substr(top_lp$right_gene_product[i], 1, 18)
+      graphics::text(5.5, y, paste0(left_p, " | ", right_p), adj=c(0,0.5), cex=0.45)
+    }
+  } else {
+    plot(0, 0, type="n", xlim=c(0,1), ylim=c(0,1), axes=FALSE, xlab="", ylab="", main="D) Top Landing Pads")
+    graphics::text(0.5, 0.58, "No landing pads detected", cex=0.9, font=2, col="#6B7280")
+    graphics::text(0.5, 0.42, "IS census and family distribution are still shown", cex=0.7, col="#9CA3AF")
   }
 
   grDevices::dev.off()
@@ -472,11 +486,3 @@
 }
 
 # --- Placeholder plot when no prophage regions are detected ---
-#' Internal ISelement plotting helpers
-#'
-#' Plot-construction and fallback helpers for ISelement overview figures.
-#'
-#' @name dnmb_internal_plot_iselement
-#' @keywords internal
-#' @noRd
-NULL

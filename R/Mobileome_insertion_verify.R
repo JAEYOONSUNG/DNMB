@@ -342,12 +342,3 @@
     for (st in starts) writeLines(substr(s, st, min(st + 69, n)), con)
   }
 }
-#' Internal helpers for mobileome insertion-site verification
-#'
-#' Validation routines used to confirm insertion-site structure and evidence in
-#' mobileome analyses.
-#'
-#' @name dnmb_internal_mobileome_insertion_verify
-#' @keywords internal
-#' @noRd
-NULL

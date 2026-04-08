@@ -1,23 +1,12 @@
-#' Merge EggNOG and InterProScan annotations into `genbank_table`
+#' Result DNMB table
 #'
-#' Legacy convenience wrapper that loads or discovers `EggNOG_table` and
-#' `InterProScan_table`, merges them onto `genbank_table` by locus tag, and
-#' stores the merged result back into the global environment.
-#'
-#' New workflows should usually prefer `run_DNMB()` for orchestration, but this
-#' helper remains available for backward-compatible annotation merging.
-#'
-#' @param genbank_table Main DNMB locus-level table. When `NULL`, the function
-#'   loads `genbank_table` from the global environment.
-#' @param EggNOG_table EggNOG annotation table. When `NULL`, the function calls
-#'   `EggNOG_annotations()` and then loads `EggNOG_table` from the global
-#'   environment.
-#' @param InterProScan_table InterProScan annotation table. When `NULL`, the
-#'   function calls `InterProScan_annotations()` and then loads
-#'   `InterProScan_table` from the global environment.
-#'
-#' @return Invisibly returns the merged `genbank_table`.
+#' @param gb_table A data frame containing the data.
+#' @param InterPro_search Logical, whether to include p-values for means.
+#' @param InterPro_site Logical, whether to include p-values for medians.
+#' @param codon Logical, whether to use chi-square test for categorical variables.
+#' @return A data frame containing the baseline table.
 #' @export
+#'
 
 run_DNMB_combiner <- function(genbank_table = NULL, EggNOG_table = NULL, InterProScan_table = NULL) {
   library(openxlsx)

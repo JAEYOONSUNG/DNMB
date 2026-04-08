@@ -612,12 +612,3 @@ dnmb_run_iselement_module <- function(genes,
     message("[DNMB iselement] ", msg)
   }
 }
-#' Internal ISelement module helpers
-#'
-#' Detection, normalization, summarization, and output-building helpers for the
-#' DNMB ISelement workflow.
-#'
-#' @name dnmb_internal_iselement_module
-#' @keywords internal
-#' @noRd
-NULL

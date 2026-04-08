@@ -437,7 +437,7 @@
   cmd <- paste(
     shQuote(skani), "dist",
     "-q", shQuote(focal_fna),
-    "--rl", shQuote(query_list),
+    "-l", shQuote(query_list),
     "-o", shQuote(out_file),
     "-t 2"
   )
@@ -544,12 +544,3 @@
 
   dplyr::bind_rows(results)
 }
-#' Internal helpers for automatic mobileome comparative genome selection
-#'
-#' Utility routines used to discover, filter, and prioritize related genomes
-#' for comparative mobileome analysis.
-#'
-#' @name dnmb_internal_mobileome_auto_comparative
-#' @keywords internal
-#' @noRd
-NULL

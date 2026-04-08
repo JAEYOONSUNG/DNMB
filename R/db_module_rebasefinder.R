@@ -285,11 +285,6 @@ dnmb_run_rebasefinder_module <- function(genes,
     rm_comprehensive <- base::data.frame()
   }
 
-  legacy_dotplot_png <- base::file.path(output_dir, "RM_system_dotplot.png")
-  if (base::file.exists(legacy_dotplot_png)) {
-    base::unlink(legacy_dotplot_png, force = TRUE)
-  }
-
   hits <- .dnmb_rebasefinder_normalize_hits(rm_comprehensive)
   output_table <- .dnmb_rebasefinder_output_table(genes = genes, hits = hits)
 
@@ -309,12 +304,3 @@ dnmb_run_rebasefinder_module <- function(genes,
     pipeline_result = pipeline_result
   )
 }
-#' Internal REBASEfinder module helpers
-#'
-#' Search, parsing, annotation, and summary helpers for the DNMB REBASEfinder
-#' workflow.
-#'
-#' @name dnmb_internal_rebasefinder_module
-#' @keywords internal
-#' @noRd
-NULL

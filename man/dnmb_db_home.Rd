@@ -10,8 +10,8 @@ dnmb_db_home(create = FALSE, cache_root = NULL)
 \item{create}{Logical; create the directory when \code{TRUE}.}
 
 \item{cache_root}{Optional override path. When \code{NULL}, DNMB resolves the
-cache root in this order: \code{DNMB_CACHE_ROOT}, \verb{~/.dnmb-cache} (preferred
-shared cache for local and Docker runs), then \code{tools::R_user_dir("DNMB", which = "cache")}.}
+cache root in this order: \code{DNMB_CACHE_ROOT}, \code{~/.dnmb-cache},
+then \code{tools::R_user_dir("DNMB", which = "cache")}.}
 }
 \value{
 Character scalar path to the DNMB database home.

@@ -1226,6 +1226,12 @@ dnmb_dbcan_install_module <- function(version = .dnmb_dbcan_default_version(),
       manifest = manifest_fields,
       overwrite = TRUE
     )
+    .dnmb_db_autoprune_default_versions(
+      module = module,
+      version = version,
+      default_version = .dnmb_dbcan_default_version(),
+      cache_root = cache_root
+    )
     manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = TRUE)
     return(list(
       ok = cached_ok,
@@ -1302,6 +1308,12 @@ dnmb_dbcan_install_module <- function(version = .dnmb_dbcan_default_version(),
     cache_root = cache_root,
     manifest = manifest_payload,
     overwrite = TRUE
+  )
+  .dnmb_db_autoprune_default_versions(
+    module = module,
+    version = version,
+    default_version = .dnmb_dbcan_default_version(),
+    cache_root = cache_root
   )
   manifest <- readRDS(manifest_path)
   class(manifest) <- c("dnmb_db_manifest", class(manifest))
@@ -1535,12 +1547,3 @@ dnmb_run_dbcan_module <- function(genes,
     query_proteins = fasta$proteins
   )
 }
-#' Internal dbCAN module helpers
-#'
-#' Installation, execution, parsing, and table-building helpers for the DNMB
-#' dbCAN module workflow.
-#'
-#' @name dnmb_internal_dbcan_module
-#' @keywords internal
-#' @noRd
-NULL

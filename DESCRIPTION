@@ -1,6 +1,6 @@
 Package: DNMB
 Title: Comprehensive genomics analysis for the Domestication of Non-Model Bacteria (DNMB)
-Version: 1.0.2
+Version: 1.0.1
 Authors@R: 
     person("Jae-Yoon", "Sung", , "o3wodbs@gmail.com", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-2475-8743"))
@@ -35,7 +35,6 @@ Imports:
     stringr,
     data.table,
     tibble,
-    qdap,
     openxlsx,
     scales
 Roxygen: list(markdown = TRUE)

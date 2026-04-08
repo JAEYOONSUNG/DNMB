@@ -563,6 +563,12 @@ dnmb_merops_install_module <- function(version = .dnmb_merops_default_version(),
       manifest = manifest_fields,
       overwrite = TRUE
     )
+    .dnmb_db_autoprune_default_versions(
+      module = module,
+      version = version,
+      default_version = .dnmb_merops_default_version(),
+      cache_root = cache_root
+    )
     manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = TRUE)
     return(list(
       ok = cached_ok,
@@ -635,6 +641,12 @@ dnmb_merops_install_module <- function(version = .dnmb_merops_default_version(),
     cache_root = cache_root,
     manifest = manifest_payload,
     overwrite = TRUE
+  )
+  .dnmb_db_autoprune_default_versions(
+    module = module,
+    version = version,
+    default_version = .dnmb_merops_default_version(),
+    cache_root = cache_root
   )
   manifest <- readRDS(manifest_path)
   class(manifest) <- c("dnmb_db_manifest", class(manifest))
@@ -1193,12 +1205,3 @@ dnmb_run_merops_module <- function(genes,
     query_proteins = fasta$proteins
   )
 }
-#' Internal MEROPS module helpers
-#'
-#' Installation, search, parsing, and output-building helpers for the DNMB
-#' MEROPS module workflow.
-#'
-#' @name dnmb_internal_merops_module
-#' @keywords internal
-#' @noRd
-NULL

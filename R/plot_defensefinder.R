@@ -386,11 +386,37 @@
   center_y <- 0
   backbone_mid <- 1.42
   backbone_half <- 0.09
-  panel_rings <- c(3.05, 4.25, 5.45)
+  panel_ring_start <- 3.25
+  panel_ring_step <- 2.80
   panel_span <- 0.84
-  panel_body <- 0.24
-  panel_head <- 0.42
-  label_r_offset <- 0.78
+  panel_body <- 0.42
+  panel_head <- 0.75
+
+  angle_dist <- function(a, b) {
+    abs(atan2(sin(a - b), cos(a - b)))
+  }
+  ring_conflict_count <- function(layout_df, gap_rad) {
+    if (!nrow(layout_df)) {
+      return(0L)
+    }
+    total <- 0L
+    for (ring in unique(layout_df$ring_id)) {
+      sub <- layout_df[layout_df$ring_id == ring, , drop = FALSE]
+      if (nrow(sub) < 2L) {
+        next
+      }
+      for (i in seq_len(nrow(sub) - 1L)) {
+        for (j in seq.int(i + 1L, nrow(sub))) {
+          overlap <- angle_dist(sub$display_angle[[i]], sub$display_angle[[j]]) -
+            ((sub$span_rad[[i]] + sub$span_rad[[j]]) / 2 + gap_rad)
+          if (is.na(overlap) || overlap < 0) {
+            total <- total + 1L
+          }
+        }
+      }
+    }
+    total
+  }
 
   backbone_bg <- dplyr::bind_rows(lapply(seq_len(nrow(sector_layout)), function(i) {
     .dnmb_arc_band_polygon(
@@ -450,12 +476,25 @@
   system_summary$zoom_width <- system_summary$zoom_end - system_summary$zoom_start
   bp_per_radian <- stats::median(system_summary$zoom_width, na.rm = TRUE) / 0.84
   system_summary$panel_span <- system_summary$zoom_width / bp_per_radian
-  panel_layout <- .dnmb_assign_panel_layout(
-    system_summary$angle_mid,
-    span_rad = system_summary$panel_span,
-    ring_radii = panel_rings,
-    gap_rad = 0.06
-  )
+  gap_rad <- 0.09
+  panel_layout <- NULL
+  panel_rings <- NULL
+  for (n_rings in seq.int(4L, 7L)) {
+    candidate_rings <- seq(panel_ring_start, by = panel_ring_step, length.out = n_rings)
+    candidate_layout <- .dnmb_assign_panel_layout(
+      system_summary$angle_mid,
+      span_rad = system_summary$panel_span,
+      ring_radii = candidate_rings,
+      gap_rad = gap_rad
+    )
+    if (ring_conflict_count(candidate_layout, gap_rad = gap_rad) == 0L) {
+      panel_layout <- candidate_layout
+      panel_rings <- candidate_rings
+      break
+    }
+    panel_layout <- candidate_layout
+    panel_rings <- candidate_rings
+  }
   system_summary$display_angle <- panel_layout$display_angle
   system_summary$ring_id <- panel_layout$ring_id
   system_summary$r_mid <- panel_layout$r_mid
@@ -522,10 +561,11 @@
       sys_tbl <- full_tbl[full_tbl$DefenseFinder_system_id == one$DefenseFinder_system_id[[1]], , drop = FALSE]
       gene_idx <- match(zoom_tbl$locus_tag, sys_tbl$locus_tag)
       ok <- !is.na(gene_idx)
+      short_locus <- gsub("^.*?(RS[0-9]+)$", "\\1", zoom_tbl$locus_tag[ok])
       zoom_tbl$label[ok] <- paste0(
         sub("^.*__", "", as.character(sys_tbl$DefenseFinder_gene_name[gene_idx[ok]])),
         "\n",
-        zoom_tbl$locus_tag[ok]
+        short_locus
       )
     } else {
       zoom_tbl$label <- NA_character_
@@ -594,13 +634,11 @@
       color_value = subtype_color
     )
 
-    title_xy <- .dnmb_arc_xy(theta_mid, r_mid + panel_head / 2 + 0.30, center_x = center_x, center_y = center_y)
-    title_facing <- .dnmb_label_angle_facing(theta_mid * 180 / pi - 90)
     title_list[[length(title_list) + 1L]] <- data.frame(
-      x = title_xy$x,
-      y = title_xy$y,
-      angle = title_facing$angle,
-      hjust = title_facing$hjust,
+      base_angle = theta_mid,
+      lower_bound = min(theta_start, theta_end) + panel_span_i * 0.12,
+      upper_bound = max(theta_start, theta_end) - panel_span_i * 0.12,
+      title_radius = r_mid + panel_head / 2 + 0.42 + 0.07 * ((one$ring_id[[1]] - 1) %% 2),
       label = one$display_label[[1]],
       stringsAsFactors = FALSE
     )
@@ -626,6 +664,21 @@
   title_tbl <- dplyr::bind_rows(title_list)
   endpoint_tbl <- dplyr::bind_rows(endpoint_list)
   gene_label_tbl <- dplyr::bind_rows(gene_label_list)
+  if (nrow(title_tbl)) {
+    title_tbl$adjusted_angle <- .dnmb_repel_label_angles_bounded(
+      angle_rad = title_tbl$base_angle,
+      label_text = title_tbl$label,
+      lower_bound = title_tbl$lower_bound,
+      upper_bound = title_tbl$upper_bound,
+      base_sep = 0.078
+    )
+    title_xy <- .dnmb_arc_xy(title_tbl$adjusted_angle, title_tbl$title_radius, center_x = center_x, center_y = center_y)
+    title_facing <- .dnmb_label_angle_facing(title_tbl$adjusted_angle * 180 / pi - 90)
+    title_tbl$x <- title_xy$x
+    title_tbl$y <- title_xy$y
+    title_tbl$angle <- title_facing$angle
+    title_tbl$hjust <- title_facing$hjust
+  }
   if (nrow(gene_label_tbl)) {
     gene_label_tbl <- gene_label_tbl |>
       dplyr::group_by(.data$system_id) |>
@@ -636,9 +689,9 @@
           label_text = .data$label,
           lower_bound = .data$lower_bound,
           upper_bound = .data$upper_bound,
-          base_sep = 0.038
+          base_sep = 0.085
         ),
-        label_radius = .data$r_mid - panel_head / 2 - 0.08,
+        label_radius = .data$r_mid - panel_head / 2 - 0.22,
         x = center_x + .data$label_radius * cos(.data$adjusted_angle),
         y = center_y + .data$label_radius * sin(.data$adjusted_angle)
       ) |>
@@ -654,12 +707,13 @@
     scale_bp <- min(scale_candidates)
   }
   scale_span <- scale_bp / bp_per_radian
+  max_ring <- max(panel_rings, na.rm = TRUE)
   # Draw scale bar as horizontal line, positioned above Type legend
   sb_arc_len <- scale_span * stats::median(panel_rings)
-  sb_x <- 5.0
-  sb_y <- -3.6
+  sb_x <- max_ring - 1.3
+  sb_y <- -(max_ring - 1.8)
   scale_bar <- data.frame(x = c(sb_x - sb_arc_len / 2, sb_x + sb_arc_len / 2), y = c(sb_y, sb_y))
-  scale_label_xy <- list(x = sb_x, y = sb_y + 0.25)
+  scale_label_xy <- list(x = sb_x, y = sb_y + 0.72)
   scale_label <- paste0(format(scale_bp, big.mark = ","), " bp")
 
   legend_breaks <- names(palette)
@@ -667,7 +721,7 @@
 
   ggplot2::ggplot() +
     ggplot2::geom_polygon(data = backbone_bg, ggplot2::aes(x = .data$x, y = .data$y), fill = "grey97", color = "grey78", linewidth = 0.25) +
-    ggplot2::geom_path(data = highlight_arcs, ggplot2::aes(x = .data$x, y = .data$y, group = .data$system_id), color = highlight_arcs$fill_value, linewidth = 1.4, lineend = "round") +
+    ggplot2::geom_path(data = highlight_arcs, ggplot2::aes(x = .data$x, y = .data$y, group = .data$system_id), color = highlight_arcs$fill_value, linewidth = 1.55, lineend = "round") +
     ggplot2::geom_segment(
       data = stem_tbl,
       ggplot2::aes(x = .data$x, y = .data$y, xend = .data$xend, yend = .data$yend),
@@ -680,23 +734,28 @@
       ggplot2::aes(x = .data$x, y = .data$y, group = .data$group_id),
       fill = grDevices::adjustcolor("#F8FAFC", alpha.f = 0.7),
       color = grDevices::adjustcolor(panel_bg_tbl$border_value, alpha.f = 0.55),
-      linewidth = 0.34,
+      linewidth = 0.24,
       inherit.aes = FALSE
     ) +
     ggplot2::geom_path(
       data = cap_tbl,
       ggplot2::aes(x = .data$x, y = .data$y, group = .data$group_id),
       color = cap_tbl$color_value,
-      linewidth = 0.85,
+      linewidth = 0.72,
       lineend = "round"
     ) +
-    ggplot2::geom_polygon(data = panel_gene_tbl, ggplot2::aes(x = .data$x, y = .data$y, group = .data$feature_id, fill = .data$fill_value), color = "grey25", linewidth = 0.26, linejoin = "mitre") +
-    ggplot2::geom_text(data = title_tbl, ggplot2::aes(x = .data$x, y = .data$y, label = .data$label, angle = .data$angle, hjust = .data$hjust), size = 3.8, fontface = "bold") +
-    ggplot2::geom_text(data = endpoint_tbl, ggplot2::aes(x = .data$x, y = .data$y, label = .data$label, angle = .data$angle, hjust = .data$hjust), size = 2.35, color = "grey25", inherit.aes = FALSE) +
-    ggplot2::geom_text(data = gene_label_tbl, ggplot2::aes(x = .data$x, y = .data$y, label = .data$label, angle = .data$angle, hjust = .data$hjust), size = 2.1, lineheight = 0.86, vjust = 0.5) +
+    ggplot2::geom_polygon(data = panel_gene_tbl, ggplot2::aes(x = .data$x, y = .data$y, group = .data$feature_id, fill = .data$fill_value), color = "grey25", linewidth = 0.16, linejoin = "mitre") +
+    ggplot2::geom_text(data = title_tbl, ggplot2::aes(x = .data$x, y = .data$y, label = .data$label, angle = .data$angle, hjust = .data$hjust), size = 2.8, fontface = "bold") +
+    ggplot2::geom_text(data = endpoint_tbl, ggplot2::aes(x = .data$x, y = .data$y, label = .data$label, angle = .data$angle, hjust = .data$hjust), size = 1.75, color = "grey25", inherit.aes = FALSE) +
+    ggplot2::geom_text(data = gene_label_tbl, ggplot2::aes(x = .data$x, y = .data$y, label = .data$label, angle = .data$angle, hjust = .data$hjust), size = 1.55, lineheight = 0.80, vjust = 0.5) +
     ggplot2::geom_segment(ggplot2::aes(x = scale_bar$x[1], xend = scale_bar$x[2], y = scale_bar$y[1], yend = scale_bar$y[2]), linewidth = 1.15, color = "grey25", lineend = "round", inherit.aes = FALSE) +
     ggplot2::geom_text(ggplot2::aes(x = scale_label_xy$x, y = scale_label_xy$y, label = scale_label), size = 2.8, color = "grey20", inherit.aes = FALSE) +
-    ggplot2::coord_equal(xlim = c(-6.8, 7.0), ylim = c(-5.6, 5.0), clip = "off", expand = FALSE) +
+    ggplot2::coord_equal(
+      xlim = c(-(max_ring + 2.4), max_ring + 2.6),
+      ylim = c(-(max_ring + 2.0), max_ring + 0.2),
+      clip = "off",
+      expand = FALSE
+    ) +
     ggplot2::theme_void(base_size = 11) +
     ggplot2::theme(
       plot.margin = ggplot2::margin(0, 0, 0, 18),
@@ -712,16 +771,6 @@
     ggplot2::scale_fill_manual(
       values = fill_values,
       breaks = legend_breaks,
-      name = "Type"
+      name = "Defense subtype"
     )
 }
-#' Internal DefenseFinder plotting helpers
-#'
-#' Plot-construction routines for the DefenseFinder overview figures rendered by
-#' DNMB.
-#'
-#' @name dnmb_internal_plot_defensefinder
-#' @keywords internal
-#' @noRd
-NULL
-

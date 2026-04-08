@@ -864,12 +864,3 @@
 
   candidates
 }
-#' Internal helpers for mobileome landing-pad discovery
-#'
-#' Scoring and classification routines for identifying candidate landing pads
-#' and targetable regions in mobileome analyses.
-#'
-#' @name dnmb_internal_mobileome_landing_pads
-#' @keywords internal
-#' @noRd
-NULL

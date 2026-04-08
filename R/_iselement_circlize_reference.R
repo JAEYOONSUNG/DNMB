@@ -294,12 +294,3 @@ print(page2)
 dev.off()
 
 cat("Saved:", round(file.size(file.path(plot_dir,"ISelement_overview.pdf"))/1024,1), "KB\n")
-#' Internal reference-style circlize helpers for ISelement plots
-#'
-#' Low-level plotting helpers used to render the reference-oriented circular
-#' overview for ISelement results.
-#'
-#' @name dnmb_internal_iselement_circlize_reference
-#' @keywords internal
-#' @noRd
-NULL

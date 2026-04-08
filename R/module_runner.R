@@ -348,13 +348,10 @@
 #' supplied gene table and returns per-module results or a merged locus-level
 #' table.
 #'
-#' Live execution is currently implemented for `EggNOG`, `CLEAN`,
-#' `DefenseFinder`, `REBASEfinder`, `GapMindAA`, `GapMindCarbon`, `MEROPS`,
-#' `dbCAN`, `PAZy`, `ISelement`, and `Prophage`.
-#' `InterProScan` is orchestrated by `run_DNMB()` rather than `run_module_set()`.
+#' Live execution is currently implemented for `dbCAN`, `MEROPS`, `CLEAN`, `PAZy`, `GapMind`, `DefenseFinder`, `PADLOC`, `DefensePredictor`, `ISelement`, and `Prophage`.
 #'
 #' @param db Optional character vector of module names to run.
-#' @param module_dbCAN,module_MEROPS,module_CLEAN,module_PAZy,module_GapMind,module_DefenseFinder,module_REBASEfinder,module_ISelement,module_Prophage,module_EggNOG Logical toggles used when
+#' @param module_dbCAN,module_MEROPS,module_CLEAN,module_PAZy,module_GapMind,module_DefenseFinder,module_PADLOC,module_DefensePredictor,module_ISelement,module_Prophage Logical toggles used when
 #'   `db` is not supplied.
 #' @param module_Prophage_backend Character backend for `Prophage`; one of
 #'   `phispy`, `virsorter2`, or `pide`.
@@ -383,6 +380,8 @@ run_module_set <- function(db = NULL,
                            module_PAZy = TRUE,
                            module_GapMind = TRUE,
                            module_DefenseFinder = TRUE,
+                           module_PADLOC = TRUE,
+                           module_DefensePredictor = TRUE,
                            module_REBASEfinder = TRUE,
                            module_ISelement = TRUE,
                            module_Prophage = TRUE,
@@ -409,6 +408,8 @@ run_module_set <- function(db = NULL,
       EggNOG = isTRUE(module_EggNOG),
       CLEAN = isTRUE(module_CLEAN),
       DefenseFinder = isTRUE(module_DefenseFinder),
+      PADLOC = isTRUE(module_PADLOC),
+      DefensePredictor = isTRUE(module_DefensePredictor),
       REBASEfinder = isTRUE(module_REBASEfinder),
       GapMind = isTRUE(module_GapMind),
       MEROPS = isTRUE(module_MEROPS),
@@ -440,10 +441,10 @@ run_module_set <- function(db = NULL,
     return(list())
   }
 
-  unsupported <- setdiff(db, c("dbCAN", "MEROPS", "CLEAN", "PAZy", "GapMindAA", "GapMindCarbon", "DefenseFinder", "REBASEfinder", "ISelement", "Prophage", "EggNOG"))
+  unsupported <- setdiff(db, c("dbCAN", "MEROPS", "CLEAN", "PAZy", "GapMindAA", "GapMindCarbon", "DefenseFinder", "PADLOC", "DefensePredictor", "REBASEfinder", "ISelement", "Prophage", "EggNOG"))
   if (length(unsupported)) {
     stop(
-      "Live module execution is currently implemented only for dbCAN, MEROPS, CLEAN, PAZy, GapMind, DefenseFinder, ISelement, Prophage, and EggNOG. Unsupported module(s): ",
+      "Live module execution is currently implemented only for dbCAN, MEROPS, CLEAN, PAZy, GapMind, DefenseFinder, PADLOC, DefensePredictor, ISelement, Prophage, and EggNOG. Unsupported module(s): ",
       paste(unsupported, collapse = ", "),
       call. = FALSE
     )
@@ -455,22 +456,19 @@ run_module_set <- function(db = NULL,
 
   # DB freshness check for enabled modules
   if (isTRUE(verbose)) {
-    interproscan_version <- .dnmb_interproscan_installed_version(cache_root = module_cache_root)
-    if (!nzchar(interproscan_version)) {
-      interproscan_version <- .dnmb_interproscan_default_version(cache_root = module_cache_root)
-    }
     db_version_map <- list(
       EggNOG = list(module = "eggnog", version = "data"),
       CLEAN = list(module = "clean", version = module_version %||% "split100"),
       DefenseFinder = list(module = "defensefinder", version = module_version %||% "current"),
+      PADLOC = list(module = "padloc", version = module_version %||% "current"),
+      DefensePredictor = list(module = "defensepredictor", version = module_version %||% "current"),
       GapMindAA = list(module = "gapmind", version = "aa"),
       GapMindCarbon = list(module = "gapmind", version = "carbon"),
       MEROPS = list(module = "merops", version = module_version %||% "current"),
       dbCAN = list(module = "dbcan", version = module_version %||% "current"),
       PAZy = list(module = "pazy", version = module_version %||% "current"),
       ISelement = list(module = "iselement", version = module_version %||% "current"),
-      Prophage = list(module = "prophage", version = module_Prophage_backend %||% "phispy"),
-      InterProScan = list(module = "interproscan", version = interproscan_version)
+      Prophage = list(module = "prophage", version = module_Prophage_backend %||% "phispy")
     )
     for (mod_name in intersect(db, names(db_version_map))) {
       info <- db_version_map[[mod_name]]
@@ -584,6 +582,73 @@ run_module_set <- function(db = NULL,
       ),
       class = "dnmb_module_run"
     )
+    }
+  }
+
+  ## --- 3a. PADLOC ---
+  if ("PADLOC" %in% db) {
+    if (isTRUE(verbose)) {
+      message("[DNMB] ── PADLOC ──")
+    }
+    padloc_result <- .dnmb_module_try_run("PADLOC", function() {
+      dnmb_run_padloc_module(
+        genes = genes,
+        output_dir = .dnmb_module_output_dir("PADLOC", output_dir = output_dir),
+        version = module_version %||% .dnmb_padloc_default_version(),
+        cache_root = module_cache_root,
+        install = isTRUE(module_install),
+        cpu = as.integer(module_cpu)[1]
+      )
+    })
+    if (!isTRUE(padloc_result$ok)) {
+      warning(
+        "PADLOC module execution failed: ",
+        .dnmb_module_status_detail(padloc_result$status) %||% "unknown error",
+        call. = FALSE
+      )
+    } else {
+      runs$PADLOC <- structure(
+        list(
+          database = "PADLOC",
+          output_table = padloc_result$output_table %||% .dnmb_padloc_output_table(genes = genes, hits = padloc_result$hits),
+          hits = padloc_result$hits,
+          module_result = padloc_result
+        ),
+        class = "dnmb_module_run"
+      )
+    }
+  }
+
+  ## --- 3aa. DefensePredictor ---
+  if ("DefensePredictor" %in% db) {
+    if (isTRUE(verbose)) {
+      message("[DNMB] ── DefensePredictor ──")
+    }
+    defensepredictor_result <- .dnmb_module_try_run("DefensePredictor", function() {
+      dnmb_run_defensepredictor_module(
+        genes = genes,
+        output_dir = .dnmb_module_output_dir("DefensePredictor", output_dir = output_dir),
+        version = module_version %||% .dnmb_defensepredictor_default_version(),
+        cache_root = module_cache_root,
+        install = isTRUE(module_install)
+      )
+    })
+    if (!isTRUE(defensepredictor_result$ok)) {
+      warning(
+        "DefensePredictor module execution failed: ",
+        .dnmb_module_status_detail(defensepredictor_result$status) %||% "unknown error",
+        call. = FALSE
+      )
+    } else {
+      runs$DefensePredictor <- structure(
+        list(
+          database = "DefensePredictor",
+          output_table = defensepredictor_result$output_table %||% .dnmb_defensepredictor_output_table(genes = genes, hits = defensepredictor_result$hits),
+          hits = defensepredictor_result$hits,
+          module_result = defensepredictor_result
+        ),
+        class = "dnmb_module_run"
+      )
     }
   }
 

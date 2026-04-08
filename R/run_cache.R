@@ -111,7 +111,6 @@
   fields$installed <- if (is.null(fields$install_ok)) TRUE else isTRUE(fields$install_ok)
 
   drop_names <- c(
-    "written_at",
     "module_dir",
     "manifest_path",
     "repo_dir",
@@ -154,6 +153,12 @@
   }
   if ("DefenseFinder" %in% module_aliases) {
     signatures$DefenseFinder <- .dnmb_db_manifest_identity("defensefinder", current_version, cache_root = module_cache_root)
+  }
+  if ("PADLOC" %in% module_aliases) {
+    signatures$PADLOC <- .dnmb_db_manifest_identity("padloc", current_version, cache_root = module_cache_root)
+  }
+  if ("DefensePredictor" %in% module_aliases) {
+    signatures$DefensePredictor <- .dnmb_db_manifest_identity("defensepredictor", current_version, cache_root = module_cache_root)
   }
   if ("GapMind" %in% module_aliases) {
     signatures$GapMind <- list(
@@ -271,20 +276,11 @@
 
 .dnmb_eggnog_state <- function(wd = getwd()) {
   wd <- normalizePath(wd, winslash = "/", mustWork = FALSE)
-  candidate_dirs <- unique(c(
+  result_files <- list.files(
     wd,
-    file.path(wd, "dnmb_module_eggnog")
-  ))
-  result_files <- unlist(lapply(candidate_dirs, function(dir_path) {
-    if (!dir.exists(dir_path)) {
-      return(character(0))
-    }
-    list.files(
-      dir_path,
-      pattern = "\\.emapper\\.annotations\\.xlsx$",
-      full.names = TRUE
-    )
-  }), use.names = FALSE)
+    pattern = "\\.emapper\\.annotations\\.xlsx$",
+    full.names = TRUE
+  )
   result_files <- result_files[!grepl("(^|/|\\\\)~\\$", basename(result_files))]
 
   list(
@@ -294,23 +290,19 @@
   )
 }
 
-.dnmb_eggnog_parseable_result_files <- function(wd = getwd()) {
+.dnmb_eggnog_has_parseable_results <- function(wd = getwd()) {
   state <- .dnmb_eggnog_state(wd)
   if (!length(state$result_files)) {
-    return(character(0))
+    return(FALSE)
   }
 
-  state$result_files[vapply(state$result_files, function(path) {
+  any(vapply(state$result_files, function(path) {
     header <- tryCatch(
       names(openxlsx::read.xlsx(path, startRow = 3, rows = 3, colNames = TRUE)),
       error = function(e) character()
     )
     all(c("query", "COG_category") %in% header)
-  }, logical(1))]
-}
-
-.dnmb_eggnog_has_parseable_results <- function(wd = getwd()) {
-  length(.dnmb_eggnog_parseable_result_files(wd)) > 0L
+  }, logical(1)))
 }
 
 .dnmb_read_eggnog_signature <- function(wd = getwd()) {
@@ -344,9 +336,7 @@
   state <- .dnmb_eggnog_state(wd)
   metadata <- .dnmb_read_eggnog_signature(wd)
   has_results <- length(state$result_files) > 0L
-  parseable_files <- .dnmb_eggnog_parseable_result_files(wd)
-  parseable <- length(parseable_files) > 0L
-  source_dir <- if (parseable) dirname(parseable_files[[1]]) else NULL
+  parseable <- .dnmb_eggnog_has_parseable_results(wd)
 
   if (!is.null(metadata)) {
     saved_signature <- metadata$genbank_signature
@@ -357,7 +347,6 @@
       has_metadata = TRUE,
       matches_input = matches_input,
       result_files = state$result_files,
-      source_dir = source_dir,
       metadata_path = state$metadata_path,
       reason = if (isTRUE(matches_input)) {
         if (has_results && parseable) "matching_genbank" else if (has_results) "unparseable_results" else "results_missing"
@@ -373,7 +362,6 @@
       has_metadata = FALSE,
       matches_input = NA,
       result_files = state$result_files,
-      source_dir = source_dir,
       metadata_path = state$metadata_path,
       reason = "external_results_without_metadata"
     ))
@@ -384,7 +372,6 @@
     has_metadata = FALSE,
     matches_input = NA,
     result_files = state$result_files,
-    source_dir = source_dir,
     metadata_path = state$metadata_path,
     reason = if (has_results && !parseable) "unparseable_results" else if (has_results) "results_without_metadata" else "missing_results"
   )
@@ -499,12 +486,3 @@
     reason = if (has_output_results || has_root_results) "results_without_metadata" else "missing_results"
   )
 }
-#' Internal DNMB cache and signature helpers
-#'
-#' Signature, reuse, preservation, and cache-state helpers used to decide when
-#' DNMB can safely reuse previous analysis outputs.
-#'
-#' @name dnmb_internal_run_cache
-#' @keywords internal
-#' @noRd
-NULL

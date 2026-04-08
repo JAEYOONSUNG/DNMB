@@ -1164,12 +1164,3 @@
       plot.margin = ggplot2::margin(4, 2, 4, 2)
     )
 }
-#' Internal REBASEfinder plotting helpers
-#'
-#' Plot-construction routines for REBASEfinder overview figures rendered by
-#' DNMB.
-#'
-#' @name dnmb_internal_plot_rebasefinder
-#' @keywords internal
-#' @noRd
-NULL

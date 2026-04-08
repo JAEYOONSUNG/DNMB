@@ -124,12 +124,4 @@
   .dnmb_module_plot_save(p, pdf_path = pdf_path, width = 14, height = max(5, 3.2 * length(unique(tbl$dbcan_cgc_id))))
   list(pdf = pdf_path)
 }
-#' Internal dbCAN plotting helpers
-#'
-#' Plot-construction routines for the dbCAN overview figures rendered by DNMB.
-#'
-#' @name dnmb_internal_plot_dbcan
-#' @keywords internal
-#' @noRd
-NULL
 

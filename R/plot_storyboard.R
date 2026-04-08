@@ -1627,13 +1627,4 @@
   )
   p
 }
-#' Internal storyboard plotting helpers
-#'
-#' Shared storyboard-style layout and annotation helpers used by DNMB plotting
-#' routines.
-#'
-#' @name dnmb_internal_plot_storyboard
-#' @keywords internal
-#' @noRd
-NULL
 

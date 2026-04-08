@@ -564,12 +564,4 @@
   .dnmb_module_plot_save(p, pdf_path, width = 16, height = 20)
   list(pdf = pdf_path)
 }
-#' Internal GapMind carbon plotting helpers
-#'
-#' Plot-construction routines for GapMind carbon pathway overview figures.
-#'
-#' @name dnmb_internal_plot_gapmind_carbon
-#' @keywords internal
-#' @noRd
-NULL
 

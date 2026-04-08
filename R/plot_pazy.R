@@ -2139,11 +2139,3 @@
   .dnmb_module_plot_save(p, pdf_path, width = 14, height = 8)
   list(pdf = pdf_path)
 }
-#' Internal PAZy plotting helpers
-#'
-#' Plot-construction routines for PAZy overview figures rendered by DNMB.
-#'
-#' @name dnmb_internal_plot_pazy
-#' @keywords internal
-#' @noRd
-NULL

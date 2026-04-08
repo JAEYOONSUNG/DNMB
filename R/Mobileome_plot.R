@@ -10,9 +10,6 @@
 #' @param prefix Prefix used for the generated plot filenames.
 #' @param width Plot width in inches.
 #' @param height Plot height in inches.
-#' @param min_contig_fraction Minimum displayed contig width as a fraction of
-#'   the largest contig, used to keep short plasmids and small replicons
-#'   visible in the layout.
 #'
 #' @return An invisible list containing the plot objects and saved file paths.
 #' @export

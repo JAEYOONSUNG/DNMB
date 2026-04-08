@@ -1,35 +1,12 @@
-#' Write the DNMB Excel workbook
+#' Result DNMB table
 #'
-#' Builds the main DNMB workbook from the active analysis tables and saves it as
-#' `*_total.xlsx` in `save_dir`.
-#'
-#' When an argument is set to `TRUE`, the function loads the corresponding
-#' object from the global environment. When a data frame is supplied directly,
-#' that object is written instead.
-#'
-#' @param genbank_table Main DNMB locus-level table or `TRUE` to use the active
-#'   `genbank_table` from the global environment.
-#' @param EggNOG_table Optional EggNOG annotation table or `TRUE` to load the
-#'   active `EggNOG_table`.
-#' @param InterProScan_table Reserved for backward compatibility. InterProScan
-#'   results are expected to be merged into `genbank_table` before export.
-#' @param InterProScan_site Optional InterProScan site table or `TRUE` to load
-#'   the active `InterProScan_site` object.
-#' @param codon_usage Codon-usage summary table or `TRUE` to load the active
-#'   `codon_usage` object.
-#' @param tRNA_anticodon tRNA anticodon summary table or `TRUE` to load the
-#'   active `tRNA_anticodon` object.
-#' @param tRNA_distribution tRNA distribution table or `TRUE` to load the
-#'   active `tRNA_distribution` object.
-#' @param RBS_table Ribosome-binding-site table or `TRUE` to load the active
-#'   `RBS_table` object.
-#' @param CRISPR_by_spacer CRISPR spacer table or `TRUE` to load the active
-#'   `CRISPR_by_spacer` object.
-#' @param save_dir Directory where the workbook should be written. Defaults to
-#'   the current working directory.
-#'
-#' @return Invisibly returns `NULL`. The workbook is written to disk.
+#' @param gb_table A data frame containing the data.
+#' @param InterPro_search Logical, whether to include p-values for means.
+#' @param InterPro_site Logical, whether to include p-values for medians.
+#' @param codon Logical, whether to use chi-square test for categorical variables.
+#' @return A data frame containing the baseline table.
 #' @export
+#'
 
 DNMB_table <- function(
     genbank_table = TRUE,
@@ -259,7 +236,7 @@ DNMB_table <- function(
   gb_files <- list.files(gb_dir, pattern = "\\.gbk$|\\.gb$|\\.gbff$", full.names = FALSE)
   gb_files <- gb_files[!grepl("^~\\$", gb_files)]
 
-  file_name <- paste0(qdap::beg2char(gb_files, "."), "_total.xlsx")
+  file_name <- paste0(.dnmb_beg2char(gb_files, "."), "_total.xlsx")
   save_path <- file.path(save_dir, file_name)
 
   # Save the workbook
@@ -402,7 +379,7 @@ dnmb_order_genbank_table_for_output <- function(genbank_table) {
 }
 
 dnmb_supported_module_prefixes <- function() {
-  c("CLEAN", "GapMindAA", "GapMindCarbon", "GapMind", "DefenseFinder", "ISelement", "Prophage", "dbCAN", "MEROPS", "PAZy")
+  c("CLEAN", "GapMindAA", "GapMindCarbon", "GapMind", "DefenseFinder", "PADLOC", "DefensePredictor", "ISelement", "Prophage", "dbCAN", "MEROPS", "PAZy")
 }
 
 dnmb_module_prefix_order <- function(genbank_table) {
@@ -546,6 +523,42 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "hit_seq_cov",
       "support"
     ),
+    PADLOC = c(
+      "system",
+      "system_number",
+      "protein_name",
+      "target_description",
+      "hmm_accession",
+      "hmm_name",
+      "full_seq_evalue",
+      "domain_ievalue",
+      "target_coverage",
+      "hmm_coverage",
+      "relative_position",
+      "seqid",
+      "support"
+    ),
+    DefensePredictor = c(
+      "score_band",
+      "mean_log_odds",
+      "sd_log_odds",
+      "min_log_odds",
+      "max_log_odds",
+      "protein_context_id",
+      "product_accession",
+      "genomic_accession",
+      "name",
+      "symbol",
+      "feature_class",
+      "feature_interval_length",
+      "product_length",
+      "assembly",
+      "assembly_unit",
+      "seq_type",
+      "chromosome",
+      "attributes",
+      "support"
+    ),
     ISelement = c(
       "element_id",
       "element_type",
@@ -590,6 +603,8 @@ dnmb_build_module_details_table <- function(genbank_table) {
     dnmb_module_details_gapmind_full(out, base_cols, version = "carbon", label = "GapMindCarbon"),
     dnmb_module_details_gapmind(out, base_cols, prefix = "GapMind", label = "GapMind"),
     dnmb_module_details_defensefinder(out, base_cols),
+    dnmb_module_details_padloc(out, base_cols),
+    dnmb_module_details_defensepredictor(out, base_cols),
     dnmb_module_details_iselement(out, base_cols),
     dnmb_module_details_prophage(out, base_cols),
     dnmb_module_details_dbcan(out, base_cols),
@@ -637,6 +652,9 @@ dnmb_module_detail_order <- function(genbank_table) {
     GapMindCarbon = "GapMindCarbon",
     GapMind = "GapMind",
     DefenseFinder = "DefenseFinder",
+    PADLOC = "PADLOC",
+    DefensePredictor = "DefensePredictor",
+    REBASEfinder = "REBASE",
     ISelement = "ISelement",
     Prophage = "Prophage",
     dbCAN = "dbCAN",
@@ -812,7 +830,7 @@ dnmb_module_details_rebasefinder <- function(genbank_table, base_cols) {
   if (!any(keep)) return(data.frame())
   base <- dnmb_module_detail_base(genbank_table, base_cols, keep)
   out <- dnmb_module_detail_template(base)
-  out$module_category <- "REBASEfinder"
+  out$module_category <- "REBASE"
   out$primary_call <- as.character(genbank_table$REBASEfinder_family_id[keep])
   out$reference_id <- dnmb_detail_join(
     if ("REBASEfinder_hit_label" %in% names(genbank_table)) as.character(genbank_table$REBASEfinder_hit_label[keep]) else NA_character_,
@@ -829,6 +847,77 @@ dnmb_module_details_rebasefinder <- function(genbank_table, base_cols) {
   out$context_summary <- dnmb_detail_join(
     if ("REBASEfinder_enzyme_role" %in% names(genbank_table)) paste0("role=", as.character(genbank_table$REBASEfinder_enzyme_role[keep])) else NA_character_,
     if ("REBASEfinder_operon_id" %in% names(genbank_table)) paste0("operon=", as.character(genbank_table$REBASEfinder_operon_id[keep])) else NA_character_
+  )
+  out
+}
+
+dnmb_module_details_padloc <- function(genbank_table, base_cols) {
+  label_col <- if ("PADLOC_system" %in% names(genbank_table)) genbank_table$PADLOC_system else NULL
+  if (is.null(label_col)) {
+    return(data.frame())
+  }
+  keep <- !is.na(label_col) & nzchar(label_col)
+  if (!any(keep)) {
+    return(data.frame())
+  }
+  base <- dnmb_module_detail_base(genbank_table, base_cols, keep)
+  out <- dnmb_module_detail_template(base)
+  out$module_category <- "PADLOC"
+  out$primary_call <- as.character(genbank_table$PADLOC_system[keep])
+  out$reference_id <- dnmb_detail_join(
+    if ("PADLOC_system_number" %in% names(genbank_table)) paste0("system=", as.character(genbank_table$PADLOC_system_number[keep])) else NA_character_,
+    if ("PADLOC_hmm_accession" %in% names(genbank_table)) paste0("hmm=", as.character(genbank_table$PADLOC_hmm_accession[keep])) else NA_character_,
+    if ("PADLOC_protein_name" %in% names(genbank_table)) paste0("protein=", as.character(genbank_table$PADLOC_protein_name[keep])) else NA_character_
+  )
+  out$significance <- dnmb_detail_join(
+    dnmb_detail_key_value("full_e", if ("PADLOC_full_seq_evalue" %in% names(genbank_table)) genbank_table$PADLOC_full_seq_evalue[keep] else NA, digits = 3),
+    dnmb_detail_key_value("domain_iE", if ("PADLOC_domain_ievalue" %in% names(genbank_table)) genbank_table$PADLOC_domain_ievalue[keep] else NA, digits = 3)
+  )
+  out$score_summary <- dnmb_detail_join(
+    dnmb_detail_key_value("target_cov", if ("PADLOC_target_coverage" %in% names(genbank_table)) genbank_table$PADLOC_target_coverage[keep] else NA, digits = 3),
+    dnmb_detail_key_value("hmm_cov", if ("PADLOC_hmm_coverage" %in% names(genbank_table)) genbank_table$PADLOC_hmm_coverage[keep] else NA, digits = 3),
+    dnmb_detail_key_value("rel_pos", if ("PADLOC_relative_position" %in% names(genbank_table)) genbank_table$PADLOC_relative_position[keep] else NA, digits = 0)
+  )
+  out$context_summary <- dnmb_detail_join(
+    if ("PADLOC_target_description" %in% names(genbank_table)) as.character(genbank_table$PADLOC_target_description[keep]) else NA_character_,
+    if ("PADLOC_support" %in% names(genbank_table)) as.character(genbank_table$PADLOC_support[keep]) else NA_character_
+  )
+  out
+}
+
+dnmb_module_details_defensepredictor <- function(genbank_table, base_cols) {
+  label_col <- if ("DefensePredictor_mean_log_odds" %in% names(genbank_table)) genbank_table$DefensePredictor_mean_log_odds else NULL
+  if (is.null(label_col)) {
+    return(data.frame())
+  }
+  keep <- !is.na(label_col)
+  if (!any(keep)) {
+    return(data.frame())
+  }
+  base <- dnmb_module_detail_base(genbank_table, base_cols, keep)
+  out <- dnmb_module_detail_template(base)
+  out$module_category <- "DefensePredictor"
+  out$primary_call <- if ("DefensePredictor_score_band" %in% names(genbank_table)) as.character(genbank_table$DefensePredictor_score_band[keep]) else "DefensePredictor"
+  out$reference_id <- dnmb_detail_join(
+    if ("DefensePredictor_product_accession" %in% names(genbank_table)) paste0("product_accession=", as.character(genbank_table$DefensePredictor_product_accession[keep])) else NA_character_,
+    if ("DefensePredictor_protein_context_id" %in% names(genbank_table)) paste0("context=", as.character(genbank_table$DefensePredictor_protein_context_id[keep])) else NA_character_
+  )
+  out$significance <- dnmb_detail_join(
+    dnmb_detail_key_value("mean", if ("DefensePredictor_mean_log_odds" %in% names(genbank_table)) genbank_table$DefensePredictor_mean_log_odds[keep] else NA, digits = 3),
+    dnmb_detail_key_value("sd", if ("DefensePredictor_sd_log_odds" %in% names(genbank_table)) genbank_table$DefensePredictor_sd_log_odds[keep] else NA, digits = 3)
+  )
+  out$score_summary <- dnmb_detail_join(
+    dnmb_detail_key_value("min", if ("DefensePredictor_min_log_odds" %in% names(genbank_table)) genbank_table$DefensePredictor_min_log_odds[keep] else NA, digits = 3),
+    dnmb_detail_key_value("max", if ("DefensePredictor_max_log_odds" %in% names(genbank_table)) genbank_table$DefensePredictor_max_log_odds[keep] else NA, digits = 3)
+  )
+  out$alignment_summary <- dnmb_detail_join(
+    dnmb_detail_key_value("feature_nt", if ("DefensePredictor_feature_interval_length" %in% names(genbank_table)) genbank_table$DefensePredictor_feature_interval_length[keep] else NA, digits = 0),
+    dnmb_detail_key_value("aa_len", if ("DefensePredictor_product_length" %in% names(genbank_table)) genbank_table$DefensePredictor_product_length[keep] else NA, digits = 0)
+  )
+  out$context_summary <- dnmb_detail_join(
+    if ("DefensePredictor_name" %in% names(genbank_table)) paste0("name=", as.character(genbank_table$DefensePredictor_name[keep])) else NA_character_,
+    if ("DefensePredictor_symbol" %in% names(genbank_table)) paste0("symbol=", as.character(genbank_table$DefensePredictor_symbol[keep])) else NA_character_,
+    if ("DefensePredictor_support" %in% names(genbank_table)) as.character(genbank_table$DefensePredictor_support[keep]) else NA_character_
   )
   out
 }
@@ -1235,6 +1324,12 @@ dnmb_header_group_for_column <- function(column_name) {
   if (grepl("^DefenseFinder_", column_name)) {
     return("DefenseFinder")
   }
+  if (grepl("^PADLOC_", column_name)) {
+    return("PADLOC")
+  }
+  if (grepl("^DefensePredictor_", column_name)) {
+    return("DefensePredictor")
+  }
   if (grepl("^ISelement_", column_name)) {
     return("ISelement")
   }
@@ -1301,6 +1396,30 @@ dnmb_header_group_styles <- function() {
       valign = "center",
       border = "Bottom",
       borderColour = "#7A67AF"
+    ),
+    PADLOC = openxlsx::createStyle(
+      fgFill = "#FDE9D9",
+      textDecoration = "bold",
+      halign = "center",
+      valign = "center",
+      border = "Bottom",
+      borderColour = "#CC7A29"
+    ),
+    DefensePredictor = openxlsx::createStyle(
+      fgFill = "#F8DDEA",
+      textDecoration = "bold",
+      halign = "center",
+      valign = "center",
+      border = "Bottom",
+      borderColour = "#B34B7F"
+    ),
+    REBASE = openxlsx::createStyle(
+      fgFill = "#E8F2EA",
+      textDecoration = "bold",
+      halign = "center",
+      valign = "center",
+      border = "Bottom",
+      borderColour = "#4F8A61"
     ),
     ISelement = openxlsx::createStyle(
       fgFill = "#E2F1EC",

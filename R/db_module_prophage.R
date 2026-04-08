@@ -85,21 +85,6 @@
   )
 }
 
-.dnmb_prophage_resolve_cli <- function(layout) {
-  candidates <- c(layout$cli_path, dnmb_detect_binary("PhiSpy.py", required = FALSE)$path)
-  candidates <- unique(candidates[base::nzchar(candidates)])
-  for (candidate in candidates) {
-    if (!base::file.exists(candidate)) {
-      next
-    }
-    run <- dnmb_run_external(candidate, args = "--help", required = FALSE)
-    if (base::isTRUE(run$ok)) {
-      return(candidate)
-    }
-  }
-  ""
-}
-
 .dnmb_prophage_candidate_python <- function() {
   # Prefer Homebrew python on Apple Silicon to avoid conda x86 compiler issues
   homebrew_candidates <- c(
@@ -559,10 +544,9 @@ dnmb_prophage_install_module <- function(version = .dnmb_prophage_default_versio
 
   if (!base::isTRUE(install)) {
     manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
-    cli_path <- .dnmb_prophage_resolve_cli(layout)
-    ready <- !base::is.null(manifest) && base::isTRUE(manifest$install_ok) && base::nzchar(cli_path)
+    ready <- !base::is.null(manifest) && base::isTRUE(manifest$install_ok) && base::file.exists(layout$cli_path)
     if (ready) {
-      return(list(ok = TRUE, status = .dnmb_prophage_status_row("prophage_install", "cached", module_dir), files = list(cli = cli_path, env_python = layout$env_python), manifest = manifest))
+      return(list(ok = TRUE, status = .dnmb_prophage_status_row("prophage_install", "cached", module_dir), files = list(cli = layout$cli_path, env_python = layout$env_python), manifest = manifest))
     }
     return(list(ok = FALSE, status = .dnmb_prophage_status_row("prophage_install", "missing", "PhiSpy is missing and module_install is FALSE."), files = list(), manifest = NULL))
   }
@@ -608,15 +592,13 @@ dnmb_prophage_get_module <- function(version = .dnmb_prophage_default_version(),
     }
     return(list(ok = FALSE, manifest = NULL))
   }
-  layout <- .dnmb_prophage_asset_layout(.dnmb_db_module_dir(.dnmb_prophage_module_name(), version, cache_root = cache_root, create = FALSE))
-  cli_path <- .dnmb_prophage_resolve_cli(layout)
   list(
     ok = TRUE,
     manifest = manifest,
     files = list(
-      cli = cli_path,
-      env_python = layout$env_python,
-      repo_dir = layout$repo_dir
+      cli = manifest$cli_path,
+      env_python = manifest$env_python,
+      repo_dir = manifest$repo_dir
     )
   )
 }
@@ -3208,12 +3190,3 @@ dnmb_run_prophage_module <- function(genes,
   }
   result
 }
-#' Internal prophage module helpers
-#'
-#' Backend orchestration, parsing, summarization, and cache helpers for the
-#' DNMB prophage workflow.
-#'
-#' @name dnmb_internal_prophage_module
-#' @keywords internal
-#' @noRd
-NULL

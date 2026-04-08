@@ -99,9 +99,9 @@ DefenseFinder_Heatmap <- function(
   }
 
   if (any(grepl("^(GCA_|GCF_)", analysis_list))){
-    names(defense_finder) <- analysis_list %>% qdap::beg2char(.,char="\\.", noc =2) # naming check
+    names(defense_finder) <- analysis_list %>% .dnmb_beg2char(char="\\.", noc =2) # naming check
   } else{
-    names(defense_finder) <- analysis_list %>% qdap::beg2char(.,char="\\.", noc =2) # naming check
+    names(defense_finder) <- analysis_list %>% .dnmb_beg2char(char="\\.", noc =2) # naming check
   }
 
   # data.frame

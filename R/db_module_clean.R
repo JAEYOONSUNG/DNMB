@@ -103,6 +103,20 @@
   asset_urls
 }
 
+.dnmb_clean_trace <- function(path, text) {
+  if (is.null(path) || !nzchar(path)) {
+    return(invisible(NULL))
+  }
+  cat(paste0(text, "\n"), file = path, append = TRUE)
+  invisible(NULL)
+}
+
+.dnmb_clean_emit <- function(text, trace_log = NULL) {
+  message(text)
+  .dnmb_clean_trace(trace_log, sprintf("[%s] %s", Sys.time(), text))
+  invisible(NULL)
+}
+
 .dnmb_clean_prepare_repo <- function(layout,
                                      repo_source = .dnmb_clean_default_base_url(),
                                      force = FALSE,
@@ -261,10 +275,6 @@
     ))
   }
 
-  if (dir.exists(layout$env_dir)) {
-    unlink(layout$env_dir, recursive = TRUE, force = TRUE)
-  }
-
   if (!isTRUE(install)) {
     return(list(
       status = .dnmb_clean_status_row("clean_python", "missing", "CLEAN Python environment is missing."),
@@ -273,7 +283,6 @@
     ))
   }
 
-  py_candidates <- .dnmb_clean_candidate_python_paths()
   install_with_env_python <- function(env_python) {
     install_cmds <- list(
       list(command = env_python, args = c("-m", "pip", "install", "--upgrade", "pip"), wd = NULL),
@@ -317,6 +326,7 @@
     }
   }
 
+  py_candidates <- .dnmb_clean_candidate_python_paths()
   if (!length(py_candidates)) {
     return(list(
       status = .dnmb_clean_status_row("clean_python", "failed", conda_error %||% "No usable Python or conda installation found."),
@@ -473,6 +483,12 @@ dnmb_clean_install_module <- function(version = .dnmb_clean_default_version(),
     pretrained_bundle_url = pretrained_bundle_url
   )
   dnmb_db_write_manifest(module, version, manifest = manifest, cache_root = cache_root, overwrite = TRUE)
+  .dnmb_db_autoprune_default_versions(
+    module = module,
+    version = version,
+    default_version = .dnmb_clean_default_version(),
+    cache_root = cache_root
+  )
 
   list(
     ok = ready,
@@ -502,10 +518,10 @@ dnmb_clean_resolve_module <- function(version = .dnmb_clean_default_version(),
   layout <- .dnmb_clean_asset_layout(manifest$module_dir)
   list(
     module_dir = manifest$module_dir,
-    repo_dir = if (dir.exists(layout$repo_dir)) layout$repo_dir else (manifest$repo_dir %||% layout$repo_dir),
-    app_dir = if (dir.exists(layout$app_dir)) layout$app_dir else (manifest$app_dir %||% layout$app_dir),
-    env_python = if (file.exists(layout$env_python)) layout$env_python else (manifest$env_python %||% layout$env_python),
-    pretrained_dir = if (dir.exists(layout$pretrained_dir)) layout$pretrained_dir else (manifest$pretrained_dir %||% layout$pretrained_dir),
+    repo_dir = manifest$repo_dir %||% layout$repo_dir,
+    app_dir = manifest$app_dir %||% layout$app_dir,
+    env_python = manifest$env_python %||% layout$env_python,
+    pretrained_dir = manifest$pretrained_dir %||% layout$pretrained_dir,
     results_dir = layout$results_dir,
     inputs_dir = layout$inputs_dir,
     infer_script = layout$infer_script,
@@ -764,113 +780,6 @@ dnmb_clean_parse_pvalue_details <- function(path) {
   )
 }
 
-.dnmb_clean_stage_output_paths <- function(output_dir, sample_name) {
-  list(
-    maxsep_csv = file.path(output_dir, "clean_maxsep.csv"),
-    pvalue_tsv = file.path(output_dir, "clean_pvalue_details.tsv"),
-    hits_tsv = file.path(output_dir, "clean_hits.tsv"),
-    output_table_tsv = file.path(output_dir, "clean_output_table.tsv")
-  )
-}
-
-.dnmb_clean_output_signature_path <- function(output_dir) {
-  file.path(output_dir, ".clean_input_signature.rds")
-}
-
-.dnmb_clean_compute_output_signature <- function(fasta_path, version) {
-  if (is.null(fasta_path) || !nzchar(fasta_path) || !file.exists(fasta_path)) {
-    return(NULL)
-  }
-  list(
-    version = as.character(version)[1],
-    fasta_md5 = as.character(tools::md5sum(fasta_path)[[1]])
-  )
-}
-
-.dnmb_clean_read_output_signature <- function(output_dir) {
-  path <- .dnmb_clean_output_signature_path(output_dir)
-  if (!file.exists(path)) {
-    return(NULL)
-  }
-  tryCatch(readRDS(path), error = function(e) NULL)
-}
-
-.dnmb_clean_write_output_signature <- function(output_dir, signature) {
-  if (is.null(signature)) {
-    return(invisible(NULL))
-  }
-  saveRDS(signature, .dnmb_clean_output_signature_path(output_dir))
-  invisible(.dnmb_clean_output_signature_path(output_dir))
-}
-
-.dnmb_clean_outputs_reusable <- function(output_dir, fasta_path, version) {
-  staged <- .dnmb_clean_stage_output_paths(output_dir, sample_name = "")
-  signature <- .dnmb_clean_compute_output_signature(fasta_path, version = version)
-  previous <- .dnmb_clean_read_output_signature(output_dir)
-  if (is.null(signature) || is.null(previous)) {
-    return(FALSE)
-  }
-  identical(signature, previous) && file.exists(staged$maxsep_csv)
-}
-
-.dnmb_clean_load_staged_outputs <- function(output_dir, genes) {
-  staged <- .dnmb_clean_stage_output_paths(output_dir, sample_name = "")
-  hits <- if (file.exists(staged$maxsep_csv)) dnmb_clean_parse_maxsep(staged$maxsep_csv) else .dnmb_module_empty_optional_long_table()
-  pvalue_hits <- if (file.exists(staged$pvalue_tsv)) dnmb_clean_parse_pvalue_details(staged$pvalue_tsv) else data.frame()
-  if (nrow(pvalue_hits)) {
-    hits <- dplyr::left_join(hits, pvalue_hits, by = "query")
-  }
-  list(
-    staged = staged,
-    hits = hits,
-    output_table = .dnmb_clean_output_table(genes = genes, hits = hits)
-  )
-}
-
-.dnmb_clean_copy_run_outputs <- function(output_dir,
-                                         result_csv = NULL,
-                                         pvalue_path = NULL,
-                                         hits = NULL,
-                                         output_table = NULL,
-                                         sample_name = NULL) {
-  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-  staged <- .dnmb_clean_stage_output_paths(output_dir, sample_name)
-
-  if (!is.null(result_csv) && nzchar(result_csv) && file.exists(result_csv)) {
-    file.copy(result_csv, staged$maxsep_csv, overwrite = TRUE)
-  }
-  if (!is.null(pvalue_path) && nzchar(pvalue_path) && file.exists(pvalue_path)) {
-    file.copy(pvalue_path, staged$pvalue_tsv, overwrite = TRUE)
-  }
-  if (is.data.frame(hits) && nrow(hits)) {
-    utils::write.table(hits, file = staged$hits_tsv, sep = "\t", row.names = FALSE, quote = FALSE)
-  }
-  if (is.data.frame(output_table) && nrow(output_table)) {
-    utils::write.table(output_table, file = staged$output_table_tsv, sep = "\t", row.names = FALSE, quote = FALSE)
-  }
-
-  staged
-}
-
-.dnmb_clean_cleanup_runtime_files <- function(module, sample_name) {
-  if (is.null(module) || is.null(sample_name) || !nzchar(sample_name)) {
-    return(invisible(NULL))
-  }
-
-  cleanup_paths <- unique(c(
-    file.path(module$inputs_dir, paste0(sample_name, ".fasta")),
-    file.path(module$inputs_dir, paste0(sample_name, ".csv")),
-    file.path(module$inputs_dir, paste0(sample_name, "_new.fasta")),
-    file.path(module$results_dir, paste0(sample_name, "_maxsep.csv")),
-    file.path(module$results_dir, paste0(sample_name, "_pvalue_details.tsv"))
-  ))
-  existing <- cleanup_paths[file.exists(cleanup_paths)]
-  if (length(existing)) {
-    unlink(existing, force = TRUE)
-  }
-  invisible(existing)
-}
-
 .dnmb_clean_merge_prediction_strings <- function(maxsep_predictions, pvalue_predictions) {
   if (is.null(maxsep_predictions)) maxsep_predictions <- character(0)
   if (is.null(pvalue_predictions)) pvalue_predictions <- character(0)
@@ -1013,6 +922,7 @@ dnmb_run_clean_module <- function(genes,
                                   genbank = NULL) {
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   trace_log <- file.path(output_dir, "clean_module_trace.log")
+  .dnmb_clean_trace(trace_log, sprintf("[%s] CLEAN run started", Sys.time()))
   fasta_path <- file.path(output_dir, "clean_query_proteins.faa")
   existing_faa <- dnmb_resolve_query_faa(genbank = genbank, output_dir = output_dir, fallback_filename = basename(fasta_path))
   if (!is.null(existing_faa) && .dnmb_can_reuse_query_fasta(existing_faa, genes)) {
@@ -1032,28 +942,6 @@ dnmb_run_clean_module <- function(genes,
       manifest = NULL,
       raw_hits = data.frame(),
       hits = .dnmb_module_empty_optional_long_table(),
-      query_proteins = fasta$proteins
-    ))
-  }
-
-  if (.dnmb_clean_outputs_reusable(output_dir, fasta_path = fasta_path, version = version)) {
-    reused <- .dnmb_clean_load_staged_outputs(output_dir, genes = genes)
-    status <- dplyr::bind_rows(status, .dnmb_clean_status_row("clean_reuse", "cached", reused$staged$maxsep_csv))
-    return(list(
-      ok = TRUE,
-      status = status,
-      files = list(
-        query_fasta = fasta_path,
-        clean_result_csv = reused$staged$maxsep_csv,
-        clean_pvalue_tsv = if (file.exists(reused$staged$pvalue_tsv)) reused$staged$pvalue_tsv else NA_character_,
-        clean_hits_tsv = if (file.exists(reused$staged$hits_tsv)) reused$staged$hits_tsv else NA_character_,
-        clean_output_table_tsv = if (file.exists(reused$staged$output_table_tsv)) reused$staged$output_table_tsv else NA_character_,
-        trace_log = trace_log
-      ),
-      manifest = dnmb_db_read_manifest(.dnmb_clean_module_name(), version, cache_root = cache_root, required = FALSE),
-      raw_hits = reused$hits,
-      hits = reused$hits,
-      output_table = reused$output_table,
       query_proteins = fasta$proteins
     ))
   }
@@ -1079,13 +967,11 @@ dnmb_run_clean_module <- function(genes,
   }
 
   module <- dnmb_clean_resolve_module(version = version, cache_root = cache_root, required = TRUE)
-  clean_signature <- .dnmb_clean_compute_output_signature(fasta_path, version = version)
-  sample_name <- paste0("dnmb_clean_", substr(clean_signature$fasta_md5 %||% format(Sys.time(), "%Y%m%d%H%M%S"), 1L, 12L))
+  sample_name <- paste0("dnmb_clean_", format(Sys.time(), "%Y%m%d%H%M%S"))
   target_fasta <- file.path(module$inputs_dir, paste0(sample_name, ".fasta"))
   dir.create(module$inputs_dir, recursive = TRUE, showWarnings = FALSE)
   dir.create(module$results_dir, recursive = TRUE, showWarnings = FALSE)
   file.copy(fasta_path, target_fasta, overwrite = TRUE)
-  on.exit(.dnmb_clean_cleanup_runtime_files(module, sample_name = sample_name), add = TRUE)
 
   # --- Optimized ESM embedding: skip already-computed .pt files ---
   esm_data_dir <- file.path(module$app_dir, "data", "esm_data")
@@ -1131,9 +1017,13 @@ dnmb_run_clean_module <- function(genes,
       }
     }
     writeLines(subset_lines, subset_fasta)
-    message(sprintf("[CLEAN] ESM embedding: %d/%d proteins cached, computing %d new (toks_per_batch=%s, threads=%d)",
-                    length(all_ids) - length(new_ids), length(all_ids), length(new_ids), toks_batch, n_threads))
+    .dnmb_clean_emit(sprintf("[CLEAN] ESM embedding: %d/%d proteins cached, computing %d new (toks_per_batch=%s, threads=%d)",
+                    length(all_ids) - length(new_ids), length(all_ids), length(new_ids), toks_batch, n_threads), trace_log)
+    if (length(new_ids) >= 500L) {
+      .dnmb_clean_emit(sprintf("[CLEAN] Large uncached set detected (%d proteins). CPU-only ESM extraction can take hours.", length(new_ids)), trace_log)
+    }
 
+    esm_started <- Sys.time()
     esm_command <- dnmb_run_external(
       module$env_python,
       args = c(
@@ -1150,12 +1040,20 @@ dnmb_run_clean_module <- function(genes,
       required = FALSE,
       stream_stderr = TRUE
     )
+    .dnmb_clean_trace(
+      trace_log,
+      sprintf("[%s] CLEAN ESM extract finished in %.1f min (ok=%s)", Sys.time(), as.numeric(difftime(Sys.time(), esm_started, units = "mins")), isTRUE(esm_command$ok))
+    )
     unlink(subset_fasta, force = TRUE)
   } else if (length(new_ids) == 0L) {
-    message(sprintf("[CLEAN] ESM embedding: all %d proteins cached, skipping extract.py", length(all_ids)))
+    .dnmb_clean_emit(sprintf("[CLEAN] ESM embedding: all %d proteins cached, skipping extract.py", length(all_ids)), trace_log)
   } else {
     # All new — run on full FASTA with optimized params
-    message(sprintf("[CLEAN] ESM embedding: computing %d proteins (toks_per_batch=%s, threads=%d)", length(all_ids), toks_batch, n_threads))
+    .dnmb_clean_emit(sprintf("[CLEAN] ESM embedding: computing %d proteins (toks_per_batch=%s, threads=%d)", length(all_ids), toks_batch, n_threads), trace_log)
+    if (length(all_ids) >= 500L) {
+      .dnmb_clean_emit(sprintf("[CLEAN] No reusable ESM cache detected for %d proteins. CPU-only ESM extraction can take hours.", length(all_ids)), trace_log)
+    }
+    esm_started <- Sys.time()
     esm_command <- dnmb_run_external(
       module$env_python,
       args = c(
@@ -1172,41 +1070,21 @@ dnmb_run_clean_module <- function(genes,
       required = FALSE,
       stream_stderr = TRUE
     )
+    .dnmb_clean_trace(
+      trace_log,
+      sprintf("[%s] CLEAN ESM extract finished in %.1f min (ok=%s)", Sys.time(), as.numeric(difftime(Sys.time(), esm_started, units = "mins")), isTRUE(esm_command$ok))
+    )
   }
 
   # --- Run CLEAN inference (embeddings already computed above) ---
   # Write a wrapper that skips ESM re-extraction and goes straight to inference
   wrapper_path <- file.path(module$app_dir, paste0("_dnmb_infer_", sample_name, ".py"))
   writeLines(c(
-    "import os, sys, csv, pickle",
-    "import numpy as np",
-    "import CLEAN.infer as clean_infer",
+    "import os, sys, csv",
+    "from CLEAN.infer import infer_maxsep",
     "",
     paste0("test_data = 'inputs/", sample_name, "'"),
     "train_data = 'split100'",
-    "",
-    "def patched_write_max_sep_choices(df, csv_name, first_grad=True, use_max_grad=False, gmm=None):",
-    "    out_file = open(csv_name + '_maxsep.csv', 'w', newline='')",
-    "    csvwriter = csv.writer(out_file, delimiter=',')",
-    "    for col in df.columns:",
-    "        ec = []",
-    "        smallest_10_dist_df = df[col].nsmallest(10)",
-    "        dist_lst = list(smallest_10_dist_df)",
-    "        max_sep_i = clean_infer.maximum_separation(dist_lst, first_grad, use_max_grad)",
-    "        for i in range(max_sep_i + 1):",
-    "            EC_i = smallest_10_dist_df.index[i]",
-    "            dist_i = smallest_10_dist_df.iloc[i]",
-    "            if gmm is not None:",
-    "                gmm_lst = pickle.load(open(gmm, 'rb'))",
-    "                dist_i = clean_infer.infer_confidence_gmm(dist_i, gmm_lst)",
-    "            dist_str = '{:.4f}'.format(dist_i)",
-    "            ec.append('EC:' + str(EC_i) + '/' + dist_str)",
-    "        ec.insert(0, col)",
-    "        csvwriter.writerow(ec)",
-    "    out_file.close()",
-    "    return",
-    "",
-    "clean_infer.write_max_sep_choices = patched_write_max_sep_choices",
     "",
     "# Write dummy CSV (ESM embeddings already exist)",
     "csvfile = open('./data/' + test_data + '.csv', 'w', newline='')",
@@ -1228,17 +1106,23 @@ dnmb_run_clean_module <- function(genes,
     "csvfile.close()",
     "fastafile.close()",
     "",
-    "clean_infer.infer_maxsep(train_data, test_data, report_metrics=False, pretrained=True, gmm='./data/pretrained/gmm_ensumble.pkl')",
+    "infer_maxsep(train_data, test_data, report_metrics=False, pretrained=True, gmm='./data/pretrained/gmm_ensumble.pkl')",
     "os.remove('./data/' + test_data + '.csv')"
   ), wrapper_path)
   on.exit(unlink(wrapper_path, force = TRUE), add = TRUE)
 
+  .dnmb_clean_emit("[CLEAN] Starting CLEAN inference from cached embeddings", trace_log)
+  infer_started <- Sys.time()
   command <- dnmb_run_external(
     module$env_python,
     args = c(basename(wrapper_path)),
     wd = module$app_dir,
     env = clean_env,
     required = FALSE
+  )
+  .dnmb_clean_trace(
+    trace_log,
+    sprintf("[%s] CLEAN inference finished in %.1f min (ok=%s)", Sys.time(), as.numeric(difftime(Sys.time(), infer_started, units = "mins")), isTRUE(command$ok))
   )
 
   result_csv <- file.path(module$results_dir, paste0(sample_name, "_maxsep.csv"))
@@ -1260,25 +1144,15 @@ dnmb_run_clean_module <- function(genes,
   }
 
   output_table <- .dnmb_clean_output_table(genes = genes, hits = hits)
-  staged_files <- .dnmb_clean_copy_run_outputs(
-    output_dir = output_dir,
-    result_csv = result_csv,
-    pvalue_path = pvalue_result$path,
-    hits = hits,
-    output_table = output_table,
-    sample_name = sample_name
-  )
-  .dnmb_clean_write_output_signature(output_dir, clean_signature)
   list(
-    ok = isTRUE(command$ok) && file.exists(result_csv),
+    ok = isTRUE(command$ok),
     status = status,
     files = c(
       list(
         query_fasta = fasta_path,
-        clean_result_csv = staged_files$maxsep_csv,
-        clean_pvalue_tsv = if (file.exists(staged_files$pvalue_tsv)) staged_files$pvalue_tsv else pvalue_result$path,
-        clean_hits_tsv = if (file.exists(staged_files$hits_tsv)) staged_files$hits_tsv else NA_character_,
-        clean_output_table_tsv = if (file.exists(staged_files$output_table_tsv)) staged_files$output_table_tsv else NA_character_,
+        clean_input_fasta = target_fasta,
+        clean_result_csv = result_csv,
+        clean_pvalue_tsv = pvalue_result$path,
         trace_log = trace_log
       ),
       install_result$files
@@ -1290,12 +1164,3 @@ dnmb_run_clean_module <- function(genes,
     query_proteins = fasta$proteins
   )
 }
-#' Internal CLEAN module helpers
-#'
-#' Installation, cache-management, execution, and output-staging helpers for
-#' the DNMB CLEAN module workflow.
-#'
-#' @name dnmb_internal_clean_module
-#' @keywords internal
-#' @noRd
-NULL

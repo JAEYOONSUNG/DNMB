@@ -39,20 +39,6 @@
   )
 }
 
-.dnmb_defensefinder_resolve_cli <- function(layout) {
-  candidates <- unique(layout$cli_path[base::nzchar(layout$cli_path)])
-  for (candidate in candidates) {
-    if (!base::file.exists(candidate)) {
-      next
-    }
-    run <- dnmb_run_external(candidate, args = "--help", required = FALSE)
-    if (base::isTRUE(run$ok)) {
-      return(candidate)
-    }
-  }
-  ""
-}
-
 .dnmb_defensefinder_normalize_asset_urls <- function(asset_urls = NULL) {
   if (base::is.null(asset_urls)) {
     return(list())
@@ -141,9 +127,8 @@
       # Broken symlink or missing python — nuke and recreate
       unlink(layout$env_dir, recursive = TRUE, force = TRUE)
     } else {
-      test_python <- dnmb_run_external(layout$env_python, args = c("-c", "print('ok')"), required = FALSE)
-      test_pip <- dnmb_run_external(layout$env_python, args = c("-m", "pip", "--version"), required = FALSE)
-      if (!base::isTRUE(test_python$ok) || !base::isTRUE(test_pip$ok)) {
+      test <- dnmb_run_external(layout$env_python, args = c("-c", "print('ok')"), required = FALSE)
+      if (!base::isTRUE(test$ok)) {
         unlink(layout$env_dir, recursive = TRUE, force = TRUE)
       }
     }
@@ -161,28 +146,23 @@
   # pip upgrade is optional — don't fail if it doesn't work
   dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "--upgrade", "pip"), required = FALSE)
   # Install defense-finder from cloned repo
-  run <- dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "-U", layout$repo_dir), required = FALSE)
+  run <- dnmb_run_external(layout$env_pip, args = c("install", "-U", layout$repo_dir), required = FALSE)
   if (!base::isTRUE(run$ok)) {
-    return(.dnmb_defensefinder_status_row("defensefinder_cli", "failed", run$error %||% layout$env_python))
+    return(.dnmb_defensefinder_status_row("defensefinder_cli", "failed", run$error %||% layout$env_pip))
   }
-  cli_path <- .dnmb_defensefinder_resolve_cli(layout)
   .dnmb_defensefinder_status_row(
     "defensefinder_cli",
-    if (base::nzchar(cli_path)) "ok" else "failed",
-    if (base::nzchar(cli_path)) cli_path else layout$env_dir
+    if (base::file.exists(layout$cli_path)) "ok" else "failed",
+    if (base::file.exists(layout$cli_path)) layout$cli_path else layout$env_dir
   )
 }
 
 .dnmb_defensefinder_update_models <- function(layout) {
-  cli_path <- .dnmb_defensefinder_resolve_cli(layout)
-  if (!base::nzchar(cli_path)) {
-    return(.dnmb_defensefinder_status_row("defensefinder_models", "failed", "No runnable defense-finder CLI found."))
-  }
   stage_models <- base::tempfile("dnmb-defensefinder-models-")
   base::dir.create(stage_models, recursive = TRUE, showWarnings = FALSE)
   on.exit(unlink(stage_models, recursive = TRUE, force = TRUE), add = TRUE)
   run <- dnmb_run_external(
-    cli_path,
+    layout$cli_path,
     args = c("update", "--models-dir", stage_models),
     env = c(
       PATH = base::paste(
@@ -220,9 +200,8 @@ dnmb_defensefinder_install_module <- function(version = .dnmb_defensefinder_defa
 
   if (!base::isTRUE(install)) {
     manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
-    cli_path <- .dnmb_defensefinder_resolve_cli(layout)
     ready <- !base::is.null(manifest) && base::isTRUE(manifest$install_ok) &&
-      base::nzchar(cli_path) && base::dir.exists(layout$models_dir)
+      base::file.exists(layout$cli_path) && base::dir.exists(layout$models_dir)
     if (ready) {
       # Check if models need updating
       remote <- tryCatch({
@@ -236,8 +215,14 @@ dnmb_defensefinder_install_module <- function(version = .dnmb_defensefinder_defa
         .dnmb_defensefinder_update_models(layout)
         manifest$models_version <- remote
         dnmb_db_write_manifest(module, version, manifest = manifest, cache_root = cache_root, overwrite = TRUE)
+        .dnmb_db_autoprune_default_versions(
+          module = module,
+          version = version,
+          default_version = .dnmb_defensefinder_default_version(),
+          cache_root = cache_root
+        )
       }
-      return(list(ok = TRUE, status = .dnmb_defensefinder_status_row("defensefinder_install", "cached", module_dir), files = list(cli = cli_path, models_dir = layout$models_dir), manifest = manifest))
+      return(list(ok = TRUE, status = .dnmb_defensefinder_status_row("defensefinder_install", "cached", module_dir), files = list(cli = layout$cli_path, models_dir = layout$models_dir), manifest = manifest))
     }
     return(list(ok = FALSE, status = .dnmb_defensefinder_status_row("defensefinder_install", "missing", "DefenseFinder is missing and module_install is FALSE."), files = list(), manifest = NULL))
   }
@@ -281,6 +266,12 @@ dnmb_defensefinder_install_module <- function(version = .dnmb_defensefinder_defa
     models_dir = layout$models_dir
   )
   dnmb_db_write_manifest(module, version, manifest = manifest, cache_root = cache_root, overwrite = TRUE)
+  .dnmb_db_autoprune_default_versions(
+    module = module,
+    version = version,
+    default_version = .dnmb_defensefinder_default_version(),
+    cache_root = cache_root
+  )
   list(
     ok = TRUE,
     status = dplyr::bind_rows(status, .dnmb_defensefinder_status_row("defensefinder_install", "ok", module_dir)),
@@ -299,16 +290,14 @@ dnmb_defensefinder_get_module <- function(version = .dnmb_defensefinder_default_
     }
     return(list(ok = FALSE, manifest = NULL))
   }
-  layout <- .dnmb_defensefinder_asset_layout(.dnmb_db_module_dir(.dnmb_defensefinder_module_name(), version, cache_root = cache_root, create = FALSE))
-  cli_path <- .dnmb_defensefinder_resolve_cli(layout)
   list(
     ok = TRUE,
     manifest = manifest,
     files = list(
-      repo_dir = layout$repo_dir,
-      cli = cli_path,
-      models_dir = layout$models_dir,
-      env_python = layout$env_python
+      repo_dir = manifest$repo_dir,
+      cli = manifest$cli_path,
+      models_dir = manifest$models_dir,
+      env_python = manifest$env_python
     )
   )
 }
@@ -376,10 +365,13 @@ dnmb_defensefinder_get_module <- function(version = .dnmb_defensefinder_default_
 }
 
 dnmb_defensefinder_parse_genes <- function(path, id_map, systems_tbl = NULL) {
-  if (!base::file.exists(path)) {
+  if (!.dnmb_nonempty_file(path)) {
     return(data.frame())
   }
-  genes <- utils::read.delim(path, sep = "\t", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
+  genes <- tryCatch(
+    utils::read.delim(path, sep = "\t", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE),
+    error = function(e) data.frame()
+  )
   if (!nrow(genes)) {
     return(data.frame())
   }
@@ -406,17 +398,23 @@ dnmb_defensefinder_parse_genes <- function(path, id_map, systems_tbl = NULL) {
 }
 
 dnmb_defensefinder_parse_systems <- function(path) {
-  if (!base::file.exists(path)) {
+  if (!.dnmb_nonempty_file(path)) {
     return(data.frame())
   }
-  utils::read.delim(path, sep = "\t", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
+  tryCatch(
+    utils::read.delim(path, sep = "\t", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE),
+    error = function(e) data.frame()
+  )
 }
 
 dnmb_defensefinder_read_raw_best_solution <- function(path) {
-  if (!base::file.exists(path)) {
+  if (!.dnmb_nonempty_file(path)) {
     return(data.frame())
   }
-  utils::read.delim(path, sep = "\t", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE, comment.char = "#")
+  tryCatch(
+    utils::read.delim(path, sep = "\t", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE, comment.char = "#"),
+    error = function(e) data.frame()
+  )
 }
 
 dnmb_defensefinder_collect_raw_genes <- function(raw_root) {
@@ -693,12 +691,3 @@ dnmb_run_defensefinder_module <- function(genes,
     output_table = output_table
   )
 }
-#' Internal DefenseFinder module helpers
-#'
-#' Installation, execution, parsing, and summarization helpers for the DNMB
-#' DefenseFinder module workflow.
-#'
-#' @name dnmb_internal_defensefinder_module
-#' @keywords internal
-#' @noRd
-NULL

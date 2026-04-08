@@ -1052,12 +1052,3 @@
 
 # Legacy wrapper — existing code calls .dnmb_gapmind_carbon_cazy_nodes()
 # Maps new comprehensive node table back to the old schema for compatibility
-#' Internal SNFG symbol drawing helpers
-#'
-#' Low-level geometry and drawing helpers used for SNFG-style carbohydrate
-#' symbols in DNMB figures.
-#'
-#' @name dnmb_internal_snfg_symbols
-#' @keywords internal
-#' @noRd
-NULL

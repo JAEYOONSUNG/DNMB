@@ -1094,11 +1094,3 @@
     ggplot2::geom_hline(yintercept = 0.6, linewidth = 0.3, color = "#D1D5DB")
   p
 }
-#' Internal prophage plotting helpers
-#'
-#' Plot-construction routines for prophage overview figures rendered by DNMB.
-#'
-#' @name dnmb_internal_plot_prophage
-#' @keywords internal
-#' @noRd
-NULL

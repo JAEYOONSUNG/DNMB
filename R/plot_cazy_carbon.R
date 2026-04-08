@@ -1,6 +1,6 @@
 .dnmb_cct_cazy_substrate_map <- function() {
   # Mapping: CAZy family -> substrate acted upon -> degradation product
-  # Reviewed 2026-03-26:
+  # Codex-verified 2026-03-26:
   #   GH13_31: starch/alpha-glucan only (removed fructan/sucrose dual mapping)
   #   GH18: endo-chitinase only (chitin->chitooligosaccharides), NOT exo
   #   GH20: exo-hexosaminidase (GlcNAc release) — separate from GH18
@@ -6006,14 +6006,12 @@
   unique(evidence_cs)
 }
 
-#' Render the three-zone CAZy carbon overview
 #'
 #' @param genbank_table The combined genbank/annotation table
 #' @param output_dir Output directory
 #' @param file_stub PDF filename stub
 #' @return List with pdf path
 #' @keywords internal
-#' @noRd
 .dnmb_plot_cazy_carbon_3zone_v2 <- function(genbank_table, output_dir,
                                           file_stub = "CAZy_overview") {
 

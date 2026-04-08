@@ -375,19 +375,18 @@ dnmb_gapmind_get_module <- function(version = .dnmb_gapmind_default_version(),
     }
     return(list(ok = FALSE, manifest = NULL))
   }
-  layout <- .dnmb_gapmind_asset_layout(.dnmb_db_module_dir(.dnmb_gapmind_module_name(), version, cache_root = cache_root, create = FALSE), version = version)
   list(
     ok = TRUE,
     manifest = manifest,
     files = list(
-      repo_dir = layout$repo_dir,
-      path_dir = layout$path_dir,
-      curated_faa = layout$curated_faa,
-      curated_db = layout$curated_db,
-      steps_db = layout$steps_db,
-      curated_dmnd = layout$curated_dmnd,
-      pathway_table = .dnmb_gapmind_bundled_table(layout),
-      requires_tsv = .dnmb_gapmind_bundled_requires(layout)
+      repo_dir = manifest$repo_dir,
+      path_dir = manifest$path_dir,
+      curated_faa = manifest$curated_faa,
+      curated_db = manifest$curated_db,
+      steps_db = manifest$steps_db,
+      curated_dmnd = manifest$curated_dmnd,
+      pathway_table = manifest$pathway_table %||% manifest$aa_table,
+      requires_tsv = manifest$requires_tsv
     )
   )
 }
@@ -1237,12 +1236,3 @@ dnmb_run_gapmind_module <- function(genes,
   ss$operon_id <- NULL
   ss
 }
-#' Internal GapMind module helpers
-#'
-#' Installation, execution, parsing, supplementation, and summary helpers for
-#' the DNMB GapMind workflows.
-#'
-#' @name dnmb_internal_gapmind_module
-#' @keywords internal
-#' @noRd
-NULL

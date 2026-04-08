@@ -2,7 +2,7 @@
 % Please edit documentation in R/DNMB_combiner.R
 \name{run_DNMB_combiner}
 \alias{run_DNMB_combiner}
-\title{Merge EggNOG and InterProScan annotations into \code{genbank_table}}
+\title{Result DNMB table}
 \usage{
 run_DNMB_combiner(
   genbank_table = NULL,
@@ -11,26 +11,17 @@ run_DNMB_combiner(
 )
 }
 \arguments{
-\item{genbank_table}{Main DNMB locus-level table. When \code{NULL}, the function
-loads \code{genbank_table} from the global environment.}
+\item{gb_table}{A data frame containing the data.}
 
-\item{EggNOG_table}{EggNOG annotation table. When \code{NULL}, the function calls
-\code{EggNOG_annotations()} and then loads \code{EggNOG_table} from the global
-environment.}
+\item{InterPro_search}{Logical, whether to include p-values for means.}
 
-\item{InterProScan_table}{InterProScan annotation table. When \code{NULL}, the
-function calls \code{InterProScan_annotations()} and then loads
-\code{InterProScan_table} from the global environment.}
+\item{InterPro_site}{Logical, whether to include p-values for medians.}
+
+\item{codon}{Logical, whether to use chi-square test for categorical variables.}
 }
 \value{
-Invisibly returns the merged \code{genbank_table}.
+A data frame containing the baseline table.
 }
 \description{
-Legacy convenience wrapper that loads or discovers \code{EggNOG_table} and
-\code{InterProScan_table}, merges them onto \code{genbank_table} by locus tag, and
-stores the merged result back into the global environment.
-}
-\details{
-New workflows should usually prefer \code{run_DNMB()} for orchestration, but this
-helper remains available for backward-compatible annotation merging.
+Result DNMB table
 }

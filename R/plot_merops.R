@@ -493,12 +493,4 @@
 
   list(pdf = pdf_path)
 }
-#' Internal MEROPS plotting helpers
-#'
-#' Plot-construction routines for MEROPS overview figures rendered by DNMB.
-#'
-#' @name dnmb_internal_plot_merops
-#' @keywords internal
-#' @noRd
-NULL
 

@@ -5,33 +5,10 @@
 \title{Result DNMB table}
 \usage{
 run_DNMB(
-  module_dbCAN = TRUE,
-  module_MEROPS = TRUE,
-  module_CLEAN = TRUE,
-  module_PAZy = TRUE,
-  module_GapMind = TRUE,
-  module_DefenseFinder = TRUE,
-  module_REBASEfinder = TRUE,
-  module_ISelement = TRUE,
-  module_Prophage = TRUE,
-  module_EggNOG = TRUE,
-  module_InterProScan = TRUE,
-  module_Prophage_backend = .dnmb_run_default_prophage_backend(),
-  module_version = NULL,
-  module_cache_root = NULL,
-  module_install = TRUE,
-  module_base_url = NULL,
-  module_asset_urls = NULL,
-  module_cpu = .dnmb_default_cpu(),
-  module_results = NULL,
-  iselement_analysis_depth = "full",
-  iselement_related_genbanks = NULL,
-  iselement_related_metadata = NULL,
-  iselement_auto_discover_related = TRUE,
-  iselement_max_related = 5L,
-  interproscan_applications = NULL,
-  interproscan_path = NULL,
-  clean_previous = TRUE
+  module_dbCAN = FALSE,
+  module_MEROPS = FALSE,
+  module_CLEAN = FALSE,
+  module_results = NULL
 )
 }
 \arguments{
@@ -41,62 +18,12 @@ run_DNMB(
 
 \item{module_CLEAN}{Logical, whether to run and append CLEAN module results.}
 
-\item{module_PAZy}{Logical, whether to run and append PAZy module results.}
-
-\item{module_GapMind}{Logical, whether to run and append GapMind module results.}
-
-\item{module_DefenseFinder}{Logical, whether to run and append DefenseFinder module results.}
-
-\item{module_ISelement}{Logical, whether to run and append IS element module results.}
-
-\item{module_Prophage}{Logical, whether to run and append prophage module results.}
-
-\item{module_EggNOG}{Logical, whether to run and append eggnog-mapper module results.}
-
-\item{module_InterProScan}{Logical, whether to run InterProScan on protein
-sequences. Requires InterProScan installed (Linux/Docker only).}
-
-\item{module_Prophage_backend}{Character backend for prophage detection.}
-
-\item{module_version}{Optional module version string passed to
-\code{run_module_set()}.}
-
-\item{module_cache_root}{Optional cache root override passed to
-\code{run_module_set()}.}
-
-\item{module_install}{Logical; install module assets automatically when
-missing.}
-
-\item{module_base_url}{Optional module asset base URL override.}
-
-\item{module_asset_urls}{Optional named module asset overrides.}
-
-\item{module_cpu}{Integer thread count for module external tools.}
-
 \item{module_results}{Optional precomputed module runs, such as the output
 from \code{run_module_set()}.}
-
-\item{interproscan_applications}{Character vector of InterProScan analyses
-(e.g., \code{c("Pfam", "TIGRFAM")}). \code{NULL} runs all.}
-
-\item{interproscan_path}{Path to \code{interproscan.sh}. \code{NULL}
-auto-detects via \code{INTERPROSCAN_HOME} or PATH.}
-
-\item{clean_previous}{Logical. If \code{TRUE}, remove prior run artifacts
-before starting. Cached module results and InterProScan outputs are kept
-when their saved input/database signatures still match the current run.}
 }
 \value{
 Invisibly returns the final \code{genbank_table}.
 }
 \description{
 Result DNMB table
-}
-\details{
-The user-facing module sequence for a full DNMB run is
-\code{EggNOG -> CLEAN -> InterProScan -> DefenseFinder -> REBASEfinder ->
-  GapMindAA -> GapMindCarbon -> MEROPS -> dbCAN -> PAZy -> ISelement ->
-  Prophage}. Internally, \code{InterProScan} is resolved before the
-\code{run_module_set()} stage so DNMB can reuse existing results and merge
-the annotation table early without changing the documented module order.
 }

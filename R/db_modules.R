@@ -77,6 +77,87 @@ dnmb_db_home <- function(create = FALSE, cache_root = NULL) {
   }
 }
 
+.dnmb_db_module_root <- function(module, cache_root = NULL, create = FALSE) {
+  module <- .dnmb_db_validate_key(module, "module")
+  root <- file.path(.dnmb_db_cache_root(cache_root = cache_root, create = create), module)
+  if (isTRUE(create)) {
+    dir.create(root, recursive = TRUE, showWarnings = FALSE)
+  }
+  if (dir.exists(root)) {
+    normalizePath(root, winslash = "/", mustWork = FALSE)
+  } else {
+    root
+  }
+}
+
+.dnmb_db_prune_module_versions <- function(module,
+                                           keep_versions,
+                                           cache_root = NULL,
+                                           preserve = c("cache"),
+                                           verbose = TRUE) {
+  module_root <- .dnmb_db_module_root(module, cache_root = cache_root, create = FALSE)
+  if (!dir.exists(module_root)) {
+    return(character())
+  }
+
+  keep_versions <- trimws(as.character(keep_versions))
+  preserve <- trimws(as.character(preserve))
+  keep <- unique(c(keep_versions, preserve))
+  keep <- keep[!is.na(keep) & nzchar(keep)]
+
+  entries <- list.files(module_root, full.names = TRUE, no.. = TRUE)
+  if (!length(entries)) {
+    return(character())
+  }
+
+  is_dir <- file.info(entries)$isdir %in% TRUE
+  dir_entries <- entries[is_dir]
+  if (!length(dir_entries)) {
+    return(character())
+  }
+
+  dir_names <- basename(dir_entries)
+  prune_paths <- dir_entries[!(dir_names %in% keep)]
+  if (!length(prune_paths)) {
+    return(character())
+  }
+
+  unlink(prune_paths, recursive = TRUE, force = TRUE)
+  removed <- prune_paths[!file.exists(prune_paths)]
+  if (isTRUE(verbose) && length(removed)) {
+    message(
+      "[DNMB] Pruned old cache versions for ",
+      module,
+      ": ",
+      paste(basename(removed), collapse = ", ")
+    )
+  }
+  invisible(removed)
+}
+
+.dnmb_db_autoprune_default_versions <- function(module,
+                                                version,
+                                                default_version,
+                                                cache_root = NULL,
+                                                preserve = c("cache"),
+                                                verbose = TRUE) {
+  version <- trimws(as.character(version)[1])
+  default_version <- trimws(as.character(default_version)[1])
+  if (is.na(version) || !nzchar(version) || is.na(default_version) || !nzchar(default_version)) {
+    return(character())
+  }
+  if (!identical(version, default_version)) {
+    return(character())
+  }
+  .dnmb_db_prune_module_versions(
+    module = module,
+    keep_versions = default_version,
+    cache_root = cache_root,
+    preserve = preserve,
+    verbose = verbose
+  )
+}
+
 .dnmb_db_manifest_path <- function(module, version, cache_root = NULL) {
   file.path(.dnmb_db_module_dir(module, version, cache_root = cache_root, create = FALSE), "manifest.rds")
 }
@@ -255,13 +336,8 @@ dnmb_db_check_freshness <- function(module, version, cache_root = NULL, verbose 
   }, error = function(e) NULL)
   if (is.null(json)) return(NULL)
   remote_ver <- json$info$version
-  expected_db_release <- tryCatch(.dnmb_eggnog_default_db_release(), error = function(e) "5.0.2")
-  local_ver <- manifest$emapper_version %||% ""
-  local_db_release <- manifest$db_release %||% ""
-  list(
-    remote_version = paste0("emapper:", remote_ver, " db:", expected_db_release),
-    update_available = (!identical(local_ver, remote_ver)) || (!identical(local_db_release, expected_db_release))
-  )
+  local_ver <- manifest$emapper_version %||% manifest$version %||% ""
+  list(remote_version = remote_ver, update_available = !identical(local_ver, remote_ver))
 }
 
 .dnmb_db_remote_check_gapmind <- function(manifest) {

@@ -139,6 +139,13 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
     verbose = verbose
   )
 
+  # Copy output to working directory so InterProScan_annotations() finds it
+  tsv_dest <- file.path(getwd(), basename(result$tsv))
+  file.copy(result$tsv, tsv_dest, overwrite = TRUE)
+  if (!is.null(result$tsv_sites)) {
+    file.copy(result$tsv_sites, file.path(getwd(), basename(result$tsv_sites)), overwrite = TRUE)
+  }
+
   # Parse with existing organizer
   InterProScan_annotations(InterProScan_dir = dirname(result$tsv))
 
@@ -161,95 +168,94 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
 
 # ── Internal helpers ──────────────────────────────────────────
 
-.dnmb_interproscan_fallback_version <- function() "5.72-103.0"
+.dnmb_interproscan_pinned_version <- function() "5.77-108.0"
 
-.dnmb_interproscan_normalize_version <- function(version) {
-  value <- trimws(as.character(version)[1])
-  if (is.na(value) || !nzchar(value)) {
-    return("")
-  }
-  sub("^v", "", value)
-}
+.dnmb_interproscan_latest_version <- function() {
+  latest <- tryCatch({
+    con <- url("https://api.github.com/repos/ebi-pf-team/interproscan/releases/latest")
+    on.exit(close(con))
+    lines <- readLines(con, warn = FALSE)
+    tag <- sub('.*"tag_name"\\s*:\\s*"([^"]+)".*', "\\1", grep('"tag_name"', lines, value = TRUE)[1])
+    if (is.na(tag) || !nzchar(tag)) NA_character_ else trimws(tag)
+  }, error = function(e) NA_character_)
 
-.dnmb_interproscan_latest_version <- function(default = .dnmb_interproscan_fallback_version()) {
-  override <- .dnmb_interproscan_normalize_version(Sys.getenv("DNMB_INTERPROSCAN_VERSION", unset = ""))
-  if (nzchar(override)) {
-    return(override)
-  }
-
-  remote_info <- tryCatch(
-    .dnmb_db_remote_check_interproscan(list(version = .dnmb_interproscan_normalize_version(default))),
-    error = function(e) NULL
-  )
-  remote_version <- .dnmb_interproscan_normalize_version(
-    if (!is.null(remote_info)) remote_info$remote_version else ""
-  )
-
-  if (nzchar(remote_version)) {
-    remote_version
+  if (!is.na(latest) && nzchar(latest)) {
+    latest
   } else {
-    .dnmb_interproscan_normalize_version(default)
+    .dnmb_interproscan_pinned_version()
   }
 }
 
-.dnmb_interproscan_installed_script <- function(cache_root = NULL) {
-  ipr_root <- file.path(.dnmb_db_cache_root(cache_root = cache_root, create = FALSE), "interproscan")
-  if (!dir.exists(ipr_root)) {
-    return("")
-  }
+.dnmb_interproscan_default_version <- function() .dnmb_interproscan_latest_version()
 
-  version_dirs <- list.dirs(ipr_root, full.names = TRUE, recursive = FALSE)
-  if (!length(version_dirs)) {
-    return("")
+.dnmb_interproscan_cache_root <- function(cache_root = NULL, create = FALSE) {
+  root <- file.path(.dnmb_db_cache_root(cache_root = cache_root, create = create), "interproscan")
+  if (isTRUE(create)) {
+    dir.create(root, recursive = TRUE, showWarnings = FALSE)
   }
-
-  scripts <- file.path(version_dirs, "interproscan.sh")
-  scripts <- scripts[file.exists(scripts)]
-  if (!length(scripts)) {
-    return("")
+  if (dir.exists(root)) {
+    normalizePath(root, winslash = "/", mustWork = FALSE)
+  } else {
+    root
   }
-
-  info <- file.info(scripts)
-  scripts <- scripts[order(info$mtime, decreasing = TRUE, na.last = TRUE)]
-  normalizePath(scripts[[1]], winslash = "/", mustWork = TRUE)
 }
 
-.dnmb_interproscan_installed_version <- function(cache_root = NULL) {
-  script_path <- .dnmb_interproscan_installed_script(cache_root = cache_root)
-  if (!nzchar(script_path)) {
-    return("")
+.dnmb_interproscan_cached_versions <- function(cache_root = NULL) {
+  root <- .dnmb_interproscan_cache_root(cache_root = cache_root, create = FALSE)
+  if (!dir.exists(root)) {
+    return(character())
   }
-  basename(dirname(script_path))
+  dirs <- list.dirs(root, full.names = FALSE, recursive = FALSE)
+  dirs <- dirs[nzchar(dirs)]
+  if (!length(dirs)) {
+    return(character())
+  }
+  ok <- vapply(dirs, function(x) {
+    !inherits(try(base::package_version(gsub("-", ".", x, fixed = TRUE)), silent = TRUE), "try-error")
+  }, logical(1))
+  dirs <- dirs[ok]
+  if (!length(dirs)) {
+    return(character())
+  }
+  order_key <- vapply(dirs, function(x) as.character(base::package_version(gsub("-", ".", x, fixed = TRUE))), character(1))
+  dirs[order(base::package_version(order_key), decreasing = TRUE)]
 }
 
-.dnmb_interproscan_default_version <- function(cache_root = NULL) {
-  .dnmb_interproscan_latest_version(default = .dnmb_interproscan_fallback_version())
-}
-
-.dnmb_ensure_interproscan <- function(cache_root = NULL, version = NULL) {
-  version <- .dnmb_interproscan_normalize_version(
-    if (is.null(version) || !nzchar(trimws(as.character(version)[1]))) {
-      .dnmb_interproscan_default_version(cache_root = cache_root)
-    } else {
-      version
+.dnmb_interproscan_existing_path <- function(cache_root = NULL, version = NULL) {
+  if (!is.null(version) && nzchar(trimws(version))) {
+    candidate <- file.path(.dnmb_interproscan_cache_root(cache_root = cache_root, create = FALSE), trimws(version), "interproscan.sh")
+    if (file.exists(candidate)) {
+      return(normalizePath(candidate, winslash = "/", mustWork = TRUE))
     }
-  )
-  ipr_dir <- file.path(.dnmb_db_cache_root(cache_root = cache_root, create = TRUE), "interproscan", version)
+  }
+  versions <- .dnmb_interproscan_cached_versions(cache_root = cache_root)
+  for (ver in versions) {
+    candidate <- file.path(.dnmb_interproscan_cache_root(cache_root = cache_root, create = FALSE), ver, "interproscan.sh")
+    if (file.exists(candidate)) {
+      return(normalizePath(candidate, winslash = "/", mustWork = TRUE))
+    }
+  }
+  NULL
+}
+
+.dnmb_ensure_interproscan <- function(cache_root = NULL, version = .dnmb_interproscan_default_version()) {
+  ipr_dir <- file.path(.dnmb_interproscan_cache_root(cache_root = cache_root, create = TRUE), version)
   ipr_sh <- file.path(ipr_dir, "interproscan.sh")
   if (file.exists(ipr_sh)) {
-    if (is.null(dnmb_db_read_manifest("interproscan", version, cache_root = cache_root, required = FALSE))) {
-      try(
-        dnmb_db_write_manifest(
-          "interproscan",
-          version,
-          manifest = list(source_url = NA_character_, tarball = NA_character_),
-          cache_root = cache_root,
-          overwrite = FALSE
-        ),
-        silent = TRUE
-      )
-    }
+    .dnmb_db_autoprune_default_versions(
+      module = "interproscan",
+      version = version,
+      default_version = .dnmb_interproscan_default_version(),
+      cache_root = cache_root,
+      preserve = character()
+    )
     return(ipr_dir)
+  }
+
+  # Incomplete previous download/extraction can leave an empty or partial
+  # version directory behind. Remove it before retrying the install.
+  if (dir.exists(ipr_dir) && !file.exists(ipr_sh)) {
+    unlink(ipr_dir, recursive = TRUE, force = TRUE)
   }
 
   message("[InterProScan] Downloading InterProScan ", version, " to cache...")
@@ -280,15 +286,12 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
   }
 
   if (file.exists(ipr_sh)) {
-    try(
-      dnmb_db_write_manifest(
-        "interproscan",
-        version,
-        manifest = list(source_url = url, tarball = tarball),
-        cache_root = cache_root,
-        overwrite = TRUE
-      ),
-      silent = TRUE
+    .dnmb_db_autoprune_default_versions(
+      module = "interproscan",
+      version = version,
+      default_version = .dnmb_interproscan_default_version(),
+      cache_root = cache_root,
+      preserve = character()
     )
     message("[InterProScan] Installation complete: ", ipr_dir)
     return(ipr_dir)
@@ -321,20 +324,21 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
     return(normalizePath(on_path, winslash = "/", mustWork = TRUE))
   }
 
-  # 4. Auto-download to cache
-  cached_candidate <- .dnmb_interproscan_installed_script(cache_root = cache_root)
+  # 4. Existing cached install
+  cached <- .dnmb_interproscan_existing_path(
+    cache_root = cache_root,
+    version = .dnmb_interproscan_default_version()
+  )
+  if (!is.null(cached) && file.exists(cached)) {
+    return(cached)
+  }
+
+  # 5. Auto-download to cache
+  ensure_error <- NULL
   ipr_dir <- tryCatch(
     .dnmb_ensure_interproscan(cache_root = cache_root),
     error = function(e) {
-      if (nzchar(cached_candidate)) {
-        warning(
-          "[InterProScan] Could not prepare the latest cached release (",
-          conditionMessage(e),
-          "). Falling back to existing cached installation at ",
-          cached_candidate,
-          call. = FALSE
-        )
-      }
+      ensure_error <<- conditionMessage(e)
       NULL
     }
   )
@@ -345,14 +349,18 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
     }
   }
 
-  if (nzchar(cached_candidate)) {
-    return(cached_candidate)
+  if (!is.null(ensure_error) && nzchar(ensure_error)) {
+    stop(
+      "InterProScan setup failed: ",
+      ensure_error,
+      call. = FALSE
+    )
+  } else {
+    stop(
+      "interproscan.sh not found. ",
+      "Set the INTERPROSCAN_HOME environment variable or pass the path explicitly. ",
+      "InterProScan is only available on Linux; use the DNMB Docker image for macOS/Windows.",
+      call. = FALSE
+    )
   }
-
-  stop(
-    "interproscan.sh not found. ",
-    "Set the INTERPROSCAN_HOME environment variable or pass the path explicitly. ",
-    "InterProScan is only available on Linux; use the DNMB Docker image for macOS/Windows.",
-    call. = FALSE
-  )
 }

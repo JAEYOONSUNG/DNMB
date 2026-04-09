@@ -332,25 +332,43 @@ run_DNMB <- function(
           message("[DNMB] Reusing cached module outputs for matching GenBank and DB state.")
           resolved_module_results <- module_cache_status$cache$module_results
         } else {
-          if (identical(module_cache_status$reason, "signature_changed")) {
-            message("[DNMB] Module cache signature changed; rerunning enabled modules.")
-          }
-          resolved_module_results <- dnmb_resolve_module_results(
-            module_aliases = module_aliases,
-            module_results = NULL,
-            module_Prophage_backend = module_Prophage_backend,
-            module_version = module_version,
-            module_cache_root = module_cache_root,
-            module_install = module_install,
-            module_base_url = module_base_url,
-            module_asset_urls = module_asset_urls,
-            module_cpu = module_cpu,
-            iselement_analysis_depth = iselement_analysis_depth,
-            iselement_related_genbanks = iselement_related_genbanks,
-            iselement_related_metadata = iselement_related_metadata,
-            iselement_auto_discover_related = iselement_auto_discover_related,
-            iselement_max_related = iselement_max_related
+          cached_results <- module_cache_status$cache$module_results %||% list()
+          reusable_aliases <- .dnmb_module_stage_reusable_aliases(
+            cache = module_cache_status$cache,
+            signature = module_stage_signature
           )
+          reused_results <- if (length(reusable_aliases)) cached_results[reusable_aliases] else list()
+          missing_aliases <- setdiff(module_aliases, reusable_aliases)
+
+          if (length(reusable_aliases)) {
+            message("[DNMB] Reusing existing module outputs for: ", paste(reusable_aliases, collapse = ", "))
+          }
+          if (length(missing_aliases)) {
+            message("[DNMB] Running remaining modules: ", paste(missing_aliases, collapse = ", "))
+          }
+
+          newly_resolved_results <- if (length(missing_aliases)) {
+            dnmb_resolve_module_results(
+              module_aliases = missing_aliases,
+              module_results = NULL,
+              module_Prophage_backend = module_Prophage_backend,
+              module_version = module_version,
+              module_cache_root = module_cache_root,
+              module_install = module_install,
+              module_base_url = module_base_url,
+              module_asset_urls = module_asset_urls,
+              module_cpu = module_cpu,
+              iselement_analysis_depth = iselement_analysis_depth,
+              iselement_related_genbanks = iselement_related_genbanks,
+              iselement_related_metadata = iselement_related_metadata,
+              iselement_auto_discover_related = iselement_auto_discover_related,
+              iselement_max_related = iselement_max_related
+            )
+          } else {
+            list()
+          }
+
+          resolved_module_results <- c(reused_results, newly_resolved_results)
           .dnmb_write_module_stage_cache(
             wd = getwd(),
             signature = module_stage_signature,
@@ -539,8 +557,9 @@ dnmb_clean_previous_run <- function(dry_run = FALSE,
   if (isTRUE(module_cache_status$reusable)) {
     message("[DNMB] Preserving module outputs for matching GenBank and DB state.")
   } else {
-    deleted <- c(deleted, module_dirs)
-    deleted <- c(deleted, collect(.dnmb_module_stage_cache_path(wd)))
+    if (length(module_dirs)) {
+      message("[DNMB] Existing module output folders found but stage cache is stale or missing; keeping folders and allowing rerun to overwrite/update as needed.")
+    }
   }
 
   # 2. InterProScan output directory

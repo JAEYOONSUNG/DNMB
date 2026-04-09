@@ -113,6 +113,7 @@
   drop_names <- c(
     "module_dir",
     "manifest_path",
+    "written_at",
     "repo_dir",
     "path_dir",
     "env_python",
@@ -272,6 +273,40 @@
   }
 
   list(reusable = TRUE, reason = "matching_signature", cache = cache)
+}
+
+.dnmb_module_stage_reusable_aliases <- function(cache, signature = NULL) {
+  if (is.null(cache) || is.null(cache$signature) || is.null(cache$module_results) || is.null(signature)) {
+    return(character())
+  }
+
+  cached_sig <- cache$signature
+  if (!.dnmb_same_file_signature(signature$genbank_signature, cached_sig$genbank_signature)) {
+    return(character())
+  }
+
+  if (!identical(signature$requested, cached_sig$requested)) {
+    return(character())
+  }
+
+  if (!identical(signature$related_inputs, cached_sig$related_inputs)) {
+    return(character())
+  }
+
+  requested_aliases <- sort(unique(as.character(signature$module_aliases)))
+  cached_aliases <- sort(unique(as.character(cached_sig$module_aliases)))
+  overlap <- intersect(requested_aliases, cached_aliases)
+  if (!length(overlap)) {
+    return(character())
+  }
+
+  keep <- vapply(overlap, function(alias) {
+    has_result <- alias %in% names(cache$module_results) && !is.null(cache$module_results[[alias]])
+    same_db <- identical(signature$db_state[[alias]], cached_sig$db_state[[alias]])
+    isTRUE(has_result) && isTRUE(same_db)
+  }, logical(1))
+
+  overlap[keep]
 }
 
 .dnmb_eggnog_state <- function(wd = getwd()) {

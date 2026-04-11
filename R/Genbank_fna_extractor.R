@@ -12,7 +12,10 @@ genbank_fna_extractor <- function(gb_dir = NULL) {
   library(tidyr)
   library(stringr)
   library(Biostrings)
-  library(plyr)
+  # Do NOT load plyr here — see the matching note in R/Genome_summary.R.
+  # plyr masks dplyr's `mutate`/`summarise`/`count`/... when loaded after
+  # dplyr, which breaks the ISelement comprehensive plot's `.data$fam`
+  # pronoun later in the run. This function does not use any plyr API.
 
   # If gb_dir is NULL, use the current working directory
   if (is.null(gb_dir)) {

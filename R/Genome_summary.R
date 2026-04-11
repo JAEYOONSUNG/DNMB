@@ -14,7 +14,12 @@ gb_info <- function(gb_dir = NULL) {
   library(readr)
   library(tidyr)
   library(openxlsx)
-  library(plyr)
+  # NOTE: do NOT `library(plyr)` here. plyr is loaded last by R's search
+  # path rules and its `mutate`/`summarise`/`arrange`/`count`/... mask
+  # the dplyr versions, which breaks any unqualified dplyr call made
+  # later in the session — including the ISelement plot that uses
+  # `.data$fam` pronoun inside `dplyr::count(...)`. The body of gb_info
+  # only uses `dplyr::*` functions, so plyr is vestigial here.
 
   # Initialize empty data frame for storing genome table
   Genome_summary <- data.frame()

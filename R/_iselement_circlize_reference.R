@@ -132,9 +132,9 @@ if (nrow(ess_high_bed) > 2) {
 # ============================================================
 # Filter families with >= 2 elements for linking
 link_families <- is_track %>%
-  count(fam, sort=TRUE) %>%
-  filter(n >= 2, fam != "unknown") %>%
-  pull(fam)
+  dplyr::count(fam, sort = TRUE) %>%
+  dplyr::filter(n >= 2, fam != "unknown") %>%
+  dplyr::pull(fam)
 
 for (fam_name in link_families) {
   fam_elements <- is_track %>% filter(fam == fam_name) %>% arrange(start)

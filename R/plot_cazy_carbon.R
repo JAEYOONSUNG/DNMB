@@ -4404,6 +4404,10 @@
       extra_branches = extra_branches
     )
   }, numeric(3))
+  # vapply over an empty sequence returns a 3x0 matrix with no dimnames,
+  # which then breaks target_stats["center", ] below. Force the row names
+  # so subsetting works for both empty and non-empty inputs.
+  rownames(target_stats) <- c("center", "left", "right")
   extra_df$route_target_x <- target_stats["center", ]
   extra_df$route_left_x <- target_stats["left", ]
   extra_df$route_right_x <- target_stats["right", ]

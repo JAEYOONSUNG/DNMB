@@ -270,7 +270,13 @@
   if (.dnmb_clean_verify_python(layout$env_python)) {
     return(list(
       status = .dnmb_clean_status_row("clean_python", "cached", layout$env_python),
-      python = normalizePath(layout$env_python, winslash = "/", mustWork = FALSE),
+      # Do NOT normalizePath() here — layout$env_python is a symlink
+      # (`<venv>/bin/python -> /opt/biotools/bin/python3.12`). Resolving
+      # the symlink loses the venv context, so Python then uses biotools'
+      # site-packages instead of the venv's, causing `ModuleNotFoundError:
+      # No module named 'CLEAN'` during inference. path.expand() preserves
+      # the symlink path.
+      python = path.expand(layout$env_python),
       managed_env = TRUE
     ))
   }
@@ -300,7 +306,13 @@
     if (isTRUE(build_run$ok) && .dnmb_clean_verify_python(layout$env_python)) {
       return(list(
         status = .dnmb_clean_status_row("clean_python", "ok", layout$env_python),
-        python = normalizePath(layout$env_python, winslash = "/", mustWork = FALSE),
+        # Do NOT normalizePath() here — layout$env_python is a symlink
+      # (`<venv>/bin/python -> /opt/biotools/bin/python3.12`). Resolving
+      # the symlink loses the venv context, so Python then uses biotools'
+      # site-packages instead of the venv's, causing `ModuleNotFoundError:
+      # No module named 'CLEAN'` during inference. path.expand() preserves
+      # the symlink path.
+      python = path.expand(layout$env_python),
         managed_env = TRUE
       ))
     }

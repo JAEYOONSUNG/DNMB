@@ -5,3 +5,5 @@ Rplots.pdf
 **/.dnmb_module_stage_cache.rds
 **/dnmb_interproscan/.input_signature.rds
 .dnmb_eggnog_input_signature.rds
+
+data/

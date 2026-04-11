@@ -62,7 +62,7 @@ RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, pl
       filter(group == i) %>%
       mutate(RBS = str_sub(contig_list[i], start, end),
              TR = str_sub(contig_list[i], start, end + 100))
-    temp_df <- rbind.fill(temp_df, temp_RBS_df)
+    temp_df <- plyr::rbind.fill(temp_df, temp_RBS_df)
   }
   strand_plus_RBS <- temp_df
 
@@ -92,7 +92,7 @@ RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, pl
       filter(group == i) %>%
       mutate(RBS = str_sub(contig_list_rc[i], start, end),
              TR = str_sub(contig_list_rc[i], start, end + 100))
-    temp_df <- rbind.fill(temp_df, temp_RBS_df)
+    temp_df <- plyr::rbind.fill(temp_df, temp_RBS_df)
   }
   strand_minus_RBS <- temp_df
 
@@ -108,7 +108,7 @@ RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, pl
     temp_RBS_df <- strand_minus_RBS %>%
       filter(group == i) %>%
       mutate(ORFstart = nchar(contig_list_rc[i]) - as.numeric(start + nchar(RBS) + spacer) + 1)
-    temp_df <- rbind.fill(temp_df, temp_RBS_df)
+    temp_df <- plyr::rbind.fill(temp_df, temp_RBS_df)
   }
   strand_minus_RBS <- temp_df
 
@@ -117,7 +117,7 @@ RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, pl
     mutate(ORFmatch = ifelse(ORFstart %in% (genbank_table %>% filter(direction == "-") %>% select(end) %>% pull), "match", "unmatch"))
 
   # Combine both strands
-  putative_RBS <- rbind.fill(strand_plus_RBS, strand_minus_RBS)
+  putative_RBS <- plyr::rbind.fill(strand_plus_RBS, strand_minus_RBS)
   putative_matched_RBS <- putative_RBS %>% filter(ORFmatch == "match")
 
   # Assign the result to 'Putative RBS table' in the global environment

@@ -90,7 +90,7 @@ genbank_fna_extractor <- function(gb_dir = NULL) {
   for (i in (1:nrow(contig_length))[-1]) {
     contig_temp <- get(paste("contig", i, "seq", "final", "temp", sep = "_"))
     if (!is.na(contig_temp)[1]) {
-      contig_seq_final <- rbind.fill(contig_seq_final, contig_temp)
+      contig_seq_final <- plyr::rbind.fill(contig_seq_final, contig_temp)
     }
   }
 

@@ -104,8 +104,20 @@
   family_col <- .dnmb_pick_column(tbl, c("dbCAN_family_id", "family_id"))
 
   required <- c("locus_tag", "contig", "start", "end", "direction")
-  if (!all(required %in% names(tbl)) || is.null(cgc_id_col) || is.null(cgc_type_col)) {
-    return(NULL)
+  missing_required <- setdiff(required, names(tbl))
+  if (length(missing_required)) {
+    stop("dbCAN plot: genbank_table is missing required columns: ",
+         paste(missing_required, collapse = ", "),
+         call. = FALSE)
+  }
+  if (is.null(cgc_id_col) || is.null(cgc_type_col)) {
+    stop("dbCAN plot: CGC cluster columns not found in genbank_table. ",
+         "The dbCAN module fell back to plain HMM search and did not run ",
+         "CGC-Finder, so `dbCAN_dbcan_cgc_id` / `dbCAN_dbcan_cgc_gene_type` ",
+         "are absent. Install the `run_dbcan` binary (bioconda `dbcan`) in ",
+         "the Docker image so the standalone dbCAN pipeline runs and ",
+         "populates CGC/PUL columns.",
+         call. = FALSE)
   }
 
   tbl$dbcan_cgc_id <- as.character(tbl[[cgc_id_col]])
@@ -115,7 +127,8 @@
   tbl$dbCAN_family_id <- if (!is.null(family_col)) as.character(tbl[[family_col]]) else NA_character_
   tbl <- tbl[!is.na(tbl$dbcan_cgc_id) & nzchar(tbl$dbcan_cgc_id), , drop = FALSE]
   if (!nrow(tbl)) {
-    return(NULL)
+    stop("dbCAN plot: CGC columns are present but contain no non-empty ",
+         "values — nothing to plot.", call. = FALSE)
   }
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)

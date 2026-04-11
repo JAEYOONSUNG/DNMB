@@ -283,6 +283,29 @@
     ))
   }
 
+  # If the managed venv already exists (e.g. seeded by the Dockerfile
+  # with torch/fair-esm/pandas/... pre-installed), the only thing missing
+  # is the CLEAN package itself. Try running build.py install inside the
+  # existing venv before any fallback that would recreate the venv —
+  # recreating wipes out the seeded dependencies and then the pip
+  # install -r requirements.txt step inside a plain biotools python
+  # fails at wheel build, which is what we saw in the full-pipeline run.
+  if (file.exists(layout$env_python) && file.exists(layout$build_script)) {
+    build_run <- dnmb_run_external(
+      layout$env_python,
+      args = c("build.py", "install"),
+      wd = layout$app_dir,
+      required = FALSE
+    )
+    if (isTRUE(build_run$ok) && .dnmb_clean_verify_python(layout$env_python)) {
+      return(list(
+        status = .dnmb_clean_status_row("clean_python", "ok", layout$env_python),
+        python = normalizePath(layout$env_python, winslash = "/", mustWork = FALSE),
+        managed_env = TRUE
+      ))
+    }
+  }
+
   install_with_env_python <- function(env_python) {
     install_cmds <- list(
       list(command = env_python, args = c("-m", "pip", "install", "--upgrade", "pip"), wd = NULL),

@@ -89,23 +89,20 @@ DNMB_table <- function(
     }
   }
 
-  # Check for InterProScan_site — the parameter is just a gate flag; the
-  # actual site-level data lives in .GlobalEnv$InterProScan_site (populated
-  # by InterProScan_annotations after parsing `.tsv.sites`). Normalise the
-  # variable so downstream code can check it with `is.data.frame()`.
-  if (isTRUE(InterProScan_site) || is.null(InterProScan_site)) {
-    # Opportunistic lookup: if a parsed site table is in the global env,
-    # use it regardless of the caller flag default.
+  # InterProScan_site is actually driven by .GlobalEnv, not by the
+  # caller flag. The parameter default is FALSE for historical reasons,
+  # but that should NOT suppress the sheet when a fresh run has parsed
+  # `.tsv.sites` and populated `InterProScan_site` in the global env.
+  # Unless the caller passed an actual data.frame, always look up the
+  # global env and use it; otherwise leave as NULL so the sheet is
+  # skipped. The downstream guard requires is.data.frame() anyway.
+  if (!is.data.frame(InterProScan_site)) {
     if (exists("InterProScan_site", envir = .GlobalEnv, inherits = FALSE)) {
       InterProScan_site <- get("InterProScan_site", envir = .GlobalEnv, inherits = FALSE)
       message("InterProScan_site found in the environment.")
     } else {
       InterProScan_site <- NULL
     }
-  } else {
-    # The param was FALSE (gate off) — do not emit the sheet even if a
-    # stale global variable still exists.
-    InterProScan_site <- NULL
   }
 
   genbank_table <- dnmb_prepare_genbank_table_for_output(genbank_table)

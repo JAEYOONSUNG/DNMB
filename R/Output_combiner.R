@@ -89,15 +89,23 @@ DNMB_table <- function(
     }
   }
 
-  # Check for InterProScan_site
-  if (isTRUE(InterProScan_site)) {
-    if (exists("InterProScan_site", envir = .GlobalEnv)) {
-      InterProScan_site <- get("InterProScan_site", envir = .GlobalEnv)
+  # Check for InterProScan_site — the parameter is just a gate flag; the
+  # actual site-level data lives in .GlobalEnv$InterProScan_site (populated
+  # by InterProScan_annotations after parsing `.tsv.sites`). Normalise the
+  # variable so downstream code can check it with `is.data.frame()`.
+  if (isTRUE(InterProScan_site) || is.null(InterProScan_site)) {
+    # Opportunistic lookup: if a parsed site table is in the global env,
+    # use it regardless of the caller flag default.
+    if (exists("InterProScan_site", envir = .GlobalEnv, inherits = FALSE)) {
+      InterProScan_site <- get("InterProScan_site", envir = .GlobalEnv, inherits = FALSE)
       message("InterProScan_site found in the environment.")
     } else {
-      message("InterProScan_site is set to TRUE but not found in the environment. Skipping the InterProScan_site sheet.")
       InterProScan_site <- NULL
     }
+  } else {
+    # The param was FALSE (gate off) — do not emit the sheet even if a
+    # stale global variable still exists.
+    InterProScan_site <- NULL
   }
 
   genbank_table <- dnmb_prepare_genbank_table_for_output(genbank_table)
@@ -136,11 +144,11 @@ DNMB_table <- function(
 
   openxlsx::addStyle(wb, sheet = "1.GenBank_table", style = no_wrap_style, rows = 1:nrow(genbank_table) + 1, cols = 1:ncol(genbank_table), gridExpand = TRUE)
 
-  # Adding the worksheet only if InterProScan_site exists
-  if (!is.null(InterProScan_site)) {
+  # Adding the worksheet only if InterProScan_site holds an actual table
+  if (is.data.frame(InterProScan_site) && nrow(InterProScan_site) > 0) {
     openxlsx::addWorksheet(wb, "7.InterPro_site")
     openxlsx::writeData(wb, "7.InterPro_site", InterProScan_site, startRow = 1, startCol = 1)
-    message("InterProScan_site sheet added.")
+    message("InterProScan_site sheet added (", nrow(InterProScan_site), " rows).")
   }
 
   if (is.data.frame(module_detail_table) && nrow(module_detail_table)) {

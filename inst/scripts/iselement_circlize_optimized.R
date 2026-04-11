@@ -193,10 +193,10 @@ max_fam_count <- max(all_fam_counts$n[all_fam_counts$element_family %in% show_fa
 for (fam_name in show_families) {
   fam_count <- all_fam_counts$n[all_fam_counts$element_family == fam_name]
   if (is.na(fam_count) || length(fam_count) == 0) fam_count <- 0
-  fam_census <- census %>% filter(family == fam_name) %>% slice(1)
-  if (fam_name == "unknown") fam_census <- census %>% filter(family == fam_name | is.na(family)) %>% slice(1)
+  fam_census <- census %>% dplyr::filter(family == fam_name) %>% dplyr::slice(1)
+  if (fam_name == "unknown") fam_census <- census %>% dplyr::filter(family == fam_name | is.na(family)) %>% dplyr::slice(1)
   has_empty_site <- fam_name %in% empty_site_df$element_family
-  rep_verify <- if (has_empty_site) empty_site_df %>% filter(element_family == fam_name) %>% slice(1) else data.frame()
+  rep_verify <- if (has_empty_site) empty_site_df %>% dplyr::filter(element_family == fam_name) %>% dplyr::slice(1) else data.frame()
   rep_id <- if (has_empty_site) rep_verify$element_id else NA
 
   # ── Column 1: Family info panel ──
@@ -278,7 +278,7 @@ for (fam_name in show_families) {
           plot.margin = margin(1, 4, 1, 2))
 
   # ── Column 2: TSD SeqLogo ──
-  fam_tm <- tm %>% filter(family == fam_name) %>% slice(1)
+  fam_tm <- tm %>% dplyr::filter(family == fam_name) %>% dplyr::slice(1)
   dom_len <- if (nrow(fam_tm)) fam_tm$dominant_tsd_len else NA
 
   fam_tsd <- if (nrow(tsd_raw)) tsd_raw[tsd_raw$family == fam_name, , drop = FALSE] else data.frame()
@@ -321,14 +321,14 @@ for (fam_name in show_families) {
   # ── Column 3: gggenes synteny view (focal vs reference) ──
   # Pick representative element: use verified element if available, else pick largest
   if (!is.na(rep_id)) {
-    rep_el <- elements %>% filter(element_id == rep_id) %>% slice(1)
+    rep_el <- elements %>% dplyr::filter(element_id == rep_id) %>% dplyr::slice(1)
   } else {
     rep_el <- elements %>%
-      mutate(element_family = ifelse(is.na(element_family) | !nzchar(element_family), "unknown", element_family)) %>%
-      filter(element_family == fam_name) %>%
-      mutate(el_len = end - start) %>%
-      slice_max(order_by = el_len, n = 1) %>%
-      slice(1)
+      dplyr::mutate(element_family = ifelse(is.na(element_family) | !nzchar(element_family), "unknown", element_family)) %>%
+      dplyr::filter(element_family == fam_name) %>%
+      dplyr::mutate(el_len = end - start) %>%
+      dplyr::slice_max(order_by = el_len, n = 1) %>%
+      dplyr::slice(1)
   }
   el_contig <- rep_el$contig; el_start <- rep_el$start; el_end <- rep_el$end
   el_len <- el_end - el_start + 1
@@ -476,7 +476,7 @@ for (fam_name in show_families) {
       tsd_text <- NULL
       if (!is.null(iv_updated) && nrow(iv_updated$validated_tsd)) {
         tsd_row <- iv_updated$validated_tsd %>%
-          filter(element_id == rep_id) %>% slice(1)
+          dplyr::filter(element_id == rep_id) %>% dplyr::slice(1)
         if (nrow(tsd_row) && !is.na(tsd_row$tsd_seq))
           tsd_text <- paste0("TSD: ", tsd_row$tsd_seq, " (", nchar(tsd_row$tsd_seq), " bp)")
       }

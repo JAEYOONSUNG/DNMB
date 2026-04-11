@@ -147,6 +147,18 @@ InterProScan_annotations <- function(InterProScan_dir = NULL) {
     InterPro_site <- NULL
   }
 
+  # Expose the parsed site-level table to callers (Output_combiner writes
+  # the `7.InterPro_site` sheet from .GlobalEnv$InterProScan_site). Without
+  # this assign() the parsed .tsv.sites data would be dropped at function
+  # return, leaving the xlsx sheet empty even when a non-empty sites file
+  # exists on disk.
+  if (exists("InterProScan_site", envir = .GlobalEnv, inherits = FALSE)) {
+    rm("InterProScan_site", envir = .GlobalEnv)
+  }
+  if (!is.null(InterPro_site) && is.data.frame(InterPro_site) && nrow(InterPro_site) > 0) {
+    assign("InterProScan_site", InterPro_site, envir = .GlobalEnv)
+  }
+
   # Process InterPro search data
   InterPro <- reshape2::melt(
     InterPro_search,

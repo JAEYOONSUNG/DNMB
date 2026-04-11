@@ -103,7 +103,7 @@ tm <- target_models %>% filter(n_elements >= 2) %>% arrange(desc(n_elements))
 # --- Family selection: top families with empty_site verification ---
 fam_counts_df <- elements %>%
   filter(!is.na(element_family) & nzchar(element_family)) %>%
-  count(element_family, sort = TRUE)
+  dplyr::count(element_family, sort = TRUE)
 
 synteny_families <- character()
 empty_site_df <- data.frame()
@@ -124,7 +124,7 @@ if (!is.null(iv_for_panel) && nrow(iv_for_panel) &&
 all_fam_counts <- elements %>%
   mutate(element_family = ifelse(is.na(element_family) | !nzchar(element_family),
                                   "unknown", element_family)) %>%
-  count(element_family, sort = TRUE) %>%
+  dplyr::count(element_family, sort = TRUE) %>%
   filter(n >= 1)
 show_families <- all_fam_counts$element_family
 n_flanking <- 4  # Show 4 genes on each side of IS element
@@ -930,9 +930,9 @@ circos.track(ylim = c(-1, 1), track.height = TH, bg.border = BD, bg.lwd = BW,
 # IS family links
 # ============================================================
 link_families <- is_track %>%
-  count(fam, sort = TRUE) %>%
-  filter(n >= 2) %>%
-  pull(fam)
+  dplyr::count(fam, sort = TRUE) %>%
+  dplyr::filter(n >= 2) %>%
+  dplyr::pull(fam)
 
 for (fam_name in link_families) {
   for (ctg_name in all_contigs) {

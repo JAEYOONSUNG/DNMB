@@ -60,10 +60,12 @@ run_interproscan <- function(fasta_path = NULL,
   fasta_path <- normalizePath(fasta_path, winslash = "/", mustWork = TRUE)
 
   # ── Build command arguments ─────────────────────────────────
-  # Use -b (base name) so InterProScan writes both `<base>.tsv` and the
-  # companion `<base>.tsv.sites` for analyses that expose residue-level
-  # information (CDD, SFLD, PROSITE_PROFILES). Residue annotation is
-  # left enabled (no -dra) so the .sites file is actually produced.
+  # Use -b (base name) so InterProScan writes `<base>.tsv` alongside the
+  # companion `<base>.tsv.sites` for analyses with residue-level info
+  # (CDD, SFLD, PROSITE_PROFILES, PIRSR, ...). The sites companion file
+  # is ONLY produced for TSV output when -etra / --enable-tsv-residue-annot
+  # is passed — removing the old -dra flag alone is not sufficient because
+  # -dra only controls XML/JSON sites, while -etra is the TSV toggle.
   output_base <- file.path(output_dir, "interproscan_results")
   args <- c(
     "-i", fasta_path,
@@ -72,7 +74,8 @@ run_interproscan <- function(fasta_path = NULL,
     "-cpu", as.character(as.integer(cpu)[1]),
     "--goterms",
     "--pathways",
-    "--iprlookup"
+    "--iprlookup",
+    "--enable-tsv-residue-annot"
   )
 
   if (!is.null(applications) && length(applications) > 0L) {

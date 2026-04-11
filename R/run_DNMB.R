@@ -251,10 +251,9 @@ run_DNMB <- function(
         output_dir = ipr_output_dir,
         genbank_signature = genbank_signature
       )
-      file.copy(ipr_result$tsv, file.path(getwd(), basename(ipr_result$tsv)), overwrite = TRUE)
-      if (!is.null(ipr_result$tsv_sites)) {
-        file.copy(ipr_result$tsv_sites, file.path(getwd(), basename(ipr_result$tsv_sites)), overwrite = TRUE)
-      }
+      # Results stay inside the module directory; parse in place rather
+      # than duplicating the tsv (and optional .tsv.sites) to the working
+      # directory, which would double disk usage for no consumer benefit.
       InterProScan_annotations(InterProScan_dir = dirname(ipr_result$tsv))
       interpro_external_found <- TRUE
 

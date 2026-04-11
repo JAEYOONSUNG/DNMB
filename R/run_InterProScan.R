@@ -60,16 +60,19 @@ run_interproscan <- function(fasta_path = NULL,
   fasta_path <- normalizePath(fasta_path, winslash = "/", mustWork = TRUE)
 
   # ── Build command arguments ─────────────────────────────────
+  # Use -b (base name) so InterProScan writes both `<base>.tsv` and the
+  # companion `<base>.tsv.sites` for analyses that expose residue-level
+  # information (CDD, SFLD, PROSITE_PROFILES). Residue annotation is
+  # left enabled (no -dra) so the .sites file is actually produced.
   output_base <- file.path(output_dir, "interproscan_results")
   args <- c(
     "-i", fasta_path,
-    "-o", paste0(output_base, ".tsv"),
+    "-b", output_base,
     "-f", "tsv",
     "-cpu", as.character(as.integer(cpu)[1]),
     "--goterms",
     "--pathways",
-    "--iprlookup",
-    "-dra"
+    "--iprlookup"
   )
 
   if (!is.null(applications) && length(applications) > 0L) {
@@ -139,14 +142,10 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
     verbose = verbose
   )
 
-  # Copy output to working directory so InterProScan_annotations() finds it
-  tsv_dest <- file.path(getwd(), basename(result$tsv))
-  file.copy(result$tsv, tsv_dest, overwrite = TRUE)
-  if (!is.null(result$tsv_sites)) {
-    file.copy(result$tsv_sites, file.path(getwd(), basename(result$tsv_sites)), overwrite = TRUE)
-  }
-
-  # Parse with existing organizer
+  # Parse with existing organizer directly from the module directory.
+  # Results stay confined to `<output_dir>/` (the dnmb_module_interproscan
+  # folder). No copy to the working directory — InterProScan_annotations()
+  # reads from the same dir where InterProScan wrote the outputs.
   InterProScan_annotations(InterProScan_dir = dirname(result$tsv))
 
   # Merge onto genbank_table

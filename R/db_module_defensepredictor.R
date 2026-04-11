@@ -30,6 +30,75 @@
   cat(paste0(text, "\n"), file = path, append = TRUE)
 }
 
+# ── Signature-based reuse ─────────────────────────────────────
+# Mirrors the InterProScan / EggNOG pattern: write a small metadata
+# file alongside the module output that records the genbank signature
+# and module version used to produce it. On rerun, if the metadata
+# matches the current input + version, parse the existing output_csv
+# and skip re-running inference (which can take an hour of CPU time).
+
+.dnmb_defensepredictor_metadata_path <- function(output_dir) {
+  file.path(output_dir, ".input_signature.rds")
+}
+
+.dnmb_defensepredictor_output_csv <- function(output_dir) {
+  file.path(output_dir, "defense_predictor_output.csv")
+}
+
+.dnmb_write_defensepredictor_signature <- function(output_dir,
+                                                   genbank_signature,
+                                                   version) {
+  if (is.null(output_dir) || !nzchar(trimws(output_dir)) ||
+      is.null(genbank_signature)) {
+    return(invisible(NULL))
+  }
+  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  payload <- list(
+    input_mode = "genbank_workdir",
+    written_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+    genbank_signature = genbank_signature,
+    module_version = if (is.null(version)) NA_character_ else as.character(version)[1]
+  )
+  saveRDS(payload, .dnmb_defensepredictor_metadata_path(output_dir))
+  invisible(payload)
+}
+
+.dnmb_read_defensepredictor_signature <- function(output_dir) {
+  metadata_path <- .dnmb_defensepredictor_metadata_path(output_dir)
+  if (!file.exists(metadata_path)) return(NULL)
+  tryCatch(readRDS(metadata_path), error = function(e) NULL)
+}
+
+.dnmb_defensepredictor_reuse_status <- function(output_dir,
+                                                genbank_signature,
+                                                version) {
+  output_csv <- .dnmb_defensepredictor_output_csv(output_dir)
+  if (!file.exists(output_csv) || file.info(output_csv)$size == 0) {
+    return(list(reusable = FALSE, reason = "missing_output_csv"))
+  }
+  metadata <- .dnmb_read_defensepredictor_signature(output_dir)
+  if (is.null(metadata)) {
+    return(list(reusable = FALSE, reason = "missing_metadata"))
+  }
+  if (!.dnmb_same_file_signature(genbank_signature, metadata$genbank_signature)) {
+    return(list(reusable = FALSE, reason = "input_changed"))
+  }
+  cached_version <- metadata$module_version %||% NA_character_
+  current_version <- if (is.null(version)) NA_character_ else as.character(version)[1]
+  if (!identical(cached_version, current_version)) {
+    return(list(
+      reusable = FALSE,
+      reason = sprintf("version_changed (%s -> %s)",
+                       cached_version, current_version)
+    ))
+  }
+  list(
+    reusable = TRUE,
+    output_csv = output_csv,
+    metadata = metadata
+  )
+}
+
 .dnmb_defensepredictor_asset_layout <- function(module_dir) {
   list(
     module_dir = module_dir,
@@ -419,6 +488,45 @@ dnmb_run_defensepredictor_module <- function(genes,
   trace_log <- file.path(output_dir, "defensepredictor_module_trace.log")
   status <- .dnmb_defensepredictor_empty_status()
 
+  # ── Signature-based reuse ────────────────────────────────────
+  # Before spending ~1h on CPU inference, check whether a previous
+  # run already produced defense_predictor_output.csv for this exact
+  # GenBank input and module version. The DefensePredictor CLI has
+  # no internal skip logic (unlike padloc), so without this guard
+  # every rerun reprocesses the same proteins from scratch.
+  genbank_file <- .dnmb_detect_genbank_inputs(dirname(output_dir))
+  genbank_signature <- if (length(genbank_file)) .dnmb_file_signature(genbank_file) else NULL
+  reuse_status <- .dnmb_defensepredictor_reuse_status(
+    output_dir = output_dir,
+    genbank_signature = genbank_signature,
+    version = version
+  )
+  if (isTRUE(reuse_status$reusable)) {
+    .dnmb_defensepredictor_trace(
+      trace_log,
+      sprintf("[%s] Reusing existing output: %s",
+              Sys.time(), reuse_status$output_csv)
+    )
+    raw_hits <- dnmb_defensepredictor_parse_output(reuse_status$output_csv)
+    hits <- dnmb_defensepredictor_normalize_hits(raw_hits)
+    output_table <- .dnmb_defensepredictor_output_table(genes = genes, hits = hits, threshold = threshold)
+    status <- dplyr::bind_rows(
+      status,
+      .dnmb_defensepredictor_status_row("defensepredictor_run", "cached", reuse_status$output_csv)
+    )
+    return(list(
+      ok = TRUE,
+      status = status,
+      files = list(
+        output_csv = reuse_status$output_csv,
+        trace_log = trace_log
+      ),
+      raw_hits = raw_hits,
+      hits = hits,
+      output_table = output_table
+    ))
+  }
+
   install_result <- dnmb_defensepredictor_install_module(
     version = version,
     cache_root = cache_root,
@@ -471,6 +579,13 @@ dnmb_run_defensepredictor_module <- function(genes,
   hits <- dnmb_defensepredictor_normalize_hits(raw_hits)
   output_table <- .dnmb_defensepredictor_output_table(genes = genes, hits = hits, threshold = threshold)
   ok <- file.exists(output_csv) && isTRUE(run$ok)
+  if (isTRUE(ok) && !is.null(genbank_signature)) {
+    .dnmb_write_defensepredictor_signature(
+      output_dir = output_dir,
+      genbank_signature = genbank_signature,
+      version = version
+    )
+  }
   status <- dplyr::bind_rows(
     status,
     .dnmb_defensepredictor_status_row(

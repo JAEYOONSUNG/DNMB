@@ -1086,7 +1086,10 @@ run_DNMB_mobileome <- function(
     next_row <- seed_table[idx, , drop = FALSE]
     same_contig <- identical(current$contig[[1]], next_row$contig[[1]])
     compatible_family <- .dnmb_family_compatible(current$element_family[[1]], next_row$element_family[[1]])
-    close_enough <- next_row$start[[1]] <= (current$end[[1]] + merge_gap_bp)
+    # isTRUE() guards against NA in any of next_row$start, current$end, or
+    # merge_gap_bp — if coordinates are missing, treat the rows as not
+    # mergeable rather than letting `if (... && NA)` abort the module.
+    close_enough <- isTRUE(next_row$start[[1]] <= (current$end[[1]] + merge_gap_bp))
 
     if (same_contig && compatible_family && close_enough) {
       current$start[[1]] <- min(current$start[[1]], next_row$start[[1]], na.rm = TRUE)

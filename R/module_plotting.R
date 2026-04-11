@@ -300,100 +300,45 @@
 # Glycolysis backbone vertical at x=1.0, pathways branch rightward, step ~ 0.5 units
 dnmb_render_module_plots <- function(genbank_table, output_dir = getwd(), cache_root = NULL) {
   plots <- list()
-  gapmind_aa_plot <- tryCatch(
-    .dnmb_plot_gapmind_aa_pathway_map(genbank_table, output_dir = output_dir),
-    error = function(e) e
-  )
-  if (is.list(gapmind_aa_plot) && !inherits(gapmind_aa_plot, "error")) {
-    plots$GapMindAA <- gapmind_aa_plot
+  dropped <- list()
+
+  run_plot <- function(name, fn) {
+    reason <- NULL
+    res <- tryCatch(
+      fn(),
+      error = function(e) {
+        reason <<- paste0("error: ", conditionMessage(e))
+        NULL
+      }
+    )
+    if (is.list(res)) {
+      plots[[name]] <<- res
+    } else {
+      if (is.null(reason)) {
+        reason <- "no data (plot function returned NULL)"
+      }
+      dropped[[name]] <<- reason
+    }
   }
 
-  cazy_transport_plot <- tryCatch(
-    .dnmb_plot_cazy_carbon_transport_map(genbank_table, output_dir = output_dir),
-    error = function(e) e
-  )
-  if (is.list(cazy_transport_plot) && !inherits(cazy_transport_plot, "error")) {
-    plots$CAZyTransport <- cazy_transport_plot
-  }
+  run_plot("GapMindAA",        function() .dnmb_plot_gapmind_aa_pathway_map(genbank_table, output_dir = output_dir))
+  run_plot("CAZyTransport",    function() .dnmb_plot_cazy_carbon_transport_map(genbank_table, output_dir = output_dir))
+  run_plot("DefenseFinder",    function() .dnmb_plot_defensefinder_module(genbank_table, output_dir = output_dir))
+  run_plot("PADLOC",           function() .dnmb_plot_padloc_module(genbank_table, output_dir = output_dir))
+  run_plot("DefensePredictor", function() .dnmb_plot_defensepredictor_module(genbank_table, output_dir = output_dir))
+  run_plot("ISelement",        function() .dnmb_plot_iselement_module(genbank_table, output_dir = output_dir))
+  run_plot("Prophage",         function() .dnmb_plot_prophage_module(genbank_table, output_dir = output_dir, cache_root = cache_root))
+  run_plot("dbCAN",            function() .dnmb_plot_dbcan_module(genbank_table, output_dir = output_dir))
+  run_plot("MEROPS",           function() .dnmb_plot_merops_module(genbank_table, output_dir = output_dir))
+  run_plot("PAZy",             function() .dnmb_plot_pazy_module(genbank_table, output_dir = output_dir, cache_root = cache_root))
+  run_plot("REBASEfinder",     function() .dnmb_plot_rebasefinder_module(genbank_table, output_dir = output_dir))
+  run_plot("DefenseOverview",  function() .dnmb_plot_integrated_defense_module(genbank_table, output_dir = output_dir))
 
-  defensefinder_plot <- tryCatch(
-    .dnmb_plot_defensefinder_module(genbank_table, output_dir = output_dir),
-    error = function(e) e
-  )
-  if (is.list(defensefinder_plot) && !inherits(defensefinder_plot, "error")) {
-    plots$DefenseFinder <- defensefinder_plot
-  }
-
-  padloc_plot <- tryCatch(
-    .dnmb_plot_padloc_module(genbank_table, output_dir = output_dir),
-    error = function(e) e
-  )
-  if (is.list(padloc_plot) && !inherits(padloc_plot, "error")) {
-    plots$PADLOC <- padloc_plot
-  }
-
-  defensepredictor_plot <- tryCatch(
-    .dnmb_plot_defensepredictor_module(genbank_table, output_dir = output_dir),
-    error = function(e) e
-  )
-  if (is.list(defensepredictor_plot) && !inherits(defensepredictor_plot, "error")) {
-    plots$DefensePredictor <- defensepredictor_plot
-  }
-
-  iselement_plot <- tryCatch(
-    .dnmb_plot_iselement_module(genbank_table, output_dir = output_dir),
-    error = function(e) e
-  )
-  if (is.list(iselement_plot) && !inherits(iselement_plot, "error")) {
-    plots$ISelement <- iselement_plot
-  }
-
-  prophage_plot <- tryCatch(
-    .dnmb_plot_prophage_module(genbank_table, output_dir = output_dir, cache_root = cache_root),
-    error = function(e) e
-  )
-  if (is.list(prophage_plot) && !inherits(prophage_plot, "error")) {
-    plots$Prophage <- prophage_plot
-  }
-
-  dbcan_plot <- tryCatch(
-    .dnmb_plot_dbcan_module(genbank_table, output_dir = output_dir),
-    error = function(e) e
-  )
-  if (is.list(dbcan_plot) && !inherits(dbcan_plot, "error")) {
-    plots$dbCAN <- dbcan_plot
-  }
-
-  merops_plot <- tryCatch(
-    .dnmb_plot_merops_module(genbank_table, output_dir = output_dir),
-    error = function(e) e
-  )
-  if (is.list(merops_plot) && !inherits(merops_plot, "error")) {
-    plots$MEROPS <- merops_plot
-  }
-
-  pazy_plot <- tryCatch(
-    .dnmb_plot_pazy_module(genbank_table, output_dir = output_dir, cache_root = cache_root),
-    error = function(e) e
-  )
-  if (is.list(pazy_plot) && !inherits(pazy_plot, "error")) {
-    plots$PAZy <- pazy_plot
-  }
-
-  rebase_plot <- tryCatch(
-    .dnmb_plot_rebasefinder_module(genbank_table, output_dir = output_dir),
-    error = function(e) e
-  )
-  if (is.list(rebase_plot) && !inherits(rebase_plot, "error")) {
-    plots$REBASEfinder <- rebase_plot
-  }
-
-  integrated_defense_plot <- tryCatch(
-    .dnmb_plot_integrated_defense_module(genbank_table, output_dir = output_dir),
-    error = function(e) e
-  )
-  if (is.list(integrated_defense_plot) && !inherits(integrated_defense_plot, "error")) {
-    plots$DefenseOverview <- integrated_defense_plot
+  if (length(dropped)) {
+    message("[DNMB plots] ", length(dropped), " module plot(s) skipped:")
+    for (name in names(dropped)) {
+      message("  - ", name, ": ", dropped[[name]])
+    }
   }
 
   plots

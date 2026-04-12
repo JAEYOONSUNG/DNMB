@@ -4212,13 +4212,27 @@
   chain_x + max(0, length(chain_norm) - 1) * step / 2
 }
 
-.dnmb_cct_small_permutations <- function(x) {
+.dnmb_cct_small_permutations <- function(x, max_full = 7L) {
   x <- as.integer(x)
-  if (length(x) <= 1) return(list(x))
-  out <- vector("list", factorial(length(x)))
+  n <- length(x)
+  if (n <= 1) return(list(x))
+  # Hard cap: for n > max_full the full n! enumeration explodes
+  # (factorial(8)=40320, factorial(10)=3.6M, factorial(12)=479M list
+  # pointers). The row-layout optimiser that consumes this list only
+  # needs a handful of useful orderings, not every permutation, so fall
+  # back to a curated shortlist when the row grows beyond max_full.
+  if (n > max_full) {
+    return(list(
+      x,                                      # identity
+      rev(x),                                 # reverse
+      x[order(x)],                            # ascending
+      x[order(-x)]                            # descending
+    ))
+  }
+  out <- vector("list", factorial(n))
   k <- 1L
   for (i in seq_along(x)) {
-    tail_perms <- .dnmb_cct_small_permutations(x[-i])
+    tail_perms <- .dnmb_cct_small_permutations(x[-i], max_full = max_full)
     for (tp in tail_perms) {
       out[[k]] <- c(x[i], tp)
       k <- k + 1L

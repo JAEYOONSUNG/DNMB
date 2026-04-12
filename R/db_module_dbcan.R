@@ -92,6 +92,16 @@
   )
 }
 
+.dnmb_dbcan_aws_s3_base <- function() {
+  # dbCAN's canonical AWS S3 distribution (see
+  # dbcan/constants/databases_constants.py::AWS_S3_URL in the
+  # `dbcan` python package). The legacy HTTP mirror under
+  # `https://bcb.unl.edu/dbCAN2/download/...` is dead — every path
+  # 302-redirects to a landing page and downloads save HTML instead
+  # of the actual HMM/DIAMOND/TSV files.
+  "https://dbcan.s3.us-west-2.amazonaws.com/db_v5-2_9-13-2025"
+}
+
 .dnmb_dbcan_asset_urls <- function(base_url = .dnmb_dbcan_default_base_url(),
                                    version = .dnmb_dbcan_default_version(),
                                    asset_urls = NULL,
@@ -105,18 +115,15 @@
     return(urls)
   }
 
-  info <- release_info %||% .dnmb_dbcan_release_info()
-  resolved_version <- trimws(as.character(version)[1])
-  if (is.na(resolved_version) || !nzchar(resolved_version) || identical(resolved_version, "current")) {
-    resolved_version <- info$version %||% .dnmb_dbcan_fallback_release_info()$version
-  }
-  resolved_version <- toupper(resolved_version)
-  version_number <- gsub("^V", "", resolved_version)
-
+  # Ignore the legacy versioned HTTP layout entirely — the S3 mirror
+  # ships a single `dbCAN.hmm` (no per-version HMMdb-Vxx.txt split) and
+  # the same `fam-substrate-mapping.tsv`. DNMB saves the HMM locally
+  # as `dbCAN.txt` which hmmsearch still happily accepts.
+  s3 <- .dnmb_dbcan_aws_s3_base()
   stats::setNames(
     c(
-      paste0(base_url, "/", resolved_version, "/dbCAN-HMMdb-V", version_number, ".txt"),
-      paste0(base_url, "/fam-substrate-mapping.tsv")
+      paste0(s3, "/dbCAN.hmm"),
+      paste0(s3, "/fam-substrate-mapping.tsv")
     ),
     c("dbCAN.txt", "fam-substrate-mapping.tsv")
   )
@@ -736,6 +743,21 @@ dnmb_dbcan_normalize_hits <- function(hits) {
 }
 
 .dnmb_dbcan_can_run_standalone <- function(genes) {
+  # The DNMB "standalone" path was written against dbCAN 3.x CLI
+  # (`run_dbcan <query> protein --tools all --cgc_substrate ...`).
+  # Bioconda's current `dbcan` package is 5.2+, which replaced that
+  # interface with subcommands like `run_dbcan easy_substrate
+  # --input_raw_data <fasta> --mode protein --db_dir <db> --output_dir
+  # <out>`, AND the legacy HTTP mirrors for the supporting bundle are
+  # dead (everything 302-redirects to a landing page). Until the
+  # module is ported to the new CLI + S3 bundle layout, force the
+  # hmmsearch fallback path so the module at least produces HMM-level
+  # hits from `dbCAN.hmm` (downloaded from the S3 mirror). Users can
+  # re-enable the old path via `options(dnmb.dbcan.standalone = TRUE)`
+  # once the rewrite lands.
+  if (!isTRUE(getOption("dnmb.dbcan.standalone", FALSE))) {
+    return(FALSE)
+  }
   required <- c("locus_tag", "contig", "start", "end", "direction")
   all(required %in% names(genes))
 }

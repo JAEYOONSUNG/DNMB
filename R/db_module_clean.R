@@ -30,6 +30,22 @@
   20L
 }
 
+.dnmb_clean_patch_pandas3 <- function(app_dir) {
+  # CLEAN's evaluate.py uses `series[i]` (label-based in pandas 3.x)
+  # where it means positional access. Patch to `.iloc[i]` so it works
+  # with any pandas version. Idempotent — skips if already patched.
+  eval_files <- list.files(app_dir, pattern = "evaluate\\.py$",
+                           recursive = TRUE, full.names = TRUE)
+  eval_files <- eval_files[grepl("CLEAN", eval_files)]
+  for (f in eval_files) {
+    txt <- readLines(f, warn = FALSE)
+    patched <- gsub("smallest_10_dist_df\\[i\\]",
+                    "smallest_10_dist_df.iloc[i]", txt)
+    if (!identical(txt, patched)) writeLines(patched, f)
+  }
+  invisible(NULL)
+}
+
 .dnmb_clean_expasy_url <- function(ec_number) {
   ec_number <- trimws(as.character(ec_number))
   out <- ifelse(is.na(ec_number) | !nzchar(ec_number), NA_character_, paste0("https://purl.expasy.org/enzyme/EC/", ec_number))
@@ -303,6 +319,10 @@
       wd = layout$app_dir,
       required = FALSE
     )
+    # Patch CLEAN's evaluate.py for pandas 3.x compatibility:
+    # `smallest_10_dist_df[i]` → `.iloc[i]` (positional, not label-based).
+    # CLEAN upstream hasn't fixed this, so we auto-patch after every install.
+    .dnmb_clean_patch_pandas3(layout$app_dir)
     if (isTRUE(build_run$ok) && .dnmb_clean_verify_python(layout$env_python)) {
       return(list(
         status = .dnmb_clean_status_row("clean_python", "ok", layout$env_python),

@@ -558,39 +558,26 @@ dnmb_dbcan_normalize_hits <- function(hits) {
   file.path(module_dir, "standalone_bundle")
 }
 
-.dnmb_dbcan_supporting_urls <- function(base_url = .dnmb_dbcan_default_base_url()) {
-  c(
-    "fam-substrate-mapping.tsv" = "https://bcb.unl.edu/dbCAN2/download/Databases/fam-substrate-mapping-08012023.tsv",
-    "PUL.faa" = "https://bcb.unl.edu/dbCAN2/download/Databases/PUL.faa",
-    "dbCAN-PUL.xlsx" = "https://bcb.unl.edu/dbCAN2/download/Databases/dbCAN-PUL_12-12-2023.xlsx",
-    "dbCAN-PUL.tar.gz" = "https://bcb.unl.edu/dbCAN2/download/Databases/dbCAN-PUL.tar.gz",
-    "dbCAN_sub.hmm" = "https://bcb.unl.edu/dbCAN2/download/Databases/dbCAN_sub.hmm",
-    "CAZyDB.fa" = "https://bcb.unl.edu/dbCAN2/download/Databases/V12/CAZyDB.07262023.fa",
-    "tcdb.fa" = "https://bcb.unl.edu/dbCAN2/download/Databases/V12/tcdb.fa",
-    "tf-1.hmm" = "https://bcb.unl.edu/dbCAN2/download/Databases/V12/tf-1.hmm",
-    "tf-2.hmm" = "https://bcb.unl.edu/dbCAN2/download/Databases/V12/tf-2.hmm",
-    "stp.hmm" = "https://bcb.unl.edu/dbCAN2/download/Databases/V12/stp.hmm"
-  )
-}
+# Legacy URL list removed — S3 download is handled by `run_dbcan database`
 
 .dnmb_dbcan_supporting_paths <- function(bundle_dir) {
   list(
     bundle_dir = bundle_dir,
-    hmm_txt = file.path(bundle_dir, "dbCAN.txt"),
-    hmm_alias = file.path(bundle_dir, "dbCAN-HMMdb-V14.txt"),
+    hmm_txt = file.path(bundle_dir, "dbCAN.hmm"),
     fam_substrate_mapping = file.path(bundle_dir, "fam-substrate-mapping.tsv"),
-    pul_faa = file.path(bundle_dir, "PUL.faa"),
+    pul_dmnd = file.path(bundle_dir, "PUL.dmnd"),
     pul_excel = file.path(bundle_dir, "dbCAN-PUL.xlsx"),
     pul_tar = file.path(bundle_dir, "dbCAN-PUL.tar.gz"),
     pul_dir = file.path(bundle_dir, "dbCAN-PUL"),
-    tcdb_fa = file.path(bundle_dir, "tcdb.fa"),
-    tcdb_dmnd = file.path(bundle_dir, "tcdb.dmnd"),
-    tf1_hmm = file.path(bundle_dir, "tf-1.hmm"),
-    tf2_hmm = file.path(bundle_dir, "tf-2.hmm"),
-    stp_hmm = file.path(bundle_dir, "stp.hmm"),
-    dbcan_sub_hmm = file.path(bundle_dir, "dbCAN_sub.hmm"),
-    cazy_fa = file.path(bundle_dir, "CAZyDB.fa"),
-    cazy_dmnd = file.path(bundle_dir, "CAZy.dmnd")
+    tcdb_dmnd = file.path(bundle_dir, "TCDB.dmnd"),
+    tf_hmm = file.path(bundle_dir, "TF.hmm"),
+    tf_dmnd = file.path(bundle_dir, "TF.dmnd"),
+    stp_hmm = file.path(bundle_dir, "STP.hmm"),
+    dbcan_sub_hmm = file.path(bundle_dir, "dbCAN-sub.hmm"),
+    dbcan_sub_hmm_real = file.path(bundle_dir, "dbCAN_sub.hmm"),
+    cazy_dmnd = file.path(bundle_dir, "CAZy.dmnd"),
+    peptidase_dmnd = file.path(bundle_dir, "peptidase_db.dmnd"),
+    sulfatlas_dmnd = file.path(bundle_dir, "sulfatlas_db.dmnd")
   )
 }
 
@@ -598,19 +585,15 @@ dnmb_dbcan_normalize_hits <- function(hits) {
   required <- c(
     paths$hmm_txt,
     paste0(paths$hmm_txt, c(".h3f", ".h3i", ".h3m", ".h3p")),
-    paths$hmm_alias,
-    paste0(paths$hmm_alias, c(".h3f", ".h3i", ".h3m", ".h3p")),
     paths$fam_substrate_mapping,
-    paths$pul_faa,
+    paths$pul_dmnd,
     paths$pul_excel,
-    paths$pul_dir,
     paths$tcdb_dmnd,
-    paths$tf1_hmm,
-    paths$tf2_hmm,
+    paths$tf_hmm,
+    paths$tf_dmnd,
     paths$stp_hmm,
-    paste0(paths$tf1_hmm, c(".h3f", ".h3i", ".h3m", ".h3p")),
-    paste0(paths$tf2_hmm, c(".h3f", ".h3i", ".h3m", ".h3p")),
     paste0(paths$stp_hmm, c(".h3f", ".h3i", ".h3m", ".h3p")),
+    paste0(paths$tf_hmm, c(".h3f", ".h3i", ".h3m", ".h3p")),
     paths$cazy_dmnd,
     paths$dbcan_sub_hmm,
     paste0(paths$dbcan_sub_hmm, c(".h3f", ".h3i", ".h3m", ".h3p"))
@@ -618,35 +601,42 @@ dnmb_dbcan_normalize_hits <- function(hits) {
   all(file.exists(required))
 }
 
-.dnmb_dbcan_stage_hmm_for_standalone <- function(module_dir, bundle_dir, version_label = NULL) {
+.dnmb_dbcan_stage_hmm_for_standalone <- function(module_dir, bundle_dir) {
+  # Stage the module's dbCAN.hmm (stored as dbCAN.txt) into the bundle
+  # as dbCAN.hmm so run_dbcan can find it.
   layout <- .dnmb_dbcan_asset_layout(module_dir)
-  release_info <- .dnmb_dbcan_release_info()
-  version_label <- version_label %||% release_info$version %||% "V14"
-  txt_base <- file.path(bundle_dir, "dbCAN.txt")
-  alias_base <- file.path(bundle_dir, paste0("dbCAN-HMMdb-", version_label, ".txt"))
-  source_files <- c(layout$hmm_path, layout$hmmpress_files)
-  target_sets <- list(
-    c(txt_base, paste0(txt_base, c(".h3f", ".h3i", ".h3m", ".h3p"))),
-    c(alias_base, paste0(alias_base, c(".h3f", ".h3i", ".h3m", ".h3p")))
-  )
-  target_files <- unlist(target_sets, use.names = FALSE)
-  if (all(file.exists(target_files))) {
-    return(list(ok = TRUE, alias = alias_base, files = target_files))
+  dest <- file.path(bundle_dir, "dbCAN.hmm")
+  if (file.exists(dest)) {
+    return(list(ok = TRUE, files = dest))
   }
   dir.create(bundle_dir, recursive = TRUE, showWarnings = FALSE)
-  copied <- logical()
-  for (target_set in target_sets) {
-    copied <- c(copied, file.copy(source_files, target_set, overwrite = TRUE))
+  ok <- file.copy(layout$hmm_path, dest, overwrite = TRUE)
+  # Also copy hmmpress indices if they exist
+  for (ext in c(".h3f", ".h3i", ".h3m", ".h3p")) {
+    src <- paste0(layout$hmm_path, ext)
+    if (file.exists(src)) file.copy(src, paste0(dest, ext), overwrite = TRUE)
   }
-  list(ok = all(copied), alias = alias_base, files = target_files[file.exists(target_files)])
+  list(ok = ok, files = dest)
 }
 
 .dnmb_dbcan_prepare_reference_indexes <- function(paths) {
-  if (!file.exists(paths$cazy_dmnd)) {
-    dnmb_run_external("diamond", c("makedb", "--in", paths$cazy_fa, "-d", sub("\\.dmnd$", "", paths$cazy_dmnd)), required = TRUE)
+
+  # Create symlink dbCAN-sub.hmm -> dbCAN_sub.hmm if the S3-layout
+
+  # uses underscore but run_dbcan expects hyphen
+  if (!file.exists(paths$dbcan_sub_hmm) && file.exists(paths$dbcan_sub_hmm_real)) {
+    suppressWarnings(file.symlink(
+      normalizePath(paths$dbcan_sub_hmm_real, winslash = "/", mustWork = TRUE),
+      paths$dbcan_sub_hmm
+    ))
   }
-  if (!file.exists(paste0(paths$dbcan_sub_hmm, ".h3f"))) {
-    dnmb_run_external("hmmpress", c("-f", paths$dbcan_sub_hmm), required = TRUE)
+
+  # hmmpress every .hmm that lacks its .h3f index
+  hmm_files <- c(paths$hmm_txt, paths$tf_hmm, paths$stp_hmm, paths$dbcan_sub_hmm)
+  for (hmm in hmm_files) {
+    if (file.exists(hmm) && !file.exists(paste0(hmm, ".h3f"))) {
+      dnmb_run_external("hmmpress", c("-f", hmm), required = FALSE)
+    }
   }
 }
 
@@ -656,108 +646,60 @@ dnmb_dbcan_normalize_hits <- function(hits) {
                                                   force = FALSE) {
   bundle_dir <- .dnmb_dbcan_standalone_layout(module_dir)
   dir.create(bundle_dir, recursive = TRUE, showWarnings = FALSE)
-  module_layout <- .dnmb_dbcan_asset_layout(module_dir)
   paths <- .dnmb_dbcan_supporting_paths(bundle_dir)
-  urls <- .dnmb_dbcan_supporting_urls(base_url = base_url)
-
   status <- .dnmb_dbcan_empty_status()
+
   if (!isTRUE(force) && .dnmb_dbcan_standalone_ready(paths)) {
     return(list(ok = TRUE, status = .dnmb_dbcan_status_row("dbcan_support_bundle", "cached", bundle_dir), paths = paths))
   }
 
-  for (asset_name in names(urls)) {
-    dest <- switch(
-      asset_name,
-      "PUL.faa" = paths$pul_faa,
-      "fam-substrate-mapping.tsv" = paths$fam_substrate_mapping,
-      "dbCAN-PUL.xlsx" = paths$pul_excel,
-      "dbCAN-PUL.tar.gz" = paths$pul_tar,
-      "dbCAN_sub.hmm" = paths$dbcan_sub_hmm,
-      "CAZyDB.fa" = paths$cazy_fa,
-      "tcdb.fa" = paths$tcdb_fa,
-      "tf-1.hmm" = paths$tf1_hmm,
-      "tf-2.hmm" = paths$tf2_hmm,
-      "stp.hmm" = paths$stp_hmm,
-      file.path(bundle_dir, asset_name)
-    )
-    result <- .dnmb_download_asset(urls[[asset_name]], dest, insecure = TRUE)
-    ok <- isTRUE(result$ok) && file.exists(dest)
-    status <- dplyr::bind_rows(
-      status,
-      .dnmb_dbcan_status_row(
-        paste0("dbcan_support_download:", asset_name),
-        if (ok) "ok" else "failed",
-        if (ok) dest else (result$error %||% asset_name)
-      )
-    )
-    if (!ok) {
-      return(list(ok = FALSE, status = status, paths = paths))
-    }
-  }
-
-  if (!file.exists(paths$pul_dir) && file.exists(paths$pul_tar)) {
-    untar(paths$pul_tar, exdir = bundle_dir)
-  }
-  if (!file.exists(paste0(paths$pul_faa, ".phr"))) {
-    pul_prepare <- .dnmb_dbcan_prepare_pul_blast_db(paths$pul_faa, trace_log = trace_log)
-    status <- dplyr::bind_rows(
-      status,
-      .dnmb_dbcan_status_row("dbcan_support_bundle:makeblastdb", pul_prepare$status, pul_prepare$detail)
-    )
-    if (!isTRUE(pul_prepare$ok)) {
-      return(list(ok = FALSE, status = status, paths = paths))
-    }
-  }
-  if (!file.exists(paths$tcdb_dmnd)) {
-    dnmb_run_external("diamond", c("makedb", "--in", paths$tcdb_fa, "-d", file.path(bundle_dir, "tcdb")), required = TRUE)
-  }
-  if (!file.exists(paste0(paths$tf1_hmm, ".h3f"))) {
-    dnmb_run_external("hmmpress", c("-f", paths$tf1_hmm), required = TRUE)
-  }
-  if (!file.exists(paste0(paths$tf2_hmm, ".h3f"))) {
-    dnmb_run_external("hmmpress", c("-f", paths$tf2_hmm), required = TRUE)
-  }
-  if (!file.exists(paste0(paths$stp_hmm, ".h3f"))) {
-    dnmb_run_external("hmmpress", c("-f", paths$stp_hmm), required = TRUE)
-  }
-  hmm_alias <- .dnmb_dbcan_stage_hmm_for_standalone(module_dir = module_dir, bundle_dir = bundle_dir)
+  # Delegate to `run_dbcan database --aws_s3 --cgc` for downloading
+  .dnmb_dbcan_trace(trace_log, sprintf("[%s] run_dbcan database --aws_s3 --cgc --db_dir %s", Sys.time(), bundle_dir))
+  db_run <- dnmb_run_external("run_dbcan", c("database", "--aws_s3", "--cgc", "--db_dir", bundle_dir), required = FALSE)
+  db_ok <- isTRUE(db_run$ok)
   status <- dplyr::bind_rows(
     status,
     .dnmb_dbcan_status_row(
-      "dbcan_support_bundle:hmm_alias",
-      if (isTRUE(hmm_alias$ok)) "ok" else "failed",
-      if (isTRUE(hmm_alias$ok)) hmm_alias$alias else module_layout$hmm_path
+      "dbcan_support_download",
+      if (db_ok) "ok" else "failed",
+      if (db_ok) bundle_dir else .dnmb_compact_output(c(db_run$stderr, db_run$stdout), max_lines = 6L)
     )
   )
-  if (!isTRUE(hmm_alias$ok)) {
+  if (!db_ok) {
     return(list(ok = FALSE, status = status, paths = paths))
   }
+
+  # Stage the module's dbCAN.hmm into the bundle if run_dbcan did not
+  # provide it (the S3 download already includes dbCAN.hmm, but the
+  # module may have a more recent pressed copy).
+  if (!file.exists(paths$hmm_txt)) {
+    hmm_stage <- .dnmb_dbcan_stage_hmm_for_standalone(module_dir = module_dir, bundle_dir = bundle_dir)
+    status <- dplyr::bind_rows(
+      status,
+      .dnmb_dbcan_status_row(
+        "dbcan_support_bundle:hmm_stage",
+        if (isTRUE(hmm_stage$ok)) "ok" else "failed",
+        paths$hmm_txt
+      )
+    )
+    if (!isTRUE(hmm_stage$ok)) {
+      return(list(ok = FALSE, status = status, paths = paths))
+    }
+  }
+
+  # Symlink + hmmpress for HMM files
   .dnmb_dbcan_prepare_reference_indexes(paths)
   .dnmb_dbcan_trace(trace_log, sprintf("[%s] dbcan_support_bundle=%s", Sys.time(), bundle_dir))
 
+  ready <- .dnmb_dbcan_standalone_ready(paths)
   list(
-    ok = .dnmb_dbcan_standalone_ready(paths),
-    status = dplyr::bind_rows(status, .dnmb_dbcan_status_row("dbcan_support_bundle", "ok", bundle_dir)),
+    ok = ready,
+    status = dplyr::bind_rows(status, .dnmb_dbcan_status_row("dbcan_support_bundle", if (ready) "ok" else "incomplete", bundle_dir)),
     paths = paths
   )
 }
 
 .dnmb_dbcan_can_run_standalone <- function(genes) {
-  # The DNMB "standalone" path was written against dbCAN 3.x CLI
-  # (`run_dbcan <query> protein --tools all --cgc_substrate ...`).
-  # Bioconda's current `dbcan` package is 5.2+, which replaced that
-  # interface with subcommands like `run_dbcan easy_substrate
-  # --input_raw_data <fasta> --mode protein --db_dir <db> --output_dir
-  # <out>`, AND the legacy HTTP mirrors for the supporting bundle are
-  # dead (everything 302-redirects to a landing page). Until the
-  # module is ported to the new CLI + S3 bundle layout, force the
-  # hmmsearch fallback path so the module at least produces HMM-level
-  # hits from `dbCAN.hmm` (downloaded from the S3 mirror). Users can
-  # re-enable the old path via `options(dnmb.dbcan.standalone = TRUE)`
-  # once the rewrite lands.
-  if (!isTRUE(getOption("dnmb.dbcan.standalone", FALSE))) {
-    return(FALSE)
-  }
   required <- c("locus_tag", "contig", "start", "end", "direction")
   all(required %in% names(genes))
 }
@@ -780,6 +722,35 @@ dnmb_dbcan_normalize_hits <- function(hits) {
   out$contig <- mapping$safe_contig[match(out$contig, mapping$contig)]
   utils::write.table(out, file = path, sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
   list(path = path, contig_map = mapping)
+}
+
+.dnmb_dbcan_write_query_gff <- function(genes, path) {
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  out <- as.data.frame(genes, stringsAsFactors = FALSE)
+  out$locus_tag <- .dnmb_module_clean_annotation_key(out$locus_tag)
+  out <- out[!is.na(out$locus_tag) & nzchar(out$locus_tag) &
+             !is.na(out$contig) & !is.na(out$start) & !is.na(out$end), ]
+
+  # Sanitize contig names (no spaces/special chars that break GFF parsing)
+  mapping <- .dnmb_dbcan_safe_contig_map(out)
+  out$safe_contig <- mapping$safe_contig[match(out$contig, mapping$contig)]
+
+  # Numeric sort by position
+  out$start <- as.numeric(out$start)
+  out$end <- as.numeric(out$end)
+  out <- out[order(out$safe_contig, out$start), ]
+
+  # Write GFF3
+  lines <- c("##gff-version 3")
+  for (i in seq_len(nrow(out))) {
+    strand <- if (is.na(out$direction[i]) || out$direction[i] == "+") "+" else "-"
+    attrs <- paste0("ID=", out$locus_tag[i], ";Name=", out$locus_tag[i])
+    lines <- c(lines, paste(out$safe_contig[i], "DNMB", "CDS",
+      as.integer(out$start[i]), as.integer(out$end[i]),
+      ".", strand, "0", attrs, sep = "\t"))
+  }
+  writeLines(lines, path)
+  list(path = path, contig_map = mapping, n = nrow(out))
 }
 
 .dnmb_dbcan_restore_cgc_ids <- function(tbl, contig_map) {
@@ -856,8 +827,8 @@ dnmb_dbcan_normalize_hits <- function(hits) {
 .dnmb_dbcan_run_syntenic_plot <- function(run_dbcan_dir, bundle_dir, trace_log = NULL) {
   required_files <- c(
     file.path(run_dbcan_dir, "PUL_blast.out"),
-    file.path(run_dbcan_dir, "cgc_standard.out"),
-    file.path(run_dbcan_dir, "substrate.out")
+    file.path(run_dbcan_dir, "cgc_standard_out.tsv"),
+    file.path(run_dbcan_dir, "substrate_prediction.tsv")
   )
   if (!all(file.exists(required_files))) {
     return(list(
@@ -873,8 +844,8 @@ dnmb_dbcan_normalize_hits <- function(hits) {
   args <- c(
     "syntenic_plot",
     "-b", "PUL_blast.out",
-    "--cgc", "cgc_standard.out",
-    "-i", "substrate.out",
+    "--cgc", "cgc_standard_out.tsv",
+    "-i", "substrate_prediction.tsv",
     "--db", stage$db_dir
   )
   if (!is.null(trace_log) && nzchar(trace_log)) {
@@ -936,39 +907,47 @@ dnmb_dbcan_parse_hmmer_table <- function(path) {
 }
 
 dnmb_dbcan_parse_cgc_standard <- function(path) {
-  if (!file.exists(path) || !isTRUE(file.info(path)$size > 0)) {
-    return(tibble::tibble(
-      query = character(),
-      dbcan_cgc_id = character(),
-      dbcan_cgc_gene_type = character(),
-      dbcan_cgc_protein_family = character()
-    ))
-  }
+  empty <- tibble::tibble(
+    query = character(), dbcan_cgc_id = character(),
+    dbcan_cgc_gene_type = character(), dbcan_cgc_protein_family = character()
+  )
+  if (!file.exists(path) || !isTRUE(file.info(path)$size > 0)) return(empty)
 
-  lines <- readLines(path, warn = FALSE)
-  if (length(lines) <= 1L) {
-    return(tibble::tibble(
-      query = character(),
-      dbcan_cgc_id = character(),
-      dbcan_cgc_gene_type = character(),
-      dbcan_cgc_protein_family = character()
-    ))
-  }
+  tbl <- tryCatch(
+    utils::read.delim(path, sep = "\t", header = TRUE, stringsAsFactors = FALSE,
+                      fill = TRUE, check.names = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(tbl) || !nrow(tbl)) return(empty)
 
-  parsed <- lapply(lines[-1L], function(line) {
-    fields <- strsplit(line, "\t", fixed = TRUE)[[1]]
-    if (length(fields) < 8L) {
-      return(NULL)
+  # Map column names to DNMB's internal names
+  col_map <- c(
+    "Protein ID" = "query",
+    "CGC#" = "cgc_num",
+    "Contig ID" = "contig_id",
+    "Gene Type" = "dbcan_cgc_gene_type",
+    "Gene Annotation" = "dbcan_cgc_protein_family"
+  )
+  for (old_name in names(col_map)) {
+    if (old_name %in% names(tbl)) {
+      names(tbl)[names(tbl) == old_name] <- col_map[old_name]
     }
-    tibble::tibble(
-      query = .dnmb_module_clean_annotation_key(fields[[4]]),
-      dbcan_cgc_id = paste(fields[[3]], fields[[1]], sep = "|"),
-      dbcan_cgc_gene_type = fields[[2]],
-      dbcan_cgc_protein_family = fields[[8]]
-    )
-  })
+  }
 
-  dplyr::bind_rows(parsed)
+  # Build dbcan_cgc_id from contig + CGC#
+  if ("contig_id" %in% names(tbl) && "cgc_num" %in% names(tbl)) {
+    tbl$dbcan_cgc_id <- paste(tbl$contig_id, tbl$cgc_num, sep = "|")
+  } else {
+    tbl$dbcan_cgc_id <- NA_character_
+  }
+
+  # Clean query
+  if ("query" %in% names(tbl)) {
+    tbl$query <- .dnmb_module_clean_annotation_key(tbl$query)
+  }
+
+  result <- tbl[, intersect(c("query", "dbcan_cgc_id", "dbcan_cgc_gene_type", "dbcan_cgc_protein_family"), names(tbl)), drop = FALSE]
+  tibble::as_tibble(result)
 }
 
 dnmb_dbcan_parse_substrate_table <- function(path) {
@@ -1083,41 +1062,51 @@ dnmb_dbcan_run_standalone <- function(query_fasta,
     ))
   }
 
-  cluster_path <- file.path(output_dir, "dbcan_cluster.tsv")
-  cluster_info <- .dnmb_dbcan_write_cluster_tsv(genes, cluster_path)
+  # Write query GFF for the new run_dbcan 5.x CLI (replaces cluster.tsv)
+  gff_info <- .dnmb_dbcan_write_query_gff(genes, file.path(output_dir, "dbcan_query.gff"))
+
   run_dbcan_output <- file.path(output_dir, "run_dbcan")
   dir.create(run_dbcan_output, recursive = TRUE, showWarnings = FALSE)
-  stage <- .dnmb_dbcan_stage_for_run(query_fasta = query_fasta, cluster_path = cluster_info$path, bundle_dir = bundle_dir)
-  on.exit(stage$cleanup(), add = TRUE)
+
+  # Stage: symlink db_dir for run_dbcan
+  stage_parent <- tempfile("dnmb-dbcan-run-")
+  dir.create(stage_parent, recursive = TRUE, showWarnings = FALSE)
+  stage_db <- file.path(stage_parent, "db")
+  linked <- suppressWarnings(file.symlink(normalizePath(bundle_dir, winslash = "/", mustWork = TRUE), stage_db))
+  if (!isTRUE(linked)) {
+    .dnmb_dbcan_copy_dir_contents(bundle_dir, stage_db)
+  }
+  on.exit(unlink(stage_parent, recursive = TRUE, force = TRUE), add = TRUE)
+
+  # Call run_dbcan easy_substrate (new 5.x subcommand CLI)
   args <- c(
-    stage$query_fasta,
-    "protein",
-    "--cluster", stage$cluster_tsv,
-    "--tools", "all",
-    "--cgc_substrate",
-    "--cgc_sig_genes", "all",
-    "--db_dir", stage$db_dir,
-    "--out_dir", stage$out_dir
+    "easy_substrate",
+    "--db_dir", stage_db,
+    "--mode", "protein",
+    "--output_dir", run_dbcan_output,
+    "--input_raw_data", query_fasta,
+    "--input_gff", gff_info$path,
+    "--additional_genes", "TC,TF,STP",
+    "--additional_logic", "any",
+    "--num_null_gene", "2",
+    "--use_null_genes"
   )
   .dnmb_dbcan_trace(trace_log, sprintf("[%s] run_dbcan args=%s", Sys.time(), .dnmb_format_command("run_dbcan", args)))
   command <- dnmb_run_external("run_dbcan", args = args, required = FALSE)
-  if (dir.exists(stage$out_dir)) {
-    .dnmb_dbcan_copy_dir_contents(stage$out_dir, run_dbcan_output)
-  }
 
-  hmmer_path <- file.path(run_dbcan_output, "hmmer.out")
-  overview_path <- file.path(run_dbcan_output, "overview.txt")
-  cgc_standard_path <- file.path(run_dbcan_output, "cgc_standard.out")
-  substrate_path <- file.path(run_dbcan_output, "substrate.out")
+  hmmer_path <- file.path(run_dbcan_output, "dbCAN_hmm_results.tsv")
+  overview_path <- file.path(run_dbcan_output, "overview.tsv")
+  cgc_standard_path <- file.path(run_dbcan_output, "cgc_standard_out.tsv")
+  substrate_path <- file.path(run_dbcan_output, "substrate_prediction.tsv")
 
   raw_hits <- dnmb_dbcan_parse_hmmer_table(hmmer_path)
   cgc_genes <- .dnmb_dbcan_restore_cgc_ids(
     dnmb_dbcan_parse_cgc_standard(cgc_standard_path),
-    contig_map = cluster_info$contig_map
+    contig_map = gff_info$contig_map
   )
   substrate <- .dnmb_dbcan_restore_cgc_ids(
     dnmb_dbcan_parse_substrate_table(substrate_path),
-    contig_map = cluster_info$contig_map
+    contig_map = gff_info$contig_map
   )
   hits <- dnmb_dbcan_normalize_hits(.dnmb_dbcan_augment_hits_with_standalone(raw_hits, cgc_genes = cgc_genes, substrate = substrate))
   synteny <- .dnmb_dbcan_run_syntenic_plot(
@@ -1142,7 +1131,7 @@ dnmb_dbcan_run_standalone <- function(query_fasta,
     files = c(
       list(
         query_fasta = query_fasta,
-        cluster_tsv = cluster_path,
+        query_gff = gff_info$path,
         run_dbcan_dir = run_dbcan_output,
         hmmer_out = hmmer_path,
         overview = overview_path,

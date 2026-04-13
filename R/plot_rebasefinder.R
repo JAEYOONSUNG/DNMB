@@ -6,6 +6,15 @@
   tbl <- tbl[!is.na(tbl$REBASEfinder_family_id) & nzchar(tbl$REBASEfinder_family_id), , drop = FALSE]
   if (!nrow(tbl)) return(NULL)
 
+  # Stage cache may store numeric columns as character — cast upfront
+  for (col in c("REBASEfinder_blast_identity", "REBASEfinder_blast_bitscore",
+                "REBASEfinder_blast_length", "start", "end")) {
+    if (col %in% names(tbl)) tbl[[col]] <- suppressWarnings(as.numeric(tbl[[col]]))
+  }
+  if ("REBASEfinder_typing_eligible" %in% names(tbl)) {
+    tbl$REBASEfinder_typing_eligible <- as.logical(tbl$REBASEfinder_typing_eligible)
+  }
+
   rm_palette <- .dnmb_rebasefinder_palette(tbl$REBASEfinder_family_id)
   role_palette <- .dnmb_rebasefinder_role_palette(tbl)
 
@@ -304,10 +313,20 @@
                                             rm_palette, legend_position = "none") {
   tbl <- .dnmb_contig_ordered_table(genbank_table)
   if (!nrow(tbl)) return(ggplot2::ggplot() + ggplot2::theme_void())
+  for (col in c("REBASEfinder_blast_identity", "REBASEfinder_blast_bitscore",
+                "REBASEfinder_blast_length", "start", "end")) {
+    if (col %in% names(tbl)) tbl[[col]] <- suppressWarnings(as.numeric(tbl[[col]]))
+  }
+  if ("REBASEfinder_typing_eligible" %in% names(tbl)) {
+    tbl$REBASEfinder_typing_eligible <- as.logical(tbl$REBASEfinder_typing_eligible)
+  }
   rm_tbl <- tbl[!is.na(tbl$REBASEfinder_family_id) & nzchar(tbl$REBASEfinder_family_id), , drop = FALSE]
   if (!nrow(rm_tbl)) return(ggplot2::ggplot() + ggplot2::theme_void())
 
   contig_lengths <- .dnmb_contig_lengths_for_plot(tbl, output_dir = output_dir)
+  # Only show contigs with RM gene hits
+  hit_contigs <- unique(rm_tbl$contig)
+  contig_lengths <- contig_lengths[contig_lengths$contig %in% hit_contigs, , drop = FALSE]
   contig_lengths$track <- 1
   contig_map <- stats::setNames(.dnmb_rebasefinder_short_contig(contig_lengths$contig), contig_lengths$contig)
   contig_lengths$contig_short <- contig_map[contig_lengths$contig]

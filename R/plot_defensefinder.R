@@ -209,6 +209,9 @@
     return(NULL)
   }
   contig_lengths <- .dnmb_contig_lengths_for_plot(tbl, output_dir = output_dir)
+  # Only show contigs with defense system hits
+  hit_contigs <- unique(defense_windows$contig)
+  contig_lengths <- contig_lengths[contig_lengths$contig %in% hit_contigs, , drop = FALSE]
   contig_lengths$track <- 1
   defense_windows$track <- 1
   defense_windows$midpoint <- (defense_windows$start + defense_windows$end) / 2

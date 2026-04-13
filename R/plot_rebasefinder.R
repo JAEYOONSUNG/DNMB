@@ -14,6 +14,16 @@
   if ("REBASEfinder_typing_eligible" %in% names(tbl)) {
     tbl$REBASEfinder_typing_eligible <- as.logical(tbl$REBASEfinder_typing_eligible)
   }
+  # Infer enzyme_role from hit name when missing or inconsistent
+  if ("REBASEfinder_hit_label" %in% names(tbl) && "REBASEfinder_enzyme_role" %in% names(tbl)) {
+    hit <- as.character(tbl$REBASEfinder_hit_label)
+    inferred <- ifelse(grepl("^M[0-9]?\\.", hit), "M",
+                ifelse(grepl("^R[0-9]?\\.", hit), "R",
+                ifelse(grepl("^S[0-9]?\\.", hit), "S", NA_character_)))
+    fix <- !is.na(inferred) & (is.na(tbl$REBASEfinder_enzyme_role) |
+           tbl$REBASEfinder_enzyme_role != inferred)
+    tbl$REBASEfinder_enzyme_role[fix] <- inferred[fix]
+  }
 
   rm_palette <- .dnmb_rebasefinder_palette(tbl$REBASEfinder_family_id)
   role_palette <- .dnmb_rebasefinder_role_palette(tbl)
@@ -967,15 +977,23 @@
   # Build long table: only show motifs relevant to each gene's role
   # M/S subunit → SAM binding + MTase catalytic (indices 1,2)
   # R subunit → REase + HNH + GIY-YIG + P-loop (indices 3,4,5,6)
+  has_hit <- "REBASEfinder_hit_label" %in% names(tbl)
   long <- do.call(rbind, lapply(seq_along(detailed), function(i) {
     lt <- names(detailed)[i]
     role <- if (has_role) as.character(tbl$REBASEfinder_enzyme_role[i]) else NA_character_
+    # Fallback: infer role from hit name prefix
+    if ((is.na(role) || !nzchar(role)) && has_hit) {
+      hn <- as.character(tbl$REBASEfinder_hit_label[i])
+      if (!is.na(hn) && grepl("^M[0-9]?\\.", hn)) role <- "M"
+      else if (!is.na(hn) && grepl("^R[0-9]?\\.", hn)) role <- "R"
+      else if (!is.na(hn) && grepl("^S[0-9]?\\.", hn)) role <- "S"
+    }
 
     do.call(rbind, lapply(seq_along(motif_names), function(j) {
       info <- detailed[[i]][[j]]
       expected <- motif_defs[[motif_names[j]]]$expected_role
 
-      is_relevant <- is.na(role) || !nzchar(role) || role == expected
+      is_relevant <- if (is.na(role) || !nzchar(role)) TRUE else role == expected
       if (!is.na(role) && role == "S") is_relevant <- expected == "M"
 
       if (is_relevant) {

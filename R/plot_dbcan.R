@@ -177,8 +177,13 @@
   )
   track_tbl$facet <- factor(facet_labels[track_tbl$short_id], levels = facet_labels)
 
+  # Normalize coordinates: each CGC starts at 0
+  cgc_offsets <- stats::setNames(cgc_summary$start, cgc_summary$short_id)
+  track_tbl$xmin_rel <- track_tbl$start - cgc_offsets[track_tbl$short_id]
+  track_tbl$xmax_rel <- track_tbl$end - cgc_offsets[track_tbl$short_id]
+
   p_genes <- ggplot2::ggplot(track_tbl,
-    ggplot2::aes(xmin = .data$start, xmax = .data$end, y = .data$facet,
+    ggplot2::aes(xmin = .data$xmin_rel, xmax = .data$xmax_rel, y = .data$facet,
                  fill = .data$gene_type, forward = .data$forward)) +
     gggenes::geom_gene_arrow(
       arrowhead_height = grid::unit(3, "mm"),
@@ -189,17 +194,18 @@
     ggplot2::geom_text(
       data = track_tbl[nzchar(track_tbl$gene_label), , drop = FALSE],
       ggplot2::aes(
-        x = (.data$start + .data$end) / 2, y = .data$facet,
+        x = (.data$xmin_rel + .data$xmax_rel) / 2, y = .data$facet,
         label = .data$gene_label
       ),
       size = 1.8, color = "white", fontface = "bold",
       inherit.aes = FALSE
     ) +
     ggplot2::scale_fill_manual(values = type_palette, drop = FALSE, name = "Gene type") +
+    ggplot2::scale_x_continuous(labels = function(x) paste0(round(x / 1000, 1), " kb")) +
     gggenes::theme_genes() +
     ggplot2::labs(
       title = paste0("CGC gene structure (", nrow(cgc_summary), " clusters)"),
-      x = "Genome coordinate (bp)", y = NULL
+      x = "Cluster size", y = NULL
     ) +
     ggplot2::theme(
       plot.title = ggplot2::element_text(face = "bold", size = 10),

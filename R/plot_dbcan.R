@@ -73,7 +73,7 @@
     other  = "#9CA3AF"
   )
 
-  # --- Panel A: CGC inventory ---
+  # --- Build CGC summary ---
   cgc_summary <- tbl |>
     dplyr::group_by(.data$dbcan_cgc_id) |>
     dplyr::summarise(
@@ -93,54 +93,8 @@
     dplyr::arrange(dplyr::desc(.data$n_cazyme), dplyr::desc(.data$n_genes))
 
   cgc_summary$short_id <- sub("^.*\\|", "", cgc_summary$dbcan_cgc_id)
-  cgc_summary$label <- cgc_summary$short_id
-  cgc_summary$label <- factor(cgc_summary$label, levels = rev(cgc_summary$label))
 
-  cgc_summary$annot <- vapply(seq_len(nrow(cgc_summary)), function(i) {
-    parts <- c(
-      paste0(cgc_summary$n_genes[i], " genes (",
-             cgc_summary$n_cazyme[i], " CAZyme)"),
-      if (nzchar(cgc_summary$gene_types[i])) cgc_summary$gene_types[i] else NULL,
-      if (nzchar(cgc_summary$cazyme_families[i])) cgc_summary$cazyme_families[i] else NULL,
-      if (!is.na(cgc_summary$substrate[i]) && nzchar(cgc_summary$substrate[i]))
-        paste0("substrate: ", cgc_summary$substrate[i]) else NULL
-    )
-    paste(parts, collapse = " | ")
-  }, character(1))
-
-  p_inventory <- ggplot2::ggplot(cgc_summary, ggplot2::aes(x = .data$n_cazyme, y = .data$label)) +
-    ggplot2::geom_col(
-      ggplot2::aes(fill = .data$n_cazyme),
-      width = 0.62,
-      color = "grey35",
-      linewidth = 0.25,
-      show.legend = FALSE
-    ) +
-    ggplot2::geom_text(
-      ggplot2::aes(x = 0.05, label = .data$label),
-      hjust = 0, size = 3.0, color = "white", fontface = "bold"
-    ) +
-    ggplot2::geom_text(
-      ggplot2::aes(x = .data$n_cazyme + 0.08, label = .data$annot),
-      hjust = 0, size = 2.8, color = "grey25"
-    ) +
-    ggplot2::scale_fill_gradient(low = "#81C784", high = "#0F766E") +
-    ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0.02, 0.50))) +
-    ggplot2::labs(
-      title = paste0("dbCAN CGC/PUL inventory (", nrow(cgc_summary), " clusters)"),
-      x = "CAZyme genes", y = NULL
-    ) +
-    ggplot2::theme_bw(base_size = 11) +
-    ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold"),
-      plot.title.position = "plot",
-      panel.grid.minor = ggplot2::element_blank(),
-      panel.grid.major.y = ggplot2::element_blank(),
-      axis.text.y = ggplot2::element_blank(),
-      axis.ticks.y = ggplot2::element_blank()
-    )
-
-  # --- Panel B: Genome layout (faceted by contig, hit contigs only) ---
+  # --- Panel A: Genome layout (full width, top) ---
   contigs <- .dnmb_contig_lengths_for_plot(tbl, output_dir = output_dir)
   hit_contigs <- unique(cgc_summary$contig)
   contigs <- contigs[contigs$contig %in% hit_contigs, , drop = FALSE]
@@ -150,21 +104,14 @@
     paste0(cgc_summary$short_id, "\n", cgc_summary$substrate),
     cgc_summary$short_id
   )
+  cgc_summary$midpoint <- (cgc_summary$start + cgc_summary$end) / 2
 
   contig_labels <- stats::setNames(
     paste0(contigs$sector_label, " (", scales::label_comma()(contigs$length_bp), " bp)"),
     contigs$contig
   )
-  cgc_summary$contig_facet <- factor(
-    contig_labels[cgc_summary$contig],
-    levels = unname(contig_labels)
-  )
-  contigs$contig_facet <- factor(
-    contig_labels[contigs$contig],
-    levels = unname(contig_labels)
-  )
-
-  cgc_summary$midpoint <- (cgc_summary$start + cgc_summary$end) / 2
+  cgc_summary$contig_facet <- factor(contig_labels[cgc_summary$contig], levels = unname(contig_labels))
+  contigs$contig_facet <- factor(contig_labels[contigs$contig], levels = unname(contig_labels))
 
   p_layout <- ggplot2::ggplot() +
     ggplot2::geom_segment(
@@ -183,24 +130,16 @@
     ) +
     ggrepel::geom_text_repel(
       data = cgc_summary,
-      ggplot2::aes(
-        x = .data$midpoint, y = 0.74,
-        label = .data$cgc_label
-      ),
+      ggplot2::aes(x = .data$midpoint, y = 0.74, label = .data$cgc_label),
       size = 2.3, vjust = 0, lineheight = 0.85,
       direction = "x", nudge_y = 0.15,
       segment.size = 0.2, segment.color = "grey60",
-      max.overlaps = 50, seed = 42,
-      min.segment.length = 0.1
+      max.overlaps = 50, seed = 42, min.segment.length = 0.1
     ) +
-    ggplot2::facet_wrap(~contig_facet, ncol = 1, scales = "free_x",
-                        strip.position = "top") +
+    ggplot2::facet_wrap(~contig_facet, ncol = 1, scales = "free_x", strip.position = "top") +
     ggplot2::scale_fill_gradient(low = "#81C784", high = "#0F766E", name = "CAZymes") +
     ggplot2::scale_x_continuous(labels = scales::label_comma()) +
-    ggplot2::labs(
-      title = "dbCAN CGC genome layout",
-      x = "Genome coordinate (bp)", y = NULL
-    ) +
+    ggplot2::labs(title = "dbCAN CGC genome layout", x = "Genome coordinate (bp)", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
       plot.title = ggplot2::element_text(face = "bold"),
@@ -213,58 +152,153 @@
       strip.text = ggplot2::element_text(face = "bold", size = 9)
     )
 
-  # --- Panel C: Gene type composition per CGC ---
+  # --- Panel B: Combined inventory + gene type composition (compact) ---
   gene_type_counts <- tbl |>
     dplyr::group_by(.data$dbcan_cgc_id, .data$gene_type) |>
     dplyr::summarise(n = dplyr::n(), .groups = "drop")
   gene_type_counts$short_id <- sub("^.*\\|", "", gene_type_counts$dbcan_cgc_id)
-  gene_type_counts$short_id <- factor(
-    gene_type_counts$short_id,
-    levels = rev(levels(cgc_summary$label))
-  )
+  cgc_order <- cgc_summary$short_id
+  gene_type_counts$short_id <- factor(gene_type_counts$short_id, levels = rev(cgc_order))
 
-  p_composition <- ggplot2::ggplot(
-    gene_type_counts,
-    ggplot2::aes(x = .data$n, y = .data$short_id, fill = .data$gene_type)
-  ) +
-    ggplot2::geom_col(width = 0.62, color = "grey35", linewidth = 0.15) +
+  annot_map <- stats::setNames(
+    vapply(seq_len(nrow(cgc_summary)), function(i) {
+      parts <- c(
+        if (nzchar(cgc_summary$cazyme_families[i])) cgc_summary$cazyme_families[i] else NULL,
+        if (!is.na(cgc_summary$substrate[i]) && nzchar(cgc_summary$substrate[i]))
+          cgc_summary$substrate[i] else NULL
+      )
+      if (length(parts)) paste(parts, collapse = " | ") else ""
+    }, character(1)),
+    cgc_summary$short_id
+  )
+  annot_df <- cgc_summary |>
+    dplyr::mutate(
+      short_id = factor(.data$short_id, levels = rev(cgc_order)),
+      annot_text = unname(annot_map[as.character(.data$short_id)])
+    )
+
+  p_combined <- ggplot2::ggplot(gene_type_counts, ggplot2::aes(x = .data$n, y = .data$short_id, fill = .data$gene_type)) +
+    ggplot2::geom_col(width = 0.7, color = "grey35", linewidth = 0.12) +
+    ggplot2::geom_text(
+      data = annot_df,
+      ggplot2::aes(x = .data$n_genes + 0.3, y = .data$short_id, label = .data$annot_text),
+      inherit.aes = FALSE,
+      hjust = 0, size = 2.0, color = "grey30"
+    ) +
     ggplot2::scale_fill_manual(values = type_palette, drop = FALSE, name = "Gene type") +
+    ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0.02, 0.35))) +
     ggplot2::labs(
-      title = "Gene type composition per CGC",
+      title = paste0("CGC gene composition (", nrow(cgc_summary), " clusters)"),
       x = "Number of genes", y = NULL
     ) +
-    ggplot2::theme_bw(base_size = 11) +
+    ggplot2::theme_bw(base_size = 9) +
     ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold"),
+      plot.title = ggplot2::element_text(face = "bold", size = 10),
       plot.title.position = "plot",
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
-      legend.position = "bottom"
+      axis.text.y = ggplot2::element_text(size = 7),
+      legend.position = "bottom",
+      legend.key.size = ggplot2::unit(0.3, "cm"),
+      legend.text = ggplot2::element_text(size = 7),
+      legend.title = ggplot2::element_text(size = 8),
+      plot.margin = ggplot2::margin(4, 4, 4, 4)
     )
 
-  # --- Composite ---
+  # --- Panel C: Substrate-CAZyme family network ---
+  p_network <- .dnmb_dbcan_substrate_cazyme_plot(cgc_summary, tbl, type_palette)
+
+  # --- Composite: A top, B+C bottom side by side ---
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, "dbcan_cgc_overview.pdf")
   n_contigs <- nrow(contigs)
   n_cgc <- nrow(cgc_summary)
-  layout_height <- max(1.2, 0.8 * n_contigs + 0.6)
-  inv_height <- max(0.8, 0.35 * n_cgc + 0.5)
-  comp_height <- max(0.8, 0.30 * n_cgc + 0.5)
+
+  bottom_row <- cowplot::plot_grid(
+    p_combined, p_network,
+    labels = c("B", "C"),
+    label_size = 14, label_fontface = "bold",
+    label_x = 0, label_y = c(1.02, 1.02), hjust = 0,
+    ncol = 2, rel_widths = c(1.1, 0.9)
+  )
 
   composite <- cowplot::plot_grid(
-    p_inventory,
     p_layout,
-    p_composition,
-    labels = c("A", "B", "C"),
-    label_size = 14,
-    label_fontface = "bold",
-    label_x = 0,
-    label_y = c(1.02, 1.02, 1.02),
-    hjust = 0,
+    bottom_row,
+    labels = c("A", ""),
+    label_size = 14, label_fontface = "bold",
+    label_x = 0, label_y = c(1.02, 1), hjust = 0,
     ncol = 1,
-    rel_heights = c(inv_height, layout_height, comp_height)
+    rel_heights = c(0.30, 0.70)
   )
-  total_h <- max(11, (inv_height + layout_height + comp_height) * 2.5 + 1.5)
-  .dnmb_module_plot_save(composite, pdf_path, width = 10, height = total_h)
+
+  page_h <- max(11, min(16, 3 + 0.22 * n_cgc))
+  .dnmb_module_plot_save(composite, pdf_path, width = 14, height = page_h)
   list(pdf = pdf_path)
+}
+
+
+# Substrate → CAZyme family alluvial / tile plot
+.dnmb_dbcan_substrate_cazyme_plot <- function(cgc_summary, tbl, type_palette) {
+  caz_genes <- tbl[tbl$gene_type == "CAZyme" & !is.na(tbl$dbCAN_family_id) & nzchar(tbl$dbCAN_family_id), , drop = FALSE]
+  if (!nrow(caz_genes)) {
+    return(ggplot2::ggplot() + ggplot2::theme_void() +
+             ggplot2::annotate("text", x = 0.5, y = 0.5, label = "No CAZyme families detected",
+                               size = 3.5, color = "grey50"))
+  }
+
+  caz_genes$short_id <- sub("^.*\\|", "", caz_genes$dbcan_cgc_id)
+  sub_map <- stats::setNames(cgc_summary$substrate, cgc_summary$short_id)
+  caz_genes$substrate <- sub_map[caz_genes$short_id]
+  caz_genes$substrate <- ifelse(
+    is.na(caz_genes$substrate) | !nzchar(caz_genes$substrate),
+    "unknown", caz_genes$substrate
+  )
+
+  links <- caz_genes |>
+    dplyr::group_by(.data$substrate, .data$dbCAN_family_id) |>
+    dplyr::summarise(n = dplyr::n(), .groups = "drop") |>
+    dplyr::arrange(dplyr::desc(.data$n))
+
+  all_substrates <- unique(links$substrate)
+  all_families <- unique(links$dbCAN_family_id)
+
+  sub_pal <- stats::setNames(
+    c(grDevices::hcl.colors(max(length(all_substrates), 3), palette = "Set 2"))[seq_along(all_substrates)],
+    all_substrates
+  )
+  if ("unknown" %in% names(sub_pal)) sub_pal["unknown"] <- "#BDBDBD"
+
+  # Tile heatmap: substrate (x) vs CAZyme family (y)
+  links$substrate <- factor(links$substrate, levels = c(setdiff(all_substrates, "unknown"), "unknown"))
+  fam_order <- links |>
+    dplyr::group_by(.data$dbCAN_family_id) |>
+    dplyr::summarise(total = sum(.data$n), .groups = "drop") |>
+    dplyr::arrange(dplyr::desc(.data$total))
+  links$dbCAN_family_id <- factor(links$dbCAN_family_id, levels = rev(fam_order$dbCAN_family_id))
+
+  ggplot2::ggplot(links, ggplot2::aes(x = .data$substrate, y = .data$dbCAN_family_id)) +
+    ggplot2::geom_point(
+      ggplot2::aes(size = .data$n, fill = .data$substrate),
+      shape = 21, color = "grey30", stroke = 0.3, alpha = 0.85
+    ) +
+    ggplot2::geom_text(
+      ggplot2::aes(label = .data$n),
+      size = 2.3, color = "grey20"
+    ) +
+    ggplot2::scale_size_continuous(range = c(3, 12), name = "Genes", guide = "none") +
+    ggplot2::scale_fill_manual(values = sub_pal, name = "Substrate", guide = "none") +
+    ggplot2::labs(
+      title = "Substrate \u2013 CAZyme family",
+      x = NULL, y = NULL
+    ) +
+    ggplot2::theme_bw(base_size = 9) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold", size = 10),
+      plot.title.position = "plot",
+      panel.grid.minor = ggplot2::element_blank(),
+      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 8),
+      axis.text.y = ggplot2::element_text(size = 7),
+      plot.margin = ggplot2::margin(4, 8, 4, 4)
+    )
 }

@@ -96,13 +96,13 @@
     ggplot2::geom_segment(
       data = contigs,
       ggplot2::aes(x = 0, xend = .data$length_bp, y = 0.5, yend = 0.5),
-      linewidth = 1.2, color = "grey78"
+      linewidth = 0.8, color = "grey78"
     ) +
     ggplot2::geom_rect(
       data = loci,
       ggplot2::aes(
         xmin = .data$start, xmax = .data$end,
-        ymin = 0.26, ymax = 0.74,
+        ymin = 0.35, ymax = 0.65,
         fill = .data$PADLOC_system
       ),
       color = "grey35", linewidth = 0.25, alpha = 0.95

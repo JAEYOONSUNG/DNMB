@@ -108,14 +108,9 @@
     paste(parts, collapse = " | ")
   }, character(1))
 
-  cgc_palette <- stats::setNames(
-    grDevices::hcl.colors(max(nrow(cgc_summary), 3), palette = "Dark 3")[seq_len(nrow(cgc_summary))],
-    as.character(cgc_summary$dbcan_cgc_id)
-  )
-
   p_inventory <- ggplot2::ggplot(cgc_summary, ggplot2::aes(x = .data$n_cazyme, y = .data$label)) +
     ggplot2::geom_col(
-      ggplot2::aes(fill = .data$dbcan_cgc_id),
+      ggplot2::aes(fill = .data$n_cazyme),
       width = 0.62,
       color = "grey35",
       linewidth = 0.25,
@@ -129,7 +124,7 @@
       ggplot2::aes(x = .data$n_cazyme + 0.08, label = .data$annot),
       hjust = 0, size = 2.8, color = "grey25"
     ) +
-    ggplot2::scale_fill_manual(values = cgc_palette) +
+    ggplot2::scale_fill_gradient(low = "#81C784", high = "#0F766E") +
     ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0.02, 0.50))) +
     ggplot2::labs(
       title = paste0("dbCAN CGC/PUL inventory (", nrow(cgc_summary), " clusters)"),
@@ -169,6 +164,8 @@
     levels = unname(contig_labels)
   )
 
+  cgc_summary$midpoint <- (cgc_summary$start + cgc_summary$end) / 2
+
   p_layout <- ggplot2::ggplot() +
     ggplot2::geom_segment(
       data = contigs,
@@ -180,21 +177,25 @@
       ggplot2::aes(
         xmin = .data$start, xmax = .data$end,
         ymin = 0.26, ymax = 0.74,
-        fill = .data$dbcan_cgc_id
+        fill = .data$n_cazyme
       ),
       color = "grey35", linewidth = 0.25, alpha = 0.95
     ) +
-    ggplot2::geom_text(
+    ggrepel::geom_text_repel(
       data = cgc_summary,
       ggplot2::aes(
-        x = (.data$start + .data$end) / 2, y = 0.86,
+        x = .data$midpoint, y = 0.74,
         label = .data$cgc_label
       ),
-      size = 2.5, vjust = 0, lineheight = 0.85
+      size = 2.3, vjust = 0, lineheight = 0.85,
+      direction = "x", nudge_y = 0.15,
+      segment.size = 0.2, segment.color = "grey60",
+      max.overlaps = 50, seed = 42,
+      min.segment.length = 0.1
     ) +
     ggplot2::facet_wrap(~contig_facet, ncol = 1, scales = "free_x",
                         strip.position = "top") +
-    ggplot2::scale_fill_manual(values = cgc_palette) +
+    ggplot2::scale_fill_gradient(low = "#81C784", high = "#0F766E", name = "CAZymes") +
     ggplot2::scale_x_continuous(labels = scales::label_comma()) +
     ggplot2::labs(
       title = "dbCAN CGC genome layout",

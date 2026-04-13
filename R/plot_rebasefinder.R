@@ -26,8 +26,14 @@
   n_hc <- sum(is_hc)
   tbl_verified <- tbl[is_hc & motif_verified, , drop = FALSE]
 
+  # If no genes pass the motif+confidence filter, fall back to showing
+  # ALL high-confidence hits so the overview is never empty when there
+  # ARE REBASE matches. The user expects to see whatever data exists.
+  tbl_show <- if (nrow(tbl_verified) > 0) tbl_verified else tbl[is_hc, , drop = FALSE]
+  if (!nrow(tbl_show)) tbl_show <- tbl
+
   p_inventory <- .dnmb_plot_rebasefinder_inventory(
-    tbl_verified, rm_palette,
+    tbl_show, rm_palette,
     n_total = nrow(tbl), n_hc = n_hc, n_verified = nrow(tbl_verified)
   )
 

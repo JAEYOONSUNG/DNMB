@@ -120,6 +120,11 @@
          call. = FALSE)
   }
 
+  # Ensure start/end are numeric (can be character from xlsx or TSV parsing)
+  tbl$start <- suppressWarnings(as.numeric(tbl$start))
+  tbl$end <- suppressWarnings(as.numeric(tbl$end))
+  tbl <- tbl[!is.na(tbl$start) & !is.na(tbl$end), , drop = FALSE]
+
   tbl$dbcan_cgc_id <- as.character(tbl[[cgc_id_col]])
   tbl$dbcan_cgc_gene_type <- as.character(tbl[[cgc_type_col]])
   tbl$dbcan_cgc_protein_family <- if (!is.null(cgc_family_col)) as.character(tbl[[cgc_family_col]]) else NA_character_

@@ -54,7 +54,9 @@
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
       plot.title = ggplot2::element_text(face = "bold"),
-      panel.grid.minor = ggplot2::element_blank()
+      plot.title.position = "plot",
+      panel.grid.minor = ggplot2::element_blank(),
+      plot.margin = ggplot2::margin(8, 12, 5, 12)
     )
 
   top_hits <- tbl |>
@@ -85,8 +87,10 @@
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
       plot.title = ggplot2::element_text(face = "bold"),
+      plot.title.position = "plot",
       legend.position = "none",
-      panel.grid.minor = ggplot2::element_blank()
+      panel.grid.minor = ggplot2::element_blank(),
+      plot.margin = ggplot2::margin(8, 12, 5, 12)
     )
 
   contigs <- .dnmb_contig_lengths_for_plot(tbl, output_dir = output_dir)
@@ -129,10 +133,12 @@
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
       plot.title = ggplot2::element_text(face = "bold"),
+      plot.title.position = "plot",
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
       legend.position = "bottom",
-      axis.ticks.y = ggplot2::element_blank()
+      axis.ticks.y = ggplot2::element_blank(),
+      plot.margin = ggplot2::margin(8, 12, 5, 12)
     ) +
     ggplot2::geom_text(
       data = contigs,
@@ -155,6 +161,8 @@
     label_y = c(1.02, 1.02, 1.02),
     hjust = 0,
     ncol = 1,
+    align = "v",
+    axis = "lr",
     rel_heights = c(0.80, 1.35, 1.25)
   )
   .dnmb_module_plot_save(composite, pdf_path, width = 10, height = 11)

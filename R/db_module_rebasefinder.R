@@ -182,6 +182,17 @@
     base::as.character(tbl[["subunit"]]),
     NA_character_
   )
+  # Override role from REBASE hit name when subunit is missing or contradicts
+  # the naming convention: M./M1./M2. = methyltransferase, not restriction
+  if ("blast_match" %in% base::names(tbl)) {
+    hit_name <- base::as.character(tbl[["blast_match"]])
+    inferred <- base::ifelse(base::grepl("^M[0-9]?\\.", hit_name), "M",
+                base::ifelse(base::grepl("^R[0-9]?\\.", hit_name), "R",
+                base::ifelse(base::grepl("^S[0-9]?\\.", hit_name), "S", NA_character_)))
+    needs_fix <- (!base::is.na(inferred)) &
+      (base::is.na(tbl$enzyme_role) | tbl$enzyme_role != inferred)
+    tbl$enzyme_role[needs_fix] <- inferred[needs_fix]
+  }
 
   tbl$evidence_mode <- base::ifelse(
     !base::is.na(tbl[["blast_identity"]]) & tbl[["blast_identity"]] >= 0.5,

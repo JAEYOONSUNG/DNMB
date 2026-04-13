@@ -407,15 +407,19 @@
     }
   }
   if (nrow(rm_hc)) {
-    hc_split <- .split_crowded(rm_hc)
     p <- p + ggplot2::geom_rect(data = rm_hc, ggplot2::aes(xmin = .data$start, xmax = .data$end, ymin = .data$track - 0.25, ymax = .data$track + 0.25), fill = rm_hc$fill_color, color = "grey20", linewidth = 0.4) +
       ggplot2::geom_segment(data = rm_hc, ggplot2::aes(x = .data$midpoint, xend = .data$midpoint, y = .data$track + 0.25, yend = .data$track + 0.38, color = .data$rm_type), linewidth = 0.5, show.legend = FALSE)
-    if (nrow(hc_split$isolated)) {
-      p <- p + ggplot2::geom_text(data = hc_split$isolated, ggplot2::aes(x = .data$midpoint, y = .data$track + 0.48, label = .data$label), size = 2.2, color = "grey20", fontface = "bold", lineheight = 0.8)
-    }
-    if (nrow(hc_split$crowded)) {
-      p <- p + ggrepel::geom_text_repel(data = hc_split$crowded, ggplot2::aes(x = .data$midpoint, y = .data$track + 0.40, label = .data$label), size = 2.2, color = "grey20", fontface = "bold", direction = "x", nudge_y = 0.08, segment.size = 0.15, segment.color = "grey55", max.overlaps = 30, seed = 42, min.segment.length = 0.1, force = 0.5, force_pull = 1)
-    }
+    p <- p + ggrepel::geom_text_repel(
+      data = rm_hc,
+      ggplot2::aes(x = .data$midpoint, y = .data$track + 0.40, label = .data$label),
+      size = 2.0, color = "grey20", fontface = "bold", lineheight = 0.8,
+      direction = "both", nudge_y = 0.12,
+      segment.size = 0.15, segment.color = "grey55",
+      max.overlaps = Inf, seed = 42,
+      min.segment.length = 0.1,
+      force = 2, force_pull = 0.5,
+      box.padding = 0.3, point.padding = 0.1
+    )
   }
   # R-M Type legend (full opacity) + Identity gradient legend
   legend_df <- data.frame(rm_type = names(rm_palette), x = NA_real_, y = NA_real_, stringsAsFactors = FALSE)

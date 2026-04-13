@@ -99,12 +99,10 @@
   hit_contigs <- unique(cgc_summary$contig)
   contigs <- contigs[contigs$contig %in% hit_contigs, , drop = FALSE]
 
-  cgc_summary$cgc_label <- ifelse(
-    !is.na(cgc_summary$substrate) & nzchar(cgc_summary$substrate),
-    paste0(cgc_summary$short_id, "\n", cgc_summary$substrate),
-    cgc_summary$short_id
-  )
   cgc_summary$midpoint <- (cgc_summary$start + cgc_summary$end) / 2
+  cgc_summary$has_substrate <- !is.na(cgc_summary$substrate) & nzchar(cgc_summary$substrate)
+  labeled <- cgc_summary[cgc_summary$has_substrate, , drop = FALSE]
+  labeled$cgc_label <- paste0(labeled$short_id, " (", labeled$substrate, ")")
 
   contig_labels <- stats::setNames(
     paste0(contigs$sector_label, " (", scales::label_comma()(contigs$length_bp), " bp)"),
@@ -112,6 +110,7 @@
   )
   cgc_summary$contig_facet <- factor(contig_labels[cgc_summary$contig], levels = unname(contig_labels))
   contigs$contig_facet <- factor(contig_labels[contigs$contig], levels = unname(contig_labels))
+  labeled$contig_facet <- factor(contig_labels[labeled$contig], levels = unname(contig_labels))
 
   p_layout <- ggplot2::ggplot() +
     ggplot2::geom_segment(
@@ -128,13 +127,16 @@
       ),
       color = "grey35", linewidth = 0.25, alpha = 0.95
     ) +
-    ggrepel::geom_text_repel(
-      data = cgc_summary,
-      ggplot2::aes(x = .data$midpoint, y = 0.74, label = .data$cgc_label),
-      size = 2.3, vjust = 0, lineheight = 0.85,
-      direction = "x", nudge_y = 0.15,
-      segment.size = 0.2, segment.color = "grey60",
-      max.overlaps = 50, seed = 42, min.segment.length = 0.1
+    ggplot2::geom_segment(
+      data = labeled,
+      ggplot2::aes(x = .data$midpoint, xend = .data$midpoint, y = 0.65, yend = 0.78),
+      linewidth = 0.3, color = "grey50"
+    ) +
+    ggplot2::geom_label(
+      data = labeled,
+      ggplot2::aes(x = .data$midpoint, y = 0.82, label = .data$cgc_label),
+      size = 2.3, label.size = 0.15, label.padding = ggplot2::unit(0.12, "lines"),
+      fill = "white", color = "grey20", fontface = "bold"
     ) +
     ggplot2::facet_wrap(~contig_facet, ncol = 1, scales = "free_x", strip.position = "top") +
     ggplot2::scale_fill_gradient(low = "#81C784", high = "#0F766E", name = "CAZymes") +

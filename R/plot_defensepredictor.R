@@ -114,19 +114,16 @@
       stroke = 0.22,
       alpha = 0.88
     ) +
-    ggplot2::geom_text(
-      data = contigs,
-      ggplot2::aes(x = 1, y = .data$track - 0.42, label = .data$sector_label),
-      hjust = 0,
-      size = 2.7,
-      color = "grey30"
-    ) +
     ggplot2::scale_fill_manual(values = band_palette, drop = FALSE) +
     ggplot2::scale_size_continuous(range = c(1.1, 6.2), guide = "none") +
     ggplot2::scale_y_continuous(
       breaks = contigs$track,
-      labels = contigs$contig,
+      labels = NULL,
       expand = ggplot2::expansion(mult = c(0.10, 0.16))
+    ) +
+    ggplot2::scale_x_continuous(
+      labels = scales::label_comma(),
+      expand = ggplot2::expansion(mult = c(0.01, 0.01))
     ) +
     ggplot2::labs(title = "DefensePredictor genome layout", x = "Genome position (bp)", y = NULL, fill = "Score band") +
     ggplot2::theme_bw(base_size = 11) +
@@ -134,22 +131,31 @@
       plot.title = ggplot2::element_text(face = "bold"),
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
-      legend.position = "bottom"
-    )
+      legend.position = "bottom",
+      axis.ticks.y = ggplot2::element_blank()
+    ) +
+    ggplot2::geom_text(
+      data = contigs,
+      ggplot2::aes(x = -Inf, y = .data$track, label = .data$sector_label),
+      hjust = 1.1, size = 2.8, color = "grey30", fontface = "bold"
+    ) +
+    ggplot2::coord_cartesian(clip = "off")
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, "DefensePredictor_overview.pdf")
+  # Layout order matches DefenseFinder: A=inventory, B=genome layout, C=candidates
   composite <- cowplot::plot_grid(
     p_hist,
-    p_top,
     p_layout,
+    p_top,
     labels = c("A", "B", "C"),
     label_size = 14,
     label_fontface = "bold",
     label_x = 0,
+    label_y = c(1.02, 1.02, 1.02),
     hjust = 0,
     ncol = 1,
-    rel_heights = c(0.95, 1.20, 1.25)
+    rel_heights = c(0.80, 1.35, 1.25)
   )
   .dnmb_module_plot_save(composite, pdf_path, width = 10, height = 11)
   list(pdf = pdf_path)

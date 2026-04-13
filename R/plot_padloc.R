@@ -114,27 +114,31 @@
       size = 2.7,
       vjust = 0
     ) +
-    ggplot2::geom_text(
-      data = contigs,
-      ggplot2::aes(x = 1, y = .data$track - 0.42, label = .data$sector_label),
-      hjust = 0,
-      size = 2.7,
-      color = "grey30"
-    ) +
     ggplot2::scale_fill_manual(values = palette) +
     ggplot2::scale_y_continuous(
       breaks = contigs$track,
-      labels = contigs$contig,
+      labels = NULL,
       expand = ggplot2::expansion(mult = c(0.10, 0.16))
+    ) +
+    ggplot2::scale_x_continuous(
+      labels = scales::label_comma(),
+      expand = ggplot2::expansion(mult = c(0.01, 0.01))
     ) +
     ggplot2::labs(title = "PADLOC genome layout", x = "Genome position (bp)", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
-      legend.position = "none",
+      legend.position = "bottom",
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
-      plot.title = ggplot2::element_text(face = "bold")
-    )
+      plot.title = ggplot2::element_text(face = "bold"),
+      axis.ticks.y = ggplot2::element_blank()
+    ) +
+    ggplot2::geom_text(
+      data = contigs,
+      ggplot2::aes(x = -Inf, y = .data$track, label = .data$sector_label),
+      hjust = 1.1, size = 2.8, color = "grey30", fontface = "bold"
+    ) +
+    ggplot2::coord_cartesian(clip = "off")
 
   top_hits <- hits |>
     dplyr::mutate(
@@ -180,9 +184,10 @@
     label_size = 14,
     label_fontface = "bold",
     label_x = 0,
+    label_y = c(1.02, 1.02, 1.02),
     hjust = 0,
     ncol = 1,
-    rel_heights = c(0.95, 1.45, 1.05)
+    rel_heights = c(0.80, 1.35, 1.25)
   )
   .dnmb_module_plot_save(composite, pdf_path, width = 10, height = 11)
   list(pdf = pdf_path)

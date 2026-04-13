@@ -72,16 +72,31 @@
   a_inch <- max(0.7, 0.45 * n_rm_types + 0.5)
 
   # Stack all panels — A,B,legend,C+D+E
-  composite <- cowplot::plot_grid(
-    p_inventory,
-    p_context,
-    legend_row,
-    bottom_row,
-    labels = c("A", "B", "", "C"),
-    label_size = 14, label_fontface = "bold",
-    label_x = 0, label_y = c(1.02, 1.02, 1, 1.02),
-    hjust = 0, ncol = 1,
-    rel_heights = c(a_inch, 2.0, 0.35, cd_inch)
+  # Wrap in tryCatch: cowplot::plot_grid can throw "Viewport has zero
+  # dimension(s)" when a subplot's grob collapses to zero height (e.g.,
+  # empty domain map). Fall back to a simpler 3-panel layout if needed.
+  composite <- tryCatch(
+    cowplot::plot_grid(
+      p_inventory,
+      p_context,
+      legend_row,
+      bottom_row,
+      labels = c("A", "B", "", "C"),
+      label_size = 14, label_fontface = "bold",
+      label_x = 0, label_y = c(1.02, 1.02, 1, 1.02),
+      hjust = 0, ncol = 1,
+      rel_heights = c(a_inch, 2.0, 0.35, cd_inch)
+    ),
+    error = function(e) {
+      # Fallback: skip bottom_row, show A+B only
+      cowplot::plot_grid(
+        p_inventory, p_context, legend_row,
+        labels = c("A", "B", ""),
+        label_size = 14, label_fontface = "bold",
+        label_x = 0, hjust = 0, ncol = 1,
+        rel_heights = c(a_inch, 2.0, 0.35)
+      )
+    }
   )
   total_height <- a_inch + 2.0 + 0.35 + cd_inch
   .dnmb_module_plot_save(composite, pdf_path, width = 12, height = min(18, max(9, total_height)))

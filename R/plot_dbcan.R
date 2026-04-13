@@ -233,7 +233,7 @@
     p_genes, p_network,
     labels = c("B", "C"),
     label_size = 14, label_fontface = "bold",
-    label_x = 0, label_y = c(1.02, 1.02), hjust = 0,
+    label_x = 0.01, label_y = 0.99, hjust = 0, vjust = 1,
     ncol = 2, rel_widths = c(1.1, 0.9)
   )
 
@@ -242,7 +242,7 @@
     bottom_row,
     labels = c("A", ""),
     label_size = 14, label_fontface = "bold",
-    label_x = 0, label_y = c(1.02, 1), hjust = 0,
+    label_x = 0.01, label_y = 0.99, hjust = 0, vjust = 1,
     ncol = 1,
     rel_heights = c(0.30, 0.70)
   )

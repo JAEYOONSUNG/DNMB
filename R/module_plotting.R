@@ -353,13 +353,21 @@ dnmb_render_module_plots <- function(genbank_table, output_dir = getwd(), cache_
   )
   if (!is.null(result)) return(result)
 
-  # Fallback: copy DefenseViz PDF
+  # The overview function may have saved a PDF before erroring (e.g.,
+  # the A+B fallback succeeded but the return propagation failed).
+  # Check if the PDF was written anyway.
+  plot_dir <- .dnmb_module_plot_dir(output_dir)
+  expected_pdf <- file.path(plot_dir, "REBASE_overview.pdf")
+  if (file.exists(expected_pdf) && file.info(expected_pdf)$size > 500) {
+    return(list(pdf = expected_pdf))
+  }
+
+  # Fallback: copy DefenseViz PDF from module output
   rm_dir <- file.path(output_dir, "dnmb_module_rebasefinder")
   if (!dir.exists(rm_dir)) return(NULL)
-  plot_dir <- .dnmb_module_plot_dir(output_dir)
   src_files <- list.files(rm_dir, pattern = "\\.pdf$", full.names = TRUE)
   if (length(src_files)) {
-    dest_path <- file.path(plot_dir, "REBASE_overview.pdf")
+    dest_path <- expected_pdf
     file.copy(src_files[1], dest_path, overwrite = TRUE)
     return(list(pdf = dest_path))
   }

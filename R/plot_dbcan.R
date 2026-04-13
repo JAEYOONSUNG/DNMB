@@ -58,8 +58,10 @@
     stop("dbCAN plot: no CGC data to plot.", call. = FALSE)
   }
 
+  known_types <- c("CAZyme", "TC", "TF", "STP")
   tbl$gene_type <- ifelse(
-    is.na(tbl$dbcan_cgc_gene_type) | !nzchar(tbl$dbcan_cgc_gene_type),
+    is.na(tbl$dbcan_cgc_gene_type) | !nzchar(tbl$dbcan_cgc_gene_type) |
+      !tbl$dbcan_cgc_gene_type %in% known_types,
     "other", tbl$dbcan_cgc_gene_type
   )
 
@@ -85,12 +87,13 @@
       substrate = dplyr::first(stats::na.omit(.data$dbcan_pul_substrate)),
       start = min(.data$start, na.rm = TRUE),
       end = max(.data$end, na.rm = TRUE),
-      gene_types = paste(sort(unique(.data$gene_type[.data$gene_type != "other"])), collapse = "+"),
+      gene_types = paste(sort(unique(.data$gene_type[.data$gene_type != "other" & .data$gene_type != "null"])), collapse = "+"),
       .groups = "drop"
     ) |>
     dplyr::arrange(dplyr::desc(.data$n_cazyme), dplyr::desc(.data$n_genes))
 
-  cgc_summary$label <- cgc_summary$dbcan_cgc_id
+  cgc_summary$short_id <- sub("^.*\\|", "", cgc_summary$dbcan_cgc_id)
+  cgc_summary$label <- cgc_summary$short_id
   cgc_summary$label <- factor(cgc_summary$label, levels = rev(cgc_summary$label))
 
   cgc_summary$annot <- vapply(seq_len(nrow(cgc_summary)), function(i) {
@@ -149,8 +152,8 @@
 
   cgc_summary$cgc_label <- ifelse(
     !is.na(cgc_summary$substrate) & nzchar(cgc_summary$substrate),
-    paste0(cgc_summary$dbcan_cgc_id, "\n", cgc_summary$substrate),
-    as.character(cgc_summary$dbcan_cgc_id)
+    paste0(cgc_summary$short_id, "\n", cgc_summary$substrate),
+    cgc_summary$short_id
   )
 
   contig_labels <- stats::setNames(
@@ -213,14 +216,15 @@
   gene_type_counts <- tbl |>
     dplyr::group_by(.data$dbcan_cgc_id, .data$gene_type) |>
     dplyr::summarise(n = dplyr::n(), .groups = "drop")
-  gene_type_counts$dbcan_cgc_id <- factor(
-    gene_type_counts$dbcan_cgc_id,
+  gene_type_counts$short_id <- sub("^.*\\|", "", gene_type_counts$dbcan_cgc_id)
+  gene_type_counts$short_id <- factor(
+    gene_type_counts$short_id,
     levels = rev(levels(cgc_summary$label))
   )
 
   p_composition <- ggplot2::ggplot(
     gene_type_counts,
-    ggplot2::aes(x = .data$n, y = .data$dbcan_cgc_id, fill = .data$gene_type)
+    ggplot2::aes(x = .data$n, y = .data$short_id, fill = .data$gene_type)
   ) +
     ggplot2::geom_col(width = 0.62, color = "grey35", linewidth = 0.15) +
     ggplot2::scale_fill_manual(values = type_palette, drop = FALSE, name = "Gene type") +

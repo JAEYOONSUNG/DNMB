@@ -713,14 +713,14 @@
                      pos_range = c(0.50, 0.75),
                      weight = 1L),
     # -- REase / nuclease motifs (R subunits) --
-    "PD-ExK"  = list(pattern = "PD.{5,30}[DE][LIVMFY]K",
+    "PD-ExK"  = list(pattern = "PD.{8,20}[DE][LIVMFY]K",
                      expected_role = "R",
                      full = "REase PD-(D/E)xK catalytic triad",
                      pos_range = c(0.05, 0.65),
                      weight = 3L),
-    "HNH"     = list(pattern = "[DE].{0,3}H.H.{5,50}H",
+    "HNH"     = list(pattern = "H.{1,3}N.{5,40}H",
                      expected_role = "R",
-                     full = "HNH nuclease (His-Asn-His metal-binding)",
+                     full = "HNH nuclease (His-Asn-His)",
                      pos_range = NULL,
                      weight = 3L),
     "GIY-YIG" = list(pattern = "G[LIVMA]Y.{2,4}Y[IVLA]G",
@@ -742,6 +742,11 @@
                      expected_role = "R",
                      full = "PLD/HKD phosphodiesterase nuclease",
                      pos_range = NULL,
+                     weight = 2L),
+    "Mrr"     = list(pattern = "D.{8,15}[EQ].[KR].{20,60}[DE].{0,5}[KR]",
+                     expected_role = "R",
+                     full = "Mrr-like Type IV REase (modified-DNA restriction)",
+                     pos_range = c(0.10, 0.70),
                      weight = 2L)
   )
 }
@@ -951,11 +956,7 @@
       s <- detailed[[i]][[j]]$status
       !is.na(s) && grepl("^present", s)
     }, logical(1)))
-    # Score threshold: lowered from 3 to 1 — a single motif hit in the
-    # expected role is enough when the BLAST match to REBASE is already
-    # a strong signal. The old >= 3 threshold was filtering out legitimate
-    # MTases whose divergent sequences had only partial motif matches.
-    has_match && sc$score >= 1L
+    has_match && sc$score >= 2L
   }, logical(1))
 }
 

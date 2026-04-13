@@ -55,16 +55,15 @@
     ) +
     ggplot2::scale_fill_manual(values = palette) +
     ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0.02, 0.34))) +
-    ggplot2::labs(x = "Loci detected", y = NULL) +
-    ggplot2::annotate("text", x = -Inf, y = Inf, label = "PADLOC inventory",
-                      hjust = -0.02, vjust = 1.5, size = 4, fontface = "bold") +
+    ggplot2::labs(title = "PADLOC inventory", x = "Loci detected", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold"),
+      plot.title.position = "plot",
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
       axis.text.y = ggplot2::element_blank(),
-      axis.ticks.y = ggplot2::element_blank(),
-      plot.margin = ggplot2::margin(4, 6, 5, 6)
+      axis.ticks.y = ggplot2::element_blank()
     )
 
   loci <- hits |>
@@ -77,70 +76,55 @@
       .groups = "drop"
     )
   contigs <- .dnmb_contig_lengths_for_plot(tbl, output_dir = output_dir)
-  contigs$track <- rev(seq_len(nrow(contigs)))
-  loci$track <- contigs$track[match(loci$contig, contigs$contig)]
   loci$label <- ifelse(
     duplicated(loci$PADLOC_system) | duplicated(loci$PADLOC_system, fromLast = TRUE),
     paste0(loci$PADLOC_system, " (", loci$PADLOC_system_number, ")"),
     as.character(loci$PADLOC_system)
   )
+  # Facet labels: contig name with size
+  contig_labels <- stats::setNames(
+    paste0(contigs$sector_label, " (", scales::label_comma()(contigs$length_bp), " bp)"),
+    contigs$contig
+  )
+  loci$contig_facet <- factor(contig_labels[loci$contig], levels = unname(contig_labels))
+  contigs$contig_facet <- factor(contig_labels[contigs$contig], levels = unname(contig_labels))
 
   p_layout <- ggplot2::ggplot() +
     ggplot2::geom_segment(
       data = contigs,
-      ggplot2::aes(x = 1, xend = .data$length_bp, y = .data$track, yend = .data$track),
-      linewidth = 1.2,
-      color = "grey78"
+      ggplot2::aes(x = 0, xend = .data$length_bp, y = 0.5, yend = 0.5),
+      linewidth = 1.2, color = "grey78"
     ) +
     ggplot2::geom_rect(
       data = loci,
       ggplot2::aes(
-        xmin = .data$start,
-        xmax = .data$end,
-        ymin = .data$track - 0.24,
-        ymax = .data$track + 0.24,
+        xmin = .data$start, xmax = .data$end,
+        ymin = 0.26, ymax = 0.74,
         fill = .data$PADLOC_system
       ),
-      color = "grey35",
-      linewidth = 0.25,
-      alpha = 0.95
+      color = "grey35", linewidth = 0.25, alpha = 0.95
     ) +
     ggplot2::geom_text(
       data = loci,
-      ggplot2::aes(
-        x = (.data$start + .data$end) / 2,
-        y = .data$track + 0.36,
-        label = .data$label
-      ),
-      size = 2.7,
-      vjust = 0
+      ggplot2::aes(x = (.data$start + .data$end) / 2, y = 0.86, label = .data$label),
+      size = 2.7, vjust = 0
     ) +
+    ggplot2::facet_wrap(~contig_facet, ncol = 1, scales = "free_x",
+                        strip.position = "top") +
     ggplot2::scale_fill_manual(values = palette) +
-    ggplot2::scale_y_continuous(
-      breaks = contigs$track,
-      labels = NULL,
-      expand = ggplot2::expansion(mult = c(0.10, 0.16))
-    ) +
-    ggplot2::scale_x_continuous(
-      labels = scales::label_comma(),
-      expand = ggplot2::expansion(mult = c(0.005, 0.005))
-    ) +
-    ggplot2::labs(x = "Genome position (bp)", y = NULL) +
+    ggplot2::scale_x_continuous(labels = scales::label_comma()) +
+    ggplot2::labs(title = "PADLOC genome layout", x = "Genome coordinate (bp)", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold"),
+      plot.title.position = "plot",
       legend.position = "bottom",
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
+      axis.text.y = ggplot2::element_blank(),
       axis.ticks.y = ggplot2::element_blank(),
-      plot.margin = ggplot2::margin(4, 6, 5, 6)
-    ) +
-    ggplot2::geom_text(
-      data = contigs,
-      ggplot2::aes(x = 1, y = .data$track + 0.35, label = .data$sector_label),
-      hjust = 0, size = 2.6, color = "grey40", fontface = "bold"
-    ) +
-    ggplot2::annotate("text", x = -Inf, y = Inf, label = "PADLOC genome layout",
-                      hjust = -0.02, vjust = 1.5, size = 4, fontface = "bold")
+      strip.text = ggplot2::element_text(face = "bold", size = 9)
+    )
 
   top_hits <- hits |>
     dplyr::mutate(
@@ -169,17 +153,18 @@
     ) +
     ggplot2::scale_fill_manual(values = palette) +
     ggplot2::scale_x_continuous(limits = c(0, max(1.05, max(top_hits$PADLOC_target_coverage, na.rm = TRUE) + 0.22))) +
-    ggplot2::labs(x = "Target coverage", y = NULL) +
-    ggplot2::annotate("text", x = -Inf, y = Inf, label = "Top PADLOC protein calls",
-                      hjust = -0.02, vjust = 1.5, size = 4, fontface = "bold") +
+    ggplot2::labs(title = "Top PADLOC protein calls", x = "Target coverage", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
-      legend.position = "none",
-      plot.margin = ggplot2::margin(4, 6, 5, 6)
+      plot.title = ggplot2::element_text(face = "bold"),
+      plot.title.position = "plot",
+      legend.position = "none"
     )
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, "PADLOC_overview.pdf")
+  n_contigs <- nrow(contigs)
+  layout_height <- max(1.2, 0.8 * n_contigs + 0.6)
   composite <- cowplot::plot_grid(
     p_inventory,
     p_layout,
@@ -191,10 +176,9 @@
     label_y = c(1.02, 1.02, 1.02),
     hjust = 0,
     ncol = 1,
-    align = "v",
-    axis = "lr",
-    rel_heights = c(0.80, 1.35, 1.25)
+    rel_heights = c(0.80, layout_height, 1.25)
   )
-  .dnmb_module_plot_save(composite, pdf_path, width = 10, height = 11)
+  total_h <- max(11, 2.0 + layout_height * 2.5 + 3.5)
+  .dnmb_module_plot_save(composite, pdf_path, width = 10, height = total_h)
   list(pdf = pdf_path)
 }

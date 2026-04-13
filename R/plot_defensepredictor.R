@@ -50,13 +50,12 @@
       size = 3.1,
       color = "#333333"
     ) +
-    ggplot2::labs(x = "Mean log-odds", y = "Proteins") +
-    ggplot2::annotate("text", x = -Inf, y = Inf, label = "DefensePredictor score distribution",
-                      hjust = -0.02, vjust = 1.5, size = 4, fontface = "bold") +
+    ggplot2::labs(title = "DefensePredictor score distribution", x = "Mean log-odds", y = "Proteins") +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
-      panel.grid.minor = ggplot2::element_blank(),
-      plot.margin = ggplot2::margin(4, 6, 5, 6)
+      plot.title = ggplot2::element_text(face = "bold"),
+      plot.title.position = "plot",
+      panel.grid.minor = ggplot2::element_blank()
     )
 
   top_hits <- tbl |>
@@ -83,72 +82,64 @@
       color = "grey25"
     ) +
     ggplot2::scale_fill_manual(values = band_palette, drop = FALSE) +
-    ggplot2::labs(x = "Mean log-odds", y = NULL) +
-    ggplot2::annotate("text", x = -Inf, y = Inf, label = "Top DefensePredictor candidates",
-                      hjust = -0.02, vjust = 1.5, size = 4, fontface = "bold") +
+    ggplot2::labs(title = "Top DefensePredictor candidates", x = "Mean log-odds", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold"),
+      plot.title.position = "plot",
       legend.position = "none",
-      panel.grid.minor = ggplot2::element_blank(),
-      plot.margin = ggplot2::margin(4, 6, 5, 6)
+      panel.grid.minor = ggplot2::element_blank()
     )
 
   contigs <- .dnmb_contig_lengths_for_plot(tbl, output_dir = output_dir)
-  contigs$track <- rev(seq_len(nrow(contigs)))
-  tbl$track <- contigs$track[match(tbl$contig, contigs$contig)]
   tbl$midpoint <- (tbl$start + tbl$end) / 2
+  # Facet label: contig name with size
+  contig_labels <- stats::setNames(
+    paste0(contigs$sector_label, " (", scales::label_comma()(contigs$length_bp), " bp)"),
+    contigs$contig
+  )
+  tbl$contig_facet <- contig_labels[tbl$contig]
+  tbl$contig_facet <- factor(tbl$contig_facet, levels = unname(contig_labels))
+  contigs$contig_facet <- contig_labels[contigs$contig]
+  contigs$contig_facet <- factor(contigs$contig_facet, levels = unname(contig_labels))
 
   p_layout <- ggplot2::ggplot() +
     ggplot2::geom_segment(
       data = contigs,
-      ggplot2::aes(x = 1, xend = .data$length_bp, y = .data$track, yend = .data$track),
-      linewidth = 1.1,
-      color = "grey80"
+      ggplot2::aes(x = 0, xend = .data$length_bp, y = 0.5, yend = 0.5),
+      linewidth = 1.1, color = "grey80"
     ) +
     ggplot2::geom_point(
       data = tbl,
       ggplot2::aes(
-        x = .data$midpoint,
-        y = .data$track,
+        x = .data$midpoint, y = 0.5,
         fill = .data$score_band_plot,
         size = pmax(.data$DefensePredictor_mean_log_odds, 0)
       ),
-      shape = 21,
-      color = "grey20",
-      stroke = 0.22,
-      alpha = 0.88
+      shape = 21, color = "grey20", stroke = 0.22, alpha = 0.88
     ) +
+    ggplot2::facet_wrap(~contig_facet, ncol = 1, scales = "free_x",
+                        strip.position = "top") +
     ggplot2::scale_fill_manual(values = band_palette, drop = FALSE) +
-    ggplot2::scale_size_continuous(range = c(1.1, 6.2), guide = "none") +
-    ggplot2::scale_y_continuous(
-      breaks = contigs$track,
-      labels = NULL,
-      expand = ggplot2::expansion(mult = c(0.10, 0.16))
-    ) +
-    ggplot2::scale_x_continuous(
-      labels = scales::label_comma(),
-      expand = ggplot2::expansion(mult = c(0.005, 0.005))
-    ) +
-    ggplot2::labs(x = "Genome position (bp)", y = NULL, fill = "Score band") +
+    ggplot2::scale_size_continuous(range = c(1.5, 7), guide = "none") +
+    ggplot2::scale_x_continuous(labels = scales::label_comma()) +
+    ggplot2::labs(title = "DefensePredictor genome layout", x = "Genome coordinate (bp)", y = NULL, fill = "Score band") +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold"),
+      plot.title.position = "plot",
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
-      legend.position = "bottom",
+      axis.text.y = ggplot2::element_blank(),
       axis.ticks.y = ggplot2::element_blank(),
-      plot.margin = ggplot2::margin(4, 6, 5, 6)
-    ) +
-    ggplot2::geom_text(
-      data = contigs,
-      ggplot2::aes(x = 1, y = .data$track + 0.35, label = .data$sector_label),
-      hjust = 0, size = 2.6, color = "grey40", fontface = "bold"
-    ) +
-    ggplot2::annotate("text", x = -Inf, y = Inf, label = "DefensePredictor genome layout",
-                      hjust = -0.02, vjust = 1.5, size = 4, fontface = "bold")
+      strip.text = ggplot2::element_text(face = "bold", size = 9),
+      legend.position = "bottom"
+    )
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, "DefensePredictor_overview.pdf")
-  # Layout order matches DefenseFinder: A=inventory, B=genome layout, C=candidates
+  n_contigs <- nrow(contigs)
+  layout_height <- max(1.2, 0.8 * n_contigs + 0.6)
   composite <- cowplot::plot_grid(
     p_hist,
     p_layout,
@@ -160,10 +151,9 @@
     label_y = c(1.02, 1.02, 1.02),
     hjust = 0,
     ncol = 1,
-    align = "v",
-    axis = "lr",
-    rel_heights = c(0.80, 1.35, 1.25)
+    rel_heights = c(0.80, layout_height, 1.25)
   )
-  .dnmb_module_plot_save(composite, pdf_path, width = 10, height = 11)
+  total_h <- max(11, 2.0 + layout_height * 2.5 + 3.5)
+  .dnmb_module_plot_save(composite, pdf_path, width = 10, height = total_h)
   list(pdf = pdf_path)
 }

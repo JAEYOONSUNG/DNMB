@@ -447,29 +447,64 @@
   plot_tbl$display_typed <- factor(plot_tbl$display_typed, levels = new_lvls)
 
   # Color methylated bases in y-axis labels (rec_seq portion)
-  # Must happen BEFORE ggplot() captures the data
+  # Uses REBASE bairoch metadata for exact position when available,
+  # falls back to coloring ALL matching bases when position is unknown.
   meth_pal <- c("N6A" = "#D32F2F", "N5C" = "#1565C0", "N4C" = "#FF8F00")
   meth_target <- c("N6A" = "A", "N5C" = "C", "N4C" = "C")
   has_ggtext <- requireNamespace("ggtext", quietly = TRUE)
+  bairoch <- tryCatch(.dnmb_rebasefinder_download_bairoch(), error = function(e) NULL)
   if (has_ggtext) {
     old_lvls <- levels(plot_tbl$display_typed)
     label_vec <- as.character(plot_tbl$display_typed)
     lvl_map <- stats::setNames(old_lvls, old_lvls)
+    has_hit <- "REBASEfinder_hit_label" %in% names(plot_tbl)
     for (i in seq_len(nrow(plot_tbl))) {
       mt <- plot_tbl$meth_type[i]
       rs <- plot_tbl$rec_seq[i]
       if (is.na(mt) || is.na(rs) || !nzchar(rs) || rs == "?") next
       col <- meth_pal[mt]
-      target <- meth_target[mt]
-      rs_colored <- gsub(
-        target,
-        paste0("<span style='color:", col, ";font-weight:bold'>", target, "</span>"),
-        rs
-      )
-      old_label <- label_vec[i]
-      new_label <- sub(rs, rs_colored, old_label, fixed = TRUE)
-      label_vec[i] <- new_label
-      lvl_map[lvl_map == old_label] <- new_label
+      if (is.na(col)) next
+
+      # Try position-specific coloring from bairoch
+      colored_rs <- NULL
+      if (!is.null(bairoch) && has_hit) {
+        hit_name <- as.character(plot_tbl$REBASEfinder_hit_label[i])
+        if (!is.na(hit_name) && nzchar(hit_name)) {
+          b_idx <- match(hit_name, bairoch$enzyme_name)
+          if (!is.na(b_idx)) {
+            mpos <- bairoch$meth_pos[b_idx]
+            if (!is.na(mpos) && mpos != "?" && grepl("^[0-9]+$", mpos)) {
+              pos <- as.integer(mpos)
+              if (pos >= 1 && pos <= nchar(rs)) {
+                chars <- strsplit(rs, "")[[1]]
+                chars[pos] <- paste0(
+                  "<span style='color:", col, ";font-weight:bold'>",
+                  chars[pos], "</span>")
+                colored_rs <- paste(chars, collapse = "")
+              }
+            }
+          }
+        }
+      }
+
+      # Fallback: color ALL matching target bases
+      if (is.null(colored_rs)) {
+        target <- meth_target[mt]
+        if (!is.na(target)) {
+          colored_rs <- gsub(
+            target,
+            paste0("<span style='color:", col, ";font-weight:bold'>", target, "</span>"),
+            rs
+          )
+        }
+      }
+
+      if (!is.null(colored_rs)) {
+        old_label <- label_vec[i]
+        new_label <- sub(rs, colored_rs, old_label, fixed = TRUE)
+        label_vec[i] <- new_label
+        lvl_map[lvl_map == old_label] <- new_label
+      }
     }
     new_lvls <- unname(lvl_map[old_lvls])
     plot_tbl$display_typed <- factor(label_vec, levels = new_lvls)
@@ -758,21 +793,63 @@
 # Methylation type inference from catalytic motifs
 # C5-PC motif → N5C; amino-MTase motif → N6A (most common); fallback NA
 .dnmb_rebasefinder_infer_methylation_type <- function(tbl) {
-  detailed <- .dnmb_rebasefinder_scan_motifs_detailed(tbl)
-  if (is.null(detailed)) return(rep(NA_character_, nrow(tbl)))
+  # Strategy (in priority order):
+  # 1. REBASE bairoch metadata — authoritative, per-enzyme lookup
+  # 2. Protein motif detection — heuristic fallback
+  # 3. Recognition sequence heuristic — last resort
   has_role <- "REBASEfinder_enzyme_role" %in% names(tbl)
-  motif_names <- names(.dnmb_rebasefinder_motif_definitions())
+  has_hit <- "REBASEfinder_hit_label" %in% names(tbl)
+  has_rec <- "REBASEfinder_rec_seq" %in% names(tbl)
+
+  # Pre-load bairoch lookup (cached after first download)
+  bairoch <- tryCatch(.dnmb_rebasefinder_download_bairoch(), error = function(e) NULL)
+
+  # Motif detection (fallback)
+  detailed <- .dnmb_rebasefinder_scan_motifs_detailed(tbl)
+  motif_names <- if (!is.null(detailed)) names(.dnmb_rebasefinder_motif_definitions()) else character()
   c5_idx <- which(motif_names == "C5-IV")
   mtase_idx <- which(motif_names == "MTase")
+
   vapply(seq_len(nrow(tbl)), function(i) {
     role <- if (has_role) as.character(tbl$REBASEfinder_enzyme_role[i]) else NA_character_
     if (is.na(role) || !role %in% c("M", "S")) return(NA_character_)
-    c5_hit <- !is.na(detailed[[i]][[c5_idx]]$status) &&
-      detailed[[i]][[c5_idx]]$status %in% c("present", "present*")
-    mtase_hit <- !is.na(detailed[[i]][[mtase_idx]]$status) &&
-      detailed[[i]][[mtase_idx]]$status %in% c("present", "present*")
-    if (c5_hit) return("N5C")
-    if (mtase_hit) return("N6A")
+
+    # --- 1. REBASE bairoch lookup ---
+    if (!is.null(bairoch) && has_hit) {
+      hit_name <- as.character(tbl$REBASEfinder_hit_label[i])
+      if (!is.na(hit_name) && nzchar(hit_name)) {
+        idx <- match(hit_name, bairoch$enzyme_name)
+        if (!is.na(idx)) {
+          mt <- bairoch$meth_type[idx]
+          if (!is.na(mt) && nzchar(mt)) {
+            if (grepl("m6A", mt)) return("N6A")
+            if (grepl("m5C", mt)) return("N5C")
+            if (grepl("m4C|Nm4C", mt)) return("N4C")
+          }
+        }
+      }
+    }
+
+    # --- 2. Motif detection ---
+    if (!is.null(detailed) && length(c5_idx) && length(mtase_idx)) {
+      c5_hit <- !is.na(detailed[[i]][[c5_idx]]$status) &&
+        detailed[[i]][[c5_idx]]$status %in% c("present", "present*")
+      mtase_hit <- !is.na(detailed[[i]][[mtase_idx]]$status) &&
+        detailed[[i]][[mtase_idx]]$status %in% c("present", "present*")
+      if (c5_hit) return("N5C")
+      if (mtase_hit) return("N6A")
+    }
+
+    # --- 3. Recognition sequence heuristic ---
+    if (has_rec) {
+      rs <- as.character(tbl$REBASEfinder_rec_seq[i])
+      if (!is.na(rs) && nzchar(rs) && rs != "?") {
+        bases <- toupper(gsub("[^ACGTWSMKRYBDHVN]", "", rs))
+        if (grepl("A", bases)) return("N6A")
+        if (grepl("C", bases) && !grepl("A", bases)) return("N5C")
+      }
+    }
+
     NA_character_
   }, character(1))
 }
@@ -803,8 +880,11 @@
       s <- detailed[[i]][[j]]$status
       !is.na(s) && grepl("^present", s)
     }, logical(1)))
-    # Score threshold: confident = 5+, tentative = 3-4
-    has_match && sc$score >= 3L
+    # Score threshold: lowered from 3 to 1 — a single motif hit in the
+    # expected role is enough when the BLAST match to REBASE is already
+    # a strong signal. The old >= 3 threshold was filtering out legitimate
+    # MTases whose divergent sequences had only partial motif matches.
+    has_match && sc$score >= 1L
   }, logical(1))
 }
 

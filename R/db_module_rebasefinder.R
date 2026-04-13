@@ -14,6 +14,101 @@
   .dnmb_rebasefinder_status_row(character(), character(), character())
 }
 
+# ── REBASE bairoch metadata: methylation type + position lookup ──
+# Downloads once from rebase.neb.com/rebase/link_bairoch, parses the
+# bairoch-format flat file, and builds a lookup table keyed by enzyme
+# name. Each entry includes the recognition sequence, methylation
+# type(s) (m6A / m5C / Nm4C), and position(s) within the rec_seq.
+#
+# This is the ONLY authoritative source for which base in the
+# recognition sequence is methylated and how — motif-based inference
+# is a heuristic fallback at best.
+
+.dnmb_rebasefinder_bairoch_cache_path <- function(cache_root = NULL) {
+  root <- .dnmb_db_cache_root(cache_root = cache_root, create = TRUE)
+  file.path(root, "db_modules", "rebasefinder", "cache", "rebase_bairoch_lookup.rds")
+}
+
+.dnmb_rebasefinder_download_bairoch <- function(cache_root = NULL, force = FALSE) {
+  cache_path <- .dnmb_rebasefinder_bairoch_cache_path(cache_root)
+  if (!isTRUE(force) && file.exists(cache_path)) {
+    return(readRDS(cache_path))
+  }
+  url <- "http://rebase.neb.com/rebase/link_bairoch"
+  tmp <- tempfile(fileext = ".txt")
+  on.exit(unlink(tmp, force = TRUE), add = TRUE)
+  tryCatch(utils::download.file(url, tmp, quiet = TRUE, method = "libcurl"),
+           error = function(e) NULL)
+  if (!file.exists(tmp) || file.info(tmp)$size < 1000) {
+    return(NULL)
+  }
+  lookup <- .dnmb_rebasefinder_parse_bairoch(tmp)
+  if (!is.null(lookup) && nrow(lookup) > 0) {
+    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
+    saveRDS(lookup, cache_path)
+  }
+  lookup
+}
+
+.dnmb_rebasefinder_parse_bairoch <- function(path) {
+  lines <- readLines(path, warn = FALSE)
+  entries <- list()
+  current <- list(id = NA_character_, rs = NA_character_, ms = NA_character_)
+  for (line in lines) {
+    if (startsWith(line, "ID   ")) {
+      current$id <- trimws(sub("^ID   ", "", line))
+    } else if (startsWith(line, "RS   ")) {
+      rs_raw <- trimws(sub("^RS   ", "", line))
+      rs_parts <- strsplit(rs_raw, ",")[[1]]
+      current$rs <- trimws(gsub(";", "", rs_parts[1]))
+    } else if (startsWith(line, "MS   ")) {
+      current$ms <- trimws(sub("^MS   ", "", line))
+    } else if (line == "//") {
+      if (!is.na(current$id) && !is.na(current$ms)) {
+        entries[[length(entries) + 1L]] <- current
+      }
+      current <- list(id = NA_character_, rs = NA_character_, ms = NA_character_)
+    }
+  }
+  if (!length(entries)) return(NULL)
+  # Parse MS field: "2(m6A),-4(m6A)" → list of {pos, type}
+  rows <- lapply(entries, function(e) {
+    ms_parts <- strsplit(gsub(";$", "", e$ms), ",")[[1]]
+    ms_parsed <- lapply(trimws(ms_parts), function(p) {
+      m <- regmatches(p, regexec("^(-?[0-9?]+)\\(([^)]+)\\)", p))[[1]]
+      if (length(m) == 3L) list(pos = m[2], type = m[3]) else NULL
+    })
+    ms_parsed <- Filter(Negate(is.null), ms_parsed)
+    # Primary methylation: first entry
+    primary_pos <- if (length(ms_parsed)) ms_parsed[[1]]$pos else NA_character_
+    primary_type <- if (length(ms_parsed)) ms_parsed[[1]]$type else NA_character_
+    data.frame(
+      enzyme_name = e$id,
+      rec_seq = if (is.na(e$rs)) NA_character_ else e$rs,
+      meth_type = primary_type,
+      meth_pos = primary_pos,
+      meth_all = e$ms,
+      stringsAsFactors = FALSE
+    )
+  })
+  do.call(rbind, rows)
+}
+
+.dnmb_rebasefinder_lookup_methylation <- function(enzyme_name, cache_root = NULL) {
+  lookup <- .dnmb_rebasefinder_download_bairoch(cache_root = cache_root)
+  if (is.null(lookup) || !nrow(lookup)) {
+    return(list(meth_type = NA_character_, meth_pos = NA_character_,
+                rec_seq = NA_character_, meth_all = NA_character_))
+  }
+  # Match by enzyme name (exact or prototype)
+  idx <- match(enzyme_name, lookup$enzyme_name)
+  if (is.na(idx)) {
+    return(list(meth_type = NA_character_, meth_pos = NA_character_,
+                rec_seq = NA_character_, meth_all = NA_character_))
+  }
+  as.list(lookup[idx, ])
+}
+
 .dnmb_rebasefinder_check_package <- function() {
   if (!requireNamespace("DefenseViz", quietly = TRUE)) {
     return(FALSE)

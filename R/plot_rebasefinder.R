@@ -51,20 +51,24 @@
   # Shared display labels with operon grouping
   display_info <- .dnmb_rebasefinder_display_labels(tbl)
 
-  p_blast <- .dnmb_plot_rebasefinder_blast_quality(tbl, role_palette, display_info, rm_palette)
-  # UniProt domain data (optional, cached)
+  # Each subplot wrapped in tryCatch — if any fails, use a placeholder
+  # so the composite never crashes entirely.
+  empty_plot <- ggplot2::ggplot() + ggplot2::theme_void()
+  p_blast <- tryCatch(
+    .dnmb_plot_rebasefinder_blast_quality(tbl, role_palette, display_info, rm_palette),
+    error = function(e) empty_plot
+  )
   uniprot_doms <- tryCatch(
     .dnmb_rebasefinder_uniprot_domains(tbl, output_dir),
     error = function(e) NULL
   )
-  p_domain <- .dnmb_plot_rebasefinder_domain_map(tbl, display_info, uniprot_doms)
-  p_motif <- .dnmb_plot_rebasefinder_motif_verification(tbl, display_info)
-
-  # C + D + E side by side (no labels here — added at composite level)
-  bottom_row <- cowplot::plot_grid(
-    p_blast, p_domain, p_motif,
-    ncol = 3, rel_widths = c(1.8, 0.6, 0.8),
-    align = "h", axis = "tb"
+  p_domain <- tryCatch(
+    .dnmb_plot_rebasefinder_domain_map(tbl, display_info, uniprot_doms),
+    error = function(e) empty_plot
+  )
+  p_motif <- tryCatch(
+    .dnmb_plot_rebasefinder_motif_verification(tbl, display_info),
+    error = function(e) empty_plot
   )
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
@@ -73,28 +77,31 @@
   n_hits <- nrow(display_info)
   cd_inch <- max(2.0, 0.30 * n_hits + 0.6)
 
-  # Panel A height scales with number of RM types
-  n_rm_types <- length(unique(tbl_verified$REBASEfinder_family_id))
+  n_rm_types <- length(unique(tbl_show$REBASEfinder_family_id))
   a_inch <- max(0.7, 0.45 * n_rm_types + 0.5)
 
-  # Stack all panels — A,B,legend,C+D+E
-  # Wrap in tryCatch: cowplot::plot_grid can throw "Viewport has zero
-  # dimension(s)" when a subplot's grob collapses to zero height (e.g.,
-  # empty domain map). Fall back to a simpler 3-panel layout if needed.
-  composite <- tryCatch(
+  # Build bottom row (C+D+E) with tryCatch
+  bottom_row <- tryCatch(
     cowplot::plot_grid(
-      p_inventory,
-      p_context,
-      legend_row,
-      bottom_row,
-      labels = c("A", "B", "", "C"),
-      label_size = 14, label_fontface = "bold",
-      label_x = 0, label_y = c(1.02, 1.02, 1, 1.02),
-      hjust = 0, ncol = 1,
-      rel_heights = c(a_inch, 2.0, 0.35, cd_inch)
+      p_blast, p_domain, p_motif,
+      ncol = 3, rel_widths = c(1.8, 0.6, 0.8),
+      align = "h", axis = "tb"
     ),
-    error = function(e) {
-      # Fallback: skip bottom_row, show A+B only
+    error = function(e) NULL
+  )
+
+  # Full composite: A + B + legend + C/D/E (or A+B if bottom fails)
+  composite <- tryCatch({
+    if (!is.null(bottom_row)) {
+      cowplot::plot_grid(
+        p_inventory, p_context, legend_row, bottom_row,
+        labels = c("A", "B", "", "C"),
+        label_size = 14, label_fontface = "bold",
+        label_x = 0, label_y = c(1.02, 1.02, 1, 1.02),
+        hjust = 0, ncol = 1,
+        rel_heights = c(a_inch, 2.0, 0.35, cd_inch)
+      )
+    } else {
       cowplot::plot_grid(
         p_inventory, p_context, legend_row,
         labels = c("A", "B", ""),
@@ -103,7 +110,15 @@
         rel_heights = c(a_inch, 2.0, 0.35)
       )
     }
-  )
+  }, error = function(e) {
+    cowplot::plot_grid(
+      p_inventory, p_context, legend_row,
+      labels = c("A", "B", ""),
+      label_size = 14, label_fontface = "bold",
+      label_x = 0, hjust = 0, ncol = 1,
+      rel_heights = c(a_inch, 2.0, 0.35)
+    )
+  })
   total_height <- a_inch + 2.0 + 0.35 + cd_inch
   .dnmb_module_plot_save(composite, pdf_path, width = 12, height = min(18, max(9, total_height)))
   list(pdf = pdf_path)

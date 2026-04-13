@@ -395,24 +395,26 @@
   }
 
   p <- ggplot2::ggplot() +
-    ggplot2::geom_segment(data = contig_lengths, ggplot2::aes(x = 0, xend = .data$length_bp, y = .data$track, yend = .data$track), linewidth = 4, color = "grey85", lineend = "round")
+    ggplot2::geom_segment(data = contig_lengths, ggplot2::aes(x = 0, xend = .data$length_bp, y = .data$track, yend = .data$track), linewidth = 1.2, color = "grey85", lineend = "round")
   if (nrow(rm_lc)) {
-    lc_split <- .split_crowded(rm_lc)
-    p <- p + ggplot2::geom_rect(data = rm_lc, ggplot2::aes(xmin = .data$start, xmax = .data$end, ymin = .data$track - 0.25, ymax = .data$track + 0.25), fill = rm_lc$fill_color, color = "grey50", linewidth = 0.3, linetype = "dashed")
-    if (nrow(lc_split$isolated)) {
-      p <- p + ggplot2::geom_text(data = lc_split$isolated, ggplot2::aes(x = .data$midpoint, y = .data$track + 0.48, label = .data$label), size = 1.8, color = "grey55", fontface = "italic", lineheight = 0.8)
-    }
-    if (nrow(lc_split$crowded)) {
-      p <- p + ggrepel::geom_text_repel(data = lc_split$crowded, ggplot2::aes(x = .data$midpoint, y = .data$track + 0.38, label = .data$label), size = 1.8, color = "grey55", fontface = "italic", direction = "x", nudge_y = 0.08, segment.size = 0.12, segment.color = "grey70", max.overlaps = 30, seed = 42, min.segment.length = 0.1, force = 0.5, force_pull = 1)
-    }
+    p <- p + ggplot2::geom_rect(data = rm_lc, ggplot2::aes(xmin = .data$start, xmax = .data$end, ymin = .data$track - 0.12, ymax = .data$track + 0.12), fill = rm_lc$fill_color, color = "grey50", linewidth = 0.3, linetype = "dashed")
+    p <- p + ggrepel::geom_text_repel(
+      data = rm_lc,
+      ggplot2::aes(x = .data$midpoint, y = .data$track + 0.18, label = .data$label),
+      size = 1.7, color = "grey55", fontface = "italic", lineheight = 0.9,
+      direction = "both", nudge_y = 0.10,
+      segment.size = 0.12, segment.color = "grey70",
+      max.overlaps = Inf, seed = 42, min.segment.length = 0.1,
+      force = 2, force_pull = 0.5, box.padding = 0.25
+    )
   }
   if (nrow(rm_hc)) {
-    p <- p + ggplot2::geom_rect(data = rm_hc, ggplot2::aes(xmin = .data$start, xmax = .data$end, ymin = .data$track - 0.25, ymax = .data$track + 0.25), fill = rm_hc$fill_color, color = "grey20", linewidth = 0.4) +
-      ggplot2::geom_segment(data = rm_hc, ggplot2::aes(x = .data$midpoint, xend = .data$midpoint, y = .data$track + 0.25, yend = .data$track + 0.38, color = .data$rm_type), linewidth = 0.5, show.legend = FALSE)
+    p <- p + ggplot2::geom_rect(data = rm_hc, ggplot2::aes(xmin = .data$start, xmax = .data$end, ymin = .data$track - 0.12, ymax = .data$track + 0.12), fill = rm_hc$fill_color, color = "grey20", linewidth = 0.4) +
+      ggplot2::geom_segment(data = rm_hc, ggplot2::aes(x = .data$midpoint, xend = .data$midpoint, y = .data$track + 0.12, yend = .data$track + 0.20, color = .data$rm_type), linewidth = 0.5, show.legend = FALSE)
     p <- p + ggrepel::geom_text_repel(
       data = rm_hc,
-      ggplot2::aes(x = .data$midpoint, y = .data$track + 0.40, label = .data$label),
-      size = 2.0, color = "grey20", fontface = "bold", lineheight = 0.8,
+      ggplot2::aes(x = .data$midpoint, y = .data$track + 0.22, label = .data$label),
+      size = 1.9, color = "grey20", fontface = "bold", lineheight = 0.9,
       direction = "both", nudge_y = 0.12,
       segment.size = 0.15, segment.color = "grey55",
       max.overlaps = Inf, seed = 42,

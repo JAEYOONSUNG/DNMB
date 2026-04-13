@@ -152,52 +152,59 @@
       strip.text = ggplot2::element_text(face = "bold", size = 9)
     )
 
-  # --- Panel B: Combined inventory + gene type composition (compact) ---
-  gene_type_counts <- tbl |>
-    dplyr::group_by(.data$dbcan_cgc_id, .data$gene_type) |>
-    dplyr::summarise(n = dplyr::n(), .groups = "drop")
-  gene_type_counts$short_id <- sub("^.*\\|", "", gene_type_counts$dbcan_cgc_id)
-  cgc_order <- cgc_summary$short_id
-  gene_type_counts$short_id <- factor(gene_type_counts$short_id, levels = rev(cgc_order))
-
-  annot_map <- stats::setNames(
-    vapply(seq_len(nrow(cgc_summary)), function(i) {
-      parts <- c(
-        if (nzchar(cgc_summary$cazyme_families[i])) cgc_summary$cazyme_families[i] else NULL,
-        if (!is.na(cgc_summary$substrate[i]) && nzchar(cgc_summary$substrate[i]))
-          cgc_summary$substrate[i] else NULL
-      )
-      if (length(parts)) paste(parts, collapse = " | ") else ""
-    }, character(1)),
-    cgc_summary$short_id
+  # --- Panel B: Gene arrow tracks per CGC (gggenes) ---
+  track_tbl <- tbl[, intersect(c("dbcan_cgc_id", "locus_tag", "start", "end",
+                                   "gene_type", "dbCAN_family_id", "direction",
+                                   "dbcan_pul_substrate"), names(tbl)), drop = FALSE]
+  track_tbl$short_id <- sub("^.*\\|", "", track_tbl$dbcan_cgc_id)
+  track_tbl$forward <- !grepl("complement|minus|-", as.character(track_tbl$direction), ignore.case = TRUE)
+  track_tbl$gene_label <- ifelse(
+    track_tbl$gene_type == "CAZyme" & !is.na(track_tbl$dbCAN_family_id) & nzchar(track_tbl$dbCAN_family_id),
+    as.character(track_tbl$dbCAN_family_id),
+    ""
   )
-  annot_df <- cgc_summary |>
-    dplyr::mutate(
-      short_id = factor(.data$short_id, levels = rev(cgc_order)),
-      annot_text = unname(annot_map[as.character(.data$short_id)])
-    )
 
-  p_combined <- ggplot2::ggplot(gene_type_counts, ggplot2::aes(x = .data$n, y = .data$short_id, fill = .data$gene_type)) +
-    ggplot2::geom_col(width = 0.7, color = "grey35", linewidth = 0.12) +
+  cgc_order <- cgc_summary$short_id
+  facet_labels <- stats::setNames(
+    vapply(cgc_order, function(sid) {
+      row <- cgc_summary[cgc_summary$short_id == sid, , drop = FALSE]
+      parts <- sid
+      if (nrow(row) && nzchar(row$cazyme_families[1])) parts <- paste0(parts, " | ", row$cazyme_families[1])
+      if (nrow(row) && !is.na(row$substrate[1]) && nzchar(row$substrate[1])) parts <- paste0(parts, " | ", row$substrate[1])
+      parts
+    }, character(1)),
+    cgc_order
+  )
+  track_tbl$facet <- factor(facet_labels[track_tbl$short_id], levels = facet_labels)
+
+  p_genes <- ggplot2::ggplot(track_tbl,
+    ggplot2::aes(xmin = .data$start, xmax = .data$end, y = .data$facet,
+                 fill = .data$gene_type, forward = .data$forward)) +
+    gggenes::geom_gene_arrow(
+      arrowhead_height = grid::unit(3, "mm"),
+      arrowhead_width = grid::unit(2, "mm"),
+      arrow_body_height = grid::unit(3, "mm"),
+      color = "grey30", linewidth = 0.15
+    ) +
     ggplot2::geom_text(
-      data = annot_df,
-      ggplot2::aes(x = .data$n_genes + 0.3, y = .data$short_id, label = .data$annot_text),
-      inherit.aes = FALSE,
-      hjust = 0, size = 2.0, color = "grey30"
+      data = track_tbl[nzchar(track_tbl$gene_label), , drop = FALSE],
+      ggplot2::aes(
+        x = (.data$start + .data$end) / 2, y = .data$facet,
+        label = .data$gene_label
+      ),
+      size = 1.8, color = "white", fontface = "bold",
+      inherit.aes = FALSE
     ) +
     ggplot2::scale_fill_manual(values = type_palette, drop = FALSE, name = "Gene type") +
-    ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0.02, 0.35))) +
+    gggenes::theme_genes() +
     ggplot2::labs(
-      title = paste0("CGC gene composition (", nrow(cgc_summary), " clusters)"),
-      x = "Number of genes", y = NULL
+      title = paste0("CGC gene structure (", nrow(cgc_summary), " clusters)"),
+      x = "Genome coordinate (bp)", y = NULL
     ) +
-    ggplot2::theme_bw(base_size = 9) +
     ggplot2::theme(
       plot.title = ggplot2::element_text(face = "bold", size = 10),
       plot.title.position = "plot",
-      panel.grid.minor = ggplot2::element_blank(),
-      panel.grid.major.y = ggplot2::element_blank(),
-      axis.text.y = ggplot2::element_text(size = 7),
+      axis.text.y = ggplot2::element_text(size = 6),
       legend.position = "bottom",
       legend.key.size = ggplot2::unit(0.3, "cm"),
       legend.text = ggplot2::element_text(size = 7),
@@ -215,7 +222,7 @@
   n_cgc <- nrow(cgc_summary)
 
   bottom_row <- cowplot::plot_grid(
-    p_combined, p_network,
+    p_genes, p_network,
     labels = c("B", "C"),
     label_size = 14, label_fontface = "bold",
     label_x = 0, label_y = c(1.02, 1.02), hjust = 0,

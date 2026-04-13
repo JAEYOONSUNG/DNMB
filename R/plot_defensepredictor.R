@@ -92,6 +92,10 @@
     )
 
   contigs <- .dnmb_contig_lengths_for_plot(tbl, output_dir = output_dir)
+  # Only show contigs that have hits
+  hit_contigs <- unique(tbl$contig[!is.na(tbl$DefensePredictor_mean_log_odds)])
+  contigs <- contigs[contigs$contig %in% hit_contigs, , drop = FALSE]
+  tbl <- tbl[tbl$contig %in% hit_contigs, , drop = FALSE]
   tbl$midpoint <- (tbl$start + tbl$end) / 2
   # Facet label: contig name with size
   contig_labels <- stats::setNames(

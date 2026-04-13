@@ -76,6 +76,9 @@
       .groups = "drop"
     )
   contigs <- .dnmb_contig_lengths_for_plot(tbl, output_dir = output_dir)
+  # Only show contigs that have PADLOC loci
+  hit_contigs <- unique(loci$contig)
+  contigs <- contigs[contigs$contig %in% hit_contigs, , drop = FALSE]
   loci$label <- ifelse(
     duplicated(loci$PADLOC_system) | duplicated(loci$PADLOC_system, fromLast = TRUE),
     paste0(loci$PADLOC_system, " (", loci$PADLOC_system_number, ")"),

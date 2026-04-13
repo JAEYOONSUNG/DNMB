@@ -102,7 +102,7 @@
   cgc_summary$midpoint <- (cgc_summary$start + cgc_summary$end) / 2
   cgc_summary$has_substrate <- !is.na(cgc_summary$substrate) & nzchar(cgc_summary$substrate)
   labeled <- cgc_summary[cgc_summary$has_substrate, , drop = FALSE]
-  labeled$cgc_label <- paste0(labeled$short_id, " (", labeled$substrate, ")")
+  labeled$cgc_label <- paste0(labeled$short_id, "\n(", labeled$substrate, ")")
 
   contig_labels <- stats::setNames(
     paste0(contigs$sector_label, " (", scales::label_comma()(contigs$length_bp), " bp)"),
@@ -122,21 +122,22 @@
       data = cgc_summary,
       ggplot2::aes(
         xmin = .data$start, xmax = .data$end,
-        ymin = 0.42, ymax = 0.58,
+        ymin = 0.46, ymax = 0.54,
         fill = .data$n_cazyme
       ),
       color = "grey35", linewidth = 0.25, alpha = 0.95
     ) +
     ggplot2::geom_segment(
       data = labeled,
-      ggplot2::aes(x = .data$midpoint, xend = .data$midpoint, y = 0.65, yend = 0.78),
+      ggplot2::aes(x = .data$midpoint, xend = .data$midpoint, y = 0.54, yend = 0.62),
       linewidth = 0.3, color = "grey50"
     ) +
     ggplot2::geom_label(
       data = labeled,
-      ggplot2::aes(x = .data$midpoint, y = 0.82, label = .data$cgc_label),
-      size = 2.3, label.size = 0.15, label.padding = ggplot2::unit(0.12, "lines"),
-      fill = "white", color = "grey20", fontface = "bold"
+      ggplot2::aes(x = .data$midpoint, y = 0.64, label = .data$cgc_label),
+      size = 2.1, label.size = 0.15, label.padding = ggplot2::unit(0.1, "lines"),
+      fill = "white", color = "grey20", fontface = "bold",
+      lineheight = 0.85, vjust = 0
     ) +
     ggplot2::facet_wrap(~contig_facet, ncol = 1, scales = "free_x", strip.position = "top") +
     ggplot2::scale_fill_gradient(low = "#81C784", high = "#0F766E", name = "CAZymes") +

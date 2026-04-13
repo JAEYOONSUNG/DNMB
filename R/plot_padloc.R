@@ -55,16 +55,16 @@
     ) +
     ggplot2::scale_fill_manual(values = palette) +
     ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0.02, 0.34))) +
-    ggplot2::labs(title = "PADLOC inventory", x = "Loci detected", y = NULL) +
+    ggplot2::labs(x = "Loci detected", y = NULL) +
+    ggplot2::annotate("text", x = -Inf, y = Inf, label = "PADLOC inventory",
+                      hjust = -0.02, vjust = 1.5, size = 4, fontface = "bold") +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
       axis.text.y = ggplot2::element_blank(),
       axis.ticks.y = ggplot2::element_blank(),
-      plot.title = ggplot2::element_text(face = "bold"),
-      plot.title.position = "plot",
-      plot.margin = ggplot2::margin(8, 12, 5, 12)
+      plot.margin = ggplot2::margin(4, 6, 5, 6)
     )
 
   loci <- hits |>
@@ -123,25 +123,24 @@
     ) +
     ggplot2::scale_x_continuous(
       labels = scales::label_comma(),
-      expand = ggplot2::expansion(mult = c(0.01, 0.01))
+      expand = ggplot2::expansion(mult = c(0.005, 0.005))
     ) +
-    ggplot2::labs(title = "PADLOC genome layout", x = "Genome position (bp)", y = NULL) +
+    ggplot2::labs(x = "Genome position (bp)", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
       legend.position = "bottom",
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
-      plot.title = ggplot2::element_text(face = "bold"),
-      plot.title.position = "plot",
       axis.ticks.y = ggplot2::element_blank(),
-      plot.margin = ggplot2::margin(8, 12, 5, 12)
+      plot.margin = ggplot2::margin(4, 6, 5, 6)
     ) +
     ggplot2::geom_text(
       data = contigs,
-      ggplot2::aes(x = -Inf, y = .data$track, label = .data$sector_label),
-      hjust = 1.1, size = 2.8, color = "grey30", fontface = "bold"
+      ggplot2::aes(x = 1, y = .data$track + 0.35, label = .data$sector_label),
+      hjust = 0, size = 2.6, color = "grey40", fontface = "bold"
     ) +
-    ggplot2::coord_cartesian(clip = "off")
+    ggplot2::annotate("text", x = -Inf, y = Inf, label = "PADLOC genome layout",
+                      hjust = -0.02, vjust = 1.5, size = 4, fontface = "bold")
 
   top_hits <- hits |>
     dplyr::mutate(
@@ -170,13 +169,13 @@
     ) +
     ggplot2::scale_fill_manual(values = palette) +
     ggplot2::scale_x_continuous(limits = c(0, max(1.05, max(top_hits$PADLOC_target_coverage, na.rm = TRUE) + 0.22))) +
-    ggplot2::labs(title = "Top PADLOC protein calls", x = "Target coverage", y = NULL) +
+    ggplot2::labs(x = "Target coverage", y = NULL) +
+    ggplot2::annotate("text", x = -Inf, y = Inf, label = "Top PADLOC protein calls",
+                      hjust = -0.02, vjust = 1.5, size = 4, fontface = "bold") +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
       legend.position = "none",
-      plot.title = ggplot2::element_text(face = "bold"),
-      plot.title.position = "plot",
-      plot.margin = ggplot2::margin(8, 12, 5, 12)
+      plot.margin = ggplot2::margin(4, 6, 5, 6)
     )
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)

@@ -50,13 +50,13 @@
       size = 3.1,
       color = "#333333"
     ) +
-    ggplot2::labs(title = "DefensePredictor score distribution", x = "Mean log-odds", y = "Proteins") +
+    ggplot2::labs(x = "Mean log-odds", y = "Proteins") +
+    ggplot2::annotate("text", x = -Inf, y = Inf, label = "DefensePredictor score distribution",
+                      hjust = -0.02, vjust = 1.5, size = 4, fontface = "bold") +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold"),
-      plot.title.position = "plot",
       panel.grid.minor = ggplot2::element_blank(),
-      plot.margin = ggplot2::margin(8, 12, 5, 12)
+      plot.margin = ggplot2::margin(4, 6, 5, 6)
     )
 
   top_hits <- tbl |>
@@ -83,14 +83,14 @@
       color = "grey25"
     ) +
     ggplot2::scale_fill_manual(values = band_palette, drop = FALSE) +
-    ggplot2::labs(title = "Top DefensePredictor candidates", x = "Mean log-odds", y = NULL) +
+    ggplot2::labs(x = "Mean log-odds", y = NULL) +
+    ggplot2::annotate("text", x = -Inf, y = Inf, label = "Top DefensePredictor candidates",
+                      hjust = -0.02, vjust = 1.5, size = 4, fontface = "bold") +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold"),
-      plot.title.position = "plot",
       legend.position = "none",
       panel.grid.minor = ggplot2::element_blank(),
-      plot.margin = ggplot2::margin(8, 12, 5, 12)
+      plot.margin = ggplot2::margin(4, 6, 5, 6)
     )
 
   contigs <- .dnmb_contig_lengths_for_plot(tbl, output_dir = output_dir)
@@ -127,25 +127,24 @@
     ) +
     ggplot2::scale_x_continuous(
       labels = scales::label_comma(),
-      expand = ggplot2::expansion(mult = c(0.01, 0.01))
+      expand = ggplot2::expansion(mult = c(0.005, 0.005))
     ) +
-    ggplot2::labs(title = "DefensePredictor genome layout", x = "Genome position (bp)", y = NULL, fill = "Score band") +
+    ggplot2::labs(x = "Genome position (bp)", y = NULL, fill = "Score band") +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold"),
-      plot.title.position = "plot",
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
       legend.position = "bottom",
       axis.ticks.y = ggplot2::element_blank(),
-      plot.margin = ggplot2::margin(8, 12, 5, 12)
+      plot.margin = ggplot2::margin(4, 6, 5, 6)
     ) +
     ggplot2::geom_text(
       data = contigs,
-      ggplot2::aes(x = -Inf, y = .data$track, label = .data$sector_label),
-      hjust = 1.1, size = 2.8, color = "grey30", fontface = "bold"
+      ggplot2::aes(x = 1, y = .data$track + 0.35, label = .data$sector_label),
+      hjust = 0, size = 2.6, color = "grey40", fontface = "bold"
     ) +
-    ggplot2::coord_cartesian(clip = "off")
+    ggplot2::annotate("text", x = -Inf, y = Inf, label = "DefensePredictor genome layout",
+                      hjust = -0.02, vjust = 1.5, size = 4, fontface = "bold")
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, "DefensePredictor_overview.pdf")

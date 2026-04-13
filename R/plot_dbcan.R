@@ -142,7 +142,7 @@
     ggplot2::facet_wrap(~contig_facet, ncol = 1, scales = "free_x", strip.position = "top") +
     ggplot2::scale_fill_gradient(low = "#81C784", high = "#0F766E", name = "CAZymes") +
     ggplot2::scale_x_continuous(labels = scales::label_comma()) +
-    ggplot2::labs(title = "dbCAN CGC genome layout", x = "Genome coordinate (bp)", y = NULL) +
+    ggplot2::labs(title = "A   dbCAN CGC genome layout", x = "Genome coordinate (bp)", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
       plot.title = ggplot2::element_text(face = "bold"),
@@ -207,7 +207,7 @@
     ggplot2::scale_x_continuous(labels = function(x) paste0(round(x / 1000, 1), " kb")) +
     gggenes::theme_genes() +
     ggplot2::labs(
-      title = paste0("CGC gene structure (", nrow(cgc_summary), " clusters)"),
+      title = paste0("B   CGC gene structure (", nrow(cgc_summary), " clusters)"),
       x = "Cluster size", y = NULL
     ) +
     ggplot2::theme(
@@ -232,18 +232,12 @@
 
   bottom_row <- cowplot::plot_grid(
     p_genes, p_network,
-    labels = c("B", "C"),
-    label_size = 14, label_fontface = "bold",
-    label_x = 0.01, label_y = 0.99, hjust = 0, vjust = 1,
     ncol = 2, rel_widths = c(1.1, 0.9)
   )
 
   composite <- cowplot::plot_grid(
     p_layout,
     bottom_row,
-    labels = c("A", ""),
-    label_size = 14, label_fontface = "bold",
-    label_x = 0.01, label_y = 0.99, hjust = 0, vjust = 1,
     ncol = 1,
     rel_heights = c(0.30, 0.70)
   )
@@ -305,7 +299,7 @@
     ggplot2::scale_size_continuous(range = c(3, 12), name = "Genes", guide = "none") +
     ggplot2::scale_fill_manual(values = sub_pal, name = "Substrate", guide = "none") +
     ggplot2::labs(
-      title = "Substrate \u2013 CAZyme family",
+      title = "C   Substrate \u2013 CAZyme family",
       x = NULL, y = NULL
     ) +
     ggplot2::theme_bw(base_size = 9) +

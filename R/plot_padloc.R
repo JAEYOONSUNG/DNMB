@@ -116,7 +116,7 @@
                         strip.position = "top") +
     ggplot2::scale_fill_manual(values = palette) +
     ggplot2::scale_x_continuous(labels = scales::label_comma()) +
-    ggplot2::scale_y_continuous(limits = c(0.2, 1.05), expand = c(0, 0)) +
+    ggplot2::scale_y_continuous(limits = c(0.25, 0.95), expand = c(0, 0)) +
     ggplot2::labs(title = "PADLOC genome layout", x = "Genome coordinate (bp)", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
@@ -168,7 +168,7 @@
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, "PADLOC_overview.pdf")
   n_contigs <- nrow(contigs)
-  layout_height <- max(1.2, 0.8 * n_contigs + 0.6)
+  layout_height <- max(0.6, 0.5 * n_contigs + 0.4)
   composite <- cowplot::plot_grid(
     p_inventory,
     p_layout,
@@ -176,9 +176,10 @@
     labels = c("A", "B", "C"),
     label_size = 14,
     label_fontface = "bold",
-    label_x = 0,
-    label_y = c(1.02, 1.02, 1.02),
+    label_x = 0.01,
+    label_y = 0.99,
     hjust = 0,
+    vjust = 1,
     ncol = 1,
     rel_heights = c(0.80, layout_height, 1.25)
   )

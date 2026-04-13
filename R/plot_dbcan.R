@@ -122,7 +122,7 @@
       data = cgc_summary,
       ggplot2::aes(
         xmin = .data$start, xmax = .data$end,
-        ymin = 0.35, ymax = 0.65,
+        ymin = 0.42, ymax = 0.58,
         fill = .data$n_cazyme
       ),
       color = "grey35", linewidth = 0.25, alpha = 0.95

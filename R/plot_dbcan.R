@@ -142,6 +142,7 @@
     ggplot2::facet_wrap(~contig_facet, ncol = 1, scales = "free_x", strip.position = "top") +
     ggplot2::scale_fill_gradient(low = "#81C784", high = "#0F766E", name = "CAZymes") +
     ggplot2::scale_x_continuous(labels = scales::label_comma()) +
+    ggplot2::scale_y_continuous(limits = c(0.42, 0.82), expand = c(0, 0)) +
     ggplot2::labs(title = "A   dbCAN CGC genome layout", x = "Genome coordinate (bp)", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
@@ -239,7 +240,7 @@
     p_layout,
     bottom_row,
     ncol = 1,
-    rel_heights = c(0.30, 0.70)
+    rel_heights = c(0.20, 0.80)
   )
 
   page_h <- max(11, min(16, 3 + 0.22 * n_cgc))

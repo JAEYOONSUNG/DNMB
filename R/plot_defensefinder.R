@@ -375,7 +375,7 @@
       legend.text = ggplot2::element_text(size = 9)
     ) +
     ggplot2::scale_y_continuous(
-      limits = c(0.84, 1.16),
+      limits = c(0.84, 1.22),
       expand = ggplot2::expansion(mult = c(0, 0), add = c(0, 0))
     ) +
     ggplot2::guides(

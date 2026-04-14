@@ -304,20 +304,20 @@
       stroke = 0.35,
       show.legend = TRUE
     ) +
-    ggplot2::geom_segment(
+    ggrepel::geom_text_repel(
       data = defense_windows,
-      ggplot2::aes(x = .data$midpoint, xend = .data$midpoint,
-                   y = 1.02, yend = .data$label_y - 0.01),
-      linewidth = 0.2, color = "grey55",
-      inherit.aes = FALSE
-    ) +
-    ggplot2::geom_text(
-      data = defense_windows,
-      ggplot2::aes(x = .data$midpoint, y = .data$label_y, label = .data$label),
+      ggplot2::aes(x = .data$midpoint, y = 1.02, label = .data$label),
       size = 2.3,
       color = defense_windows$color_value,
       show.legend = FALSE,
-      inherit.aes = FALSE
+      inherit.aes = FALSE,
+      direction = "y", nudge_y = 0.04,
+      segment.size = 0.2, segment.color = "grey55",
+      max.overlaps = Inf, seed = 42,
+      min.segment.length = 0,
+      force = 1.5, force_pull = 0.3,
+      box.padding = 0.15,
+      ylim = c(1.04, 1.21)
     ) +
     ggplot2::geom_segment(
       data = coverage_bg_tbl,

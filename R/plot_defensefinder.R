@@ -146,11 +146,11 @@
     ) +
     ggplot2::geom_text(
       ggplot2::aes(x = 0.05, label = .data$DefenseFinder_system_subtype),
-      hjust = 0, size = 2.8, fontface = "bold", color = "white"
+      hjust = 0, size = 2.8, color = "white"
     ) +
     ggplot2::geom_text(
       ggplot2::aes(x = .data$n_systems - 0.05, label = .data$n_systems),
-      hjust = 1, size = 3.0, fontface = "bold", color = "white"
+      hjust = 1, size = 3.0, color = "white"
     ) +
     ggplot2::geom_text(
       ggplot2::aes(
@@ -300,13 +300,19 @@
       stroke = 0.35,
       show.legend = TRUE
     ) +
-    ggplot2::geom_text(
+    ggrepel::geom_text_repel(
       data = defense_windows,
-      ggplot2::aes(x = .data$midpoint, y = 1.12, label = .data$label),
-      size = 2.9,
+      ggplot2::aes(x = .data$midpoint, y = 1.08, label = .data$label),
+      size = 2.5,
       color = defense_windows$color_value,
       show.legend = FALSE,
-      inherit.aes = FALSE
+      inherit.aes = FALSE,
+      direction = "x", nudge_y = 0.06,
+      segment.size = 0.2, segment.color = "grey60",
+      max.overlaps = Inf, seed = 42,
+      min.segment.length = 0.05,
+      force = 2, force_pull = 0.5,
+      box.padding = 0.15
     ) +
     ggplot2::geom_segment(
       data = coverage_bg_tbl,

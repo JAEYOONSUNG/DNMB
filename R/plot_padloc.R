@@ -47,8 +47,7 @@
       ggplot2::aes(x = 0.05, label = .data$PADLOC_system),
       hjust = 0,
       size = 3.0,
-      color = "white",
-      fontface = "bold"
+      color = "white"
     ) +
     ggplot2::geom_text(
       ggplot2::aes(

@@ -212,7 +212,7 @@
       x = "Cluster size", y = NULL
     ) +
     ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold", size = 10),
+      plot.title = ggplot2::element_text(face = "bold", size = 11),
       plot.title.position = "plot",
       axis.text.y = ggplot2::element_text(size = 6),
       legend.position = "bottom",
@@ -305,7 +305,7 @@
     ) +
     ggplot2::theme_bw(base_size = 9) +
     ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold", size = 10),
+      plot.title = ggplot2::element_text(face = "bold", size = 11),
       plot.title.position = "plot",
       panel.grid.minor = ggplot2::element_blank(),
       axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 8),

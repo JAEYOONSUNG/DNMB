@@ -217,8 +217,8 @@
   defense_windows$track <- 1
   defense_windows$midpoint <- (defense_windows$start + defense_windows$end) / 2
   defense_windows <- defense_windows[order(defense_windows$contig, defense_windows$midpoint), , drop = FALSE]
-  defense_windows$label_tier <- ave(seq_len(nrow(defense_windows)), defense_windows$contig, FUN = function(x) ((seq_along(x) - 1) %% 3))
-  defense_windows$label_y <- 1.05 + defense_windows$label_tier * 0.06
+  defense_windows$label_tier <- ave(seq_len(nrow(defense_windows)), defense_windows$contig, FUN = function(x) ((seq_along(x) - 1) %% 4))
+  defense_windows$label_y <- 1.04 + defense_windows$label_tier * 0.045
   defense_windows$label <- ifelse(
     duplicated(defense_windows$DefenseFinder_system_subtype) | duplicated(defense_windows$DefenseFinder_system_subtype, fromLast = TRUE),
     paste0(defense_windows$DefenseFinder_system_subtype, " (", ave(seq_len(nrow(defense_windows)), defense_windows$DefenseFinder_system_subtype, FUN = seq_along), ")"),

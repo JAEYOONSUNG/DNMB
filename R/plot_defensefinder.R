@@ -65,11 +65,11 @@
     p_context,
     legend_row,
     p_detail,
-    labels = c("A", "B", "", "C"),
+    labels = c("", "", "", "C"),
     label_size = 14,
     label_fontface = "bold",
     label_x = 0,
-    label_y = c(1.02, 1.02, 1, 1),
+    label_y = c(1, 1, 1, 1),
     hjust = 0,
     ncol = 1,
     align = "v",
@@ -168,7 +168,7 @@
       breaks = seq(0, max(inventory_tbl$n_systems), by = 1)
     ) +
     ggplot2::labs(
-      title = "Defensefinder inventory",
+      title = "A   Defensefinder inventory",
       x = "Systems detected",
       y = NULL
     ) +
@@ -176,7 +176,8 @@
     ggplot2::theme(
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
-      plot.title = ggplot2::element_text(face = "bold"),
+      plot.title = ggplot2::element_text(face = "bold", size = 11),
+      plot.title.position = "plot",
       axis.text.y = ggplot2::element_blank(),
       axis.ticks.y = ggplot2::element_blank(),
       plot.margin = ggplot2::margin(4, 4, 4, 18)
@@ -215,6 +216,9 @@
   contig_lengths$track <- 1
   defense_windows$track <- 1
   defense_windows$midpoint <- (defense_windows$start + defense_windows$end) / 2
+  defense_windows <- defense_windows[order(defense_windows$contig, defense_windows$midpoint), , drop = FALSE]
+  defense_windows$label_tier <- ave(seq_len(nrow(defense_windows)), defense_windows$contig, FUN = function(x) ((seq_along(x) - 1) %% 3))
+  defense_windows$label_y <- 1.05 + defense_windows$label_tier * 0.06
   defense_windows$label <- ifelse(
     duplicated(defense_windows$DefenseFinder_system_subtype) | duplicated(defense_windows$DefenseFinder_system_subtype, fromLast = TRUE),
     paste0(defense_windows$DefenseFinder_system_subtype, " (", ave(seq_len(nrow(defense_windows)), defense_windows$DefenseFinder_system_subtype, FUN = seq_along), ")"),
@@ -300,19 +304,20 @@
       stroke = 0.35,
       show.legend = TRUE
     ) +
-    ggrepel::geom_text_repel(
+    ggplot2::geom_segment(
       data = defense_windows,
-      ggplot2::aes(x = .data$midpoint, y = 1.08, label = .data$label),
-      size = 2.5,
+      ggplot2::aes(x = .data$midpoint, xend = .data$midpoint,
+                   y = 1.02, yend = .data$label_y - 0.01),
+      linewidth = 0.2, color = "grey55",
+      inherit.aes = FALSE
+    ) +
+    ggplot2::geom_text(
+      data = defense_windows,
+      ggplot2::aes(x = .data$midpoint, y = .data$label_y, label = .data$label),
+      size = 2.3,
       color = defense_windows$color_value,
       show.legend = FALSE,
-      inherit.aes = FALSE,
-      direction = "x", nudge_y = 0.06,
-      segment.size = 0.2, segment.color = "grey60",
-      max.overlaps = Inf, seed = 42,
-      min.segment.length = 0.05,
-      force = 2, force_pull = 0.5,
-      box.padding = 0.15
+      inherit.aes = FALSE
     ) +
     ggplot2::geom_segment(
       data = coverage_bg_tbl,
@@ -335,7 +340,7 @@
     ggplot2::scale_shape_manual(values = c(Chromosome = 21, Plasmid = 24), name = "Replicon") +
     ggplot2::scale_size_continuous(range = c(4.0, 8.0), breaks = sort(unique(defense_windows$score)), name = "Score") +
     ggplot2::labs(
-      title = "Defensefinder genome layout",
+      title = "B   Defensefinder genome layout",
       subtitle = "Segment = system span | point size = score | lower mini-bars = profile/sequence coverage",
       x = "Genome coordinate (bp)",
       y = NULL
@@ -360,7 +365,8 @@
       axis.text.y = ggplot2::element_blank(),
       axis.ticks.y = ggplot2::element_blank(),
       strip.text = ggplot2::element_text(face = "bold"),
-      plot.title = ggplot2::element_text(face = "bold"),
+      plot.title = ggplot2::element_text(face = "bold", size = 11),
+      plot.title.position = "plot",
       plot.margin = ggplot2::margin(4, 4, 4, 18),
       legend.position = legend_position,
       legend.box = "horizontal",

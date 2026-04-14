@@ -31,7 +31,7 @@
     dplyr::arrange(dplyr::desc(.data$n_loci), dplyr::desc(.data$n_proteins), .data$PADLOC_system)
   system_summary$PADLOC_system <- factor(system_summary$PADLOC_system, levels = rev(system_summary$PADLOC_system))
   palette <- stats::setNames(
-    grDevices::hcl.colors(length(unique(system_summary$PADLOC_system)), palette = "YlOrBr"),
+    grDevices::hcl.colors(length(unique(system_summary$PADLOC_system)), palette = "Sunset"),
     unique(as.character(system_summary$PADLOC_system))
   )
 

@@ -599,6 +599,7 @@ dnmb_run_iselement_module <- function(genes,
     if (!nrow(lp_ctg)) return(NA_integer_)
     lp_ctg$dist <- pmin(abs(lp_ctg$region_start - mid), abs(lp_ctg$region_end - mid))
     nearest_idx <- which.min(lp_ctg$dist)
+    if (!length(nearest_idx)) return(NA_integer_)
     lp_id <- lp_ctg$landing_pad_id[[nearest_idx]]
     match(lp_id, landing_pads$landing_pad_id)
   }, integer(1))

@@ -35,7 +35,7 @@
   p_hist <- ggplot2::ggplot(tbl, ggplot2::aes(x = .data$DefensePredictor_mean_log_odds)) +
     ggplot2::geom_histogram(
       bins = 45,
-      fill = "#D97A1B",
+      fill = "#D81B60",
       color = "white",
       linewidth = 0.2,
       alpha = 0.9

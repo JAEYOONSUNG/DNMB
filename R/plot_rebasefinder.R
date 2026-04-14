@@ -630,10 +630,10 @@
                       size = 2.3, color = "#2E7D32", fontface = "italic") +
     { if (!is.null(meth_annot_label) && has_ggtext)
       ggtext::geom_richtext(
-        data = data.frame(x = 80, y = Inf, label = paste0("Methylated base: ", meth_annot_label)),
+        data = data.frame(x = 100, y = Inf, label = paste0("Methylated base: ", meth_annot_label)),
         ggplot2::aes(x = .data$x, y = .data$y, label = .data$label),
-        inherit.aes = FALSE, size = 2.5, hjust = 0, vjust = 1.5,
-        fill = NA, label.colour = NA, label.padding = grid::unit(0, "pt")
+        inherit.aes = FALSE, size = 2.3, hjust = 1, vjust = 1.5,
+        fill = "white", label.colour = NA, label.padding = grid::unit(1, "pt")
       )
     else NULL } +
     ggplot2::scale_fill_manual(values = role_palette, name = "Enzyme Role") +

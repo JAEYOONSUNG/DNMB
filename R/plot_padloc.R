@@ -98,39 +98,42 @@
   contigs$contig_facet <- factor(contig_labels[contigs$contig], levels = unname(contig_labels))
 
   loci$midpoint <- (loci$start + loci$end) / 2
+  # Stagger labels: alternate above/below by position order within each contig
+  loci <- loci[order(loci$contig, loci$midpoint), , drop = FALSE]
+  loci$label_tier <- ave(seq_len(nrow(loci)), loci$contig, FUN = function(x) ((seq_along(x) - 1) %% 3))
+  loci$label_y <- 0.53 + loci$label_tier * 0.06
 
   p_layout <- ggplot2::ggplot() +
     ggplot2::geom_segment(
       data = contigs,
       ggplot2::aes(x = 0, xend = .data$length_bp, y = 0.5, yend = 0.5),
-      linewidth = 0.8, color = "grey78"
+      linewidth = 0.6, color = "grey78"
     ) +
     ggplot2::geom_rect(
       data = loci,
       ggplot2::aes(
         xmin = .data$start, xmax = .data$end,
-        ymin = 0.46, ymax = 0.54,
+        ymin = 0.48, ymax = 0.52,
         fill = .data$PADLOC_system
       ),
-      color = "grey35", linewidth = 0.25, alpha = 0.95
+      color = "grey35", linewidth = 0.2, alpha = 0.95
     ) +
-    ggrepel::geom_text_repel(
+    ggplot2::geom_segment(
       data = loci,
-      ggplot2::aes(x = .data$midpoint, y = 0.54, label = .data$label),
-      size = 2.1, vjust = 0, lineheight = 0.85,
-      direction = "both", nudge_y = 0.06,
-      segment.size = 0.2, segment.color = "grey55",
-      max.overlaps = Inf, seed = 42,
-      min.segment.length = 0.05,
-      force = 2, force_pull = 0.5,
-      box.padding = 0.2, point.padding = 0.05,
-      ylim = c(0.55, 0.78)
+      ggplot2::aes(x = .data$midpoint, xend = .data$midpoint,
+                   y = 0.52, yend = .data$label_y),
+      linewidth = 0.2, color = "grey55"
+    ) +
+    ggplot2::geom_text(
+      data = loci,
+      ggplot2::aes(x = .data$midpoint, y = .data$label_y, label = .data$label),
+      size = 2.0, vjust = 0, lineheight = 0.85
     ) +
     ggplot2::facet_wrap(~contig_facet, ncol = 1, scales = "free_x",
                         strip.position = "top") +
     ggplot2::scale_fill_manual(values = palette) +
     ggplot2::scale_x_continuous(labels = scales::label_comma()) +
-    ggplot2::scale_y_continuous(limits = c(0.42, 0.80), expand = c(0, 0)) +
+    ggplot2::scale_y_continuous(limits = c(0.44, 0.72), expand = c(0, 0)) +
     ggplot2::labs(title = "PADLOC genome layout", x = "Genome coordinate (bp)", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
@@ -198,7 +201,7 @@
   common_legend <- cowplot::get_legend(legend_plot)
   legend_panel <- cowplot::ggdraw() + cowplot::draw_grob(common_legend, x = 0.5, y = 0.5, width = 0.98, height = 0.95, hjust = 0.5, vjust = 0.5)
 
-  layout_height <- max(0.95, 0.58 * n_contigs + 0.34)
+  layout_height <- max(0.65, 0.40 * n_contigs + 0.25)
   composite <- cowplot::plot_grid(
     add_panel_header(p_inventory, "A", "PADLOC inventory", plot_y = 0.06, plot_h = 0.86),
     add_panel_header(p_layout, "B", "PADLOC genome layout", plot_y = 0.035, plot_h = 0.90),

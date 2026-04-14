@@ -617,23 +617,32 @@
 
   x_left_limit <- max(0, min(plot_tbl$identity * 100, na.rm = TRUE) - 5)
 
+  meth_annot_label <- if (has_ggtext && any(!is.na(plot_tbl$meth_type))) {
+    paste0("<span style='color:#D32F2F'>N6A</span>",
+           " / <span style='color:#1565C0'>N5C</span>",
+           " / <span style='color:#FF8F00'>N4C</span>")
+  } else NULL
+
   p + ggplot2::scale_shape_manual(values = c(High = 21, Low = 1), name = "Confidence") +
     ggplot2::annotate("text", x = 49, y = Inf, label = "low", hjust = 1, vjust = 1.5,
                       size = 2.3, color = "#BF360C", fontface = "italic") +
     ggplot2::annotate("text", x = 51, y = Inf, label = "high confidence", hjust = 0, vjust = 1.5,
                       size = 2.3, color = "#2E7D32", fontface = "italic") +
+    { if (!is.null(meth_annot_label) && has_ggtext)
+      ggtext::geom_richtext(
+        data = data.frame(x = 103, y = nrow(plot_tbl), label = meth_annot_label),
+        ggplot2::aes(x = .data$x, y = .data$y, label = .data$label),
+        inherit.aes = FALSE, size = 2.5, hjust = 0, vjust = 0.5,
+        fill = NA, label.colour = NA, label.padding = grid::unit(0, "pt")
+      )
+    else NULL } +
     ggplot2::scale_fill_manual(values = role_palette, name = "Enzyme Role") +
     ggplot2::scale_color_manual(values = rm_palette, name = "R-M Type") +
-    ggplot2::scale_x_continuous(limits = c(x_left_limit, 105),
+    ggplot2::scale_x_continuous(limits = c(x_left_limit, 115),
                                 breaks = seq(0, 100, by = 10)) +
     ggplot2::labs(
       title = "REBASE BLAST match quality",
-      subtitle = if (has_ggtext && any(!is.na(plot_tbl$meth_type)))
-        paste0("Methylated base color: ",
-               "<span style='color:#D32F2F;font-weight:bold'>N6A</span>",
-               " / <span style='color:#1565C0;font-weight:bold'>N5C</span>",
-               " / <span style='color:#FF8F00;font-weight:bold'>N4C</span>")
-        else NULL,
+      subtitle = NULL,
       x = "Sequence identity (%)", y = NULL
     ) +
     ggplot2::guides(

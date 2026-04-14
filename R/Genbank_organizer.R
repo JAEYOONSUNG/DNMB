@@ -76,7 +76,7 @@ for (genbank_file in gb_files) {
 
       #contig definition
       for(i in 1:nrow(contig_length)){
-        assign(paste("contig",i,"definition",sep="_"), get(paste("contig",i,sep="_"))[grep("DEFINITION",get(paste("contig",i,sep="_"))[,1], value="TURE"),])
+        assign(paste("contig",i,"definition",sep="_"), get(paste("contig",i,sep="_"))[grep("DEFINITION",get(paste("contig",i,sep="_"))[,1], value = TRUE),])
       }
       for(i in 1:nrow(contig_length)){
         assign(paste("contig",i,"definition",sep="_"), gsub("^DEFINITION  |\\.$","", get(paste("contig",i,"definition",sep="_"))))
@@ -88,10 +88,10 @@ for (genbank_file in gb_files) {
       #contig_seq concatenated (CONTIG join + origin...^//)
       {
         for(i in 1:nrow(contig_length)){
-          assign(paste("contig",i,"seq_start",sep="_"), grep("ORIGIN",get(paste("contig",i,sep="_"))[,1], value="FALSE"))
+          assign(paste("contig",i,"seq_start",sep="_"), grep("ORIGIN",get(paste("contig",i,sep="_"))[,1], value = FALSE))
         }
         for(i in 1:nrow(contig_length)){
-          assign(paste("contig",i,"seq_finish",sep="_"), grep("^//",get(paste("contig",i,sep="_"))[,1], value="FALSE"))
+          assign(paste("contig",i,"seq_finish",sep="_"), grep("^//",get(paste("contig",i,sep="_"))[,1], value = FALSE))
         }
 
         #concatenated nucleotide

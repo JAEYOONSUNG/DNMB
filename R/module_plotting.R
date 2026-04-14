@@ -121,6 +121,24 @@
   paste0(format(round(bp), big.mark = ",", scientific = FALSE, trim = TRUE), " bp")
 }
 
+.dnmb_pretty_contig_label <- function(definition = NA_character_, accession = NA_character_, fallback = NA_character_) {
+  label <- definition
+  if (is.na(label) || !nzchar(label)) {
+    label <- fallback
+  }
+  label <- trimws(gsub("\\s+", " ", label))
+  label <- sub(",\\s*complete genome\\.?$", "", label, ignore.case = TRUE)
+  label <- sub(",\\s*complete sequence\\.?$", "", label, ignore.case = TRUE)
+  label <- sub("\\s+chromosome,?.*$", "", label, ignore.case = TRUE)
+  label <- sub("\\s+plasmid,?.*$", "", label, ignore.case = TRUE)
+  label <- sub("\\s+contig,?.*$", "", label, ignore.case = TRUE)
+  label <- sub("\\.$", "", label)
+  if (!is.na(accession) && nzchar(accession)) {
+    return(paste0(label, " | ", accession))
+  }
+  label
+}
+
 .dnmb_pick_column <- function(tbl, candidates) {
   found <- candidates[candidates %in% names(tbl)]
   if (!length(found)) {
@@ -271,10 +289,14 @@
   if (!"accession" %in% names(contigs)) {
     contigs$accession <- NA_character_
   }
-  contigs$sector_label <- ifelse(
-    !is.na(contigs$accession) & nzchar(contigs$accession),
-    paste0(contigs$accession, " (", vapply(contigs$length_bp, .dnmb_fmt_bp_label, character(1)), ")"),
-    paste0(contigs$contig, " (", vapply(contigs$length_bp, .dnmb_fmt_bp_label, character(1)), ")")
+  contigs$sector_label <- vapply(
+    seq_len(nrow(contigs)),
+    function(i) .dnmb_pretty_contig_label(
+      definition = if ("gbff_definition" %in% names(contigs)) contigs$gbff_definition[[i]] else NA_character_,
+      accession = contigs$accession[[i]],
+      fallback = contigs$contig[[i]]
+    ),
+    character(1)
   )
   contigs
 }
@@ -327,7 +349,9 @@ dnmb_render_module_plots <- function(genbank_table, output_dir = getwd(), cache_
   run_plot("PADLOC",           function() .dnmb_plot_padloc_module(genbank_table, output_dir = output_dir))
   run_plot("DefensePredictor", function() .dnmb_plot_defensepredictor_module(genbank_table, output_dir = output_dir))
   run_plot("ISelement",        function() .dnmb_plot_iselement_module(genbank_table, output_dir = output_dir))
-  run_plot("Prophage",         function() .dnmb_plot_prophage_module(genbank_table, output_dir = output_dir, cache_root = cache_root))
+  if ("Prophage_prophage_id" %in% names(genbank_table)) {
+    run_plot("Prophage",       function() .dnmb_plot_prophage_module(genbank_table, output_dir = output_dir, cache_root = cache_root))
+  }
   run_plot("dbCAN",            function() .dnmb_plot_dbcan_module(genbank_table, output_dir = output_dir))
   run_plot("MEROPS",           function() .dnmb_plot_merops_module(genbank_table, output_dir = output_dir))
   run_plot("PAZy",             function() .dnmb_plot_pazy_module(genbank_table, output_dir = output_dir, cache_root = cache_root))

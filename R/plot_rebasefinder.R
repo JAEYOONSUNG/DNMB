@@ -630,9 +630,9 @@
                       size = 2.3, color = "#2E7D32", fontface = "italic") +
     { if (!is.null(meth_annot_label) && has_ggtext)
       ggtext::geom_richtext(
-        data = data.frame(x = 103, y = nrow(plot_tbl), label = meth_annot_label),
+        data = data.frame(x = 80, y = Inf, label = paste0("Methylated base: ", meth_annot_label)),
         ggplot2::aes(x = .data$x, y = .data$y, label = .data$label),
-        inherit.aes = FALSE, size = 2.5, hjust = 0, vjust = 0.5,
+        inherit.aes = FALSE, size = 2.5, hjust = 0, vjust = 1.5,
         fill = NA, label.colour = NA, label.padding = grid::unit(0, "pt")
       )
     else NULL } +

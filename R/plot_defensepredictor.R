@@ -1,6 +1,12 @@
 .dnmb_plot_defensepredictor_module <- function(genbank_table,
                                                output_dir,
                                                threshold = .dnmb_defensepredictor_default_threshold()) {
+  add_panel_header <- function(plot_obj, label, title, x = 0.0005, y = 0.968, size = 12, plot_y = 0.045, plot_h = 0.88) {
+    cowplot::ggdraw() +
+      cowplot::draw_plot(plot_obj, x = 0, y = plot_y, width = 1, height = plot_h) +
+      cowplot::draw_label(paste0(label, "  ", title), x = x, y = y, hjust = 0, vjust = 1, fontface = "bold", size = size)
+  }
+
   tbl <- .dnmb_contig_ordered_table(genbank_table)
   req <- c("DefensePredictor_mean_log_odds", "DefensePredictor_score_band")
   if (!nrow(tbl) || !all(req %in% names(tbl))) {
@@ -29,7 +35,7 @@
   p_hist <- ggplot2::ggplot(tbl, ggplot2::aes(x = .data$DefensePredictor_mean_log_odds)) +
     ggplot2::geom_histogram(
       bins = 45,
-      fill = "#D81B60",
+      fill = "#D97A1B",
       color = "white",
       linewidth = 0.2,
       alpha = 0.9
@@ -50,12 +56,12 @@
       size = 3.1,
       color = "#333333"
     ) +
-    ggplot2::labs(title = "DefensePredictor score distribution", x = "Mean log-odds", y = "Proteins") +
+    ggplot2::labs(title = NULL, x = "Mean log-odds", y = "Proteins") +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold"),
-      plot.title.position = "plot",
-      panel.grid.minor = ggplot2::element_blank()
+      plot.title = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank(),
+      legend.position = "none"
     )
 
   top_hits <- tbl |>
@@ -82,11 +88,10 @@
       color = "grey25"
     ) +
     ggplot2::scale_fill_manual(values = band_palette, drop = FALSE) +
-    ggplot2::labs(title = "Top DefensePredictor candidates", x = "Mean log-odds", y = NULL) +
+    ggplot2::labs(title = NULL, x = "Mean log-odds", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold"),
-      plot.title.position = "plot",
+      plot.title = ggplot2::element_blank(),
       legend.position = "none",
       panel.grid.minor = ggplot2::element_blank()
     )
@@ -130,34 +135,46 @@
     ggplot2::labs(title = "DefensePredictor genome layout", x = "Genome coordinate (bp)", y = NULL, fill = "Score band") +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold"),
-      plot.title.position = "plot",
+      plot.title = ggplot2::element_blank(),
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
       axis.text.y = ggplot2::element_blank(),
       axis.ticks.y = ggplot2::element_blank(),
-      strip.text = ggplot2::element_text(face = "bold", size = 9),
-      legend.position = "bottom"
+      strip.text = ggplot2::element_text(face = "bold", size = 8.7, margin = ggplot2::margin(t = 1, b = 1)),
+      strip.background = ggplot2::element_rect(fill = "grey97", colour = "grey85", linewidth = 0.3),
+      panel.spacing.y = grid::unit(0.10, "lines"),
+      legend.position = "none"
     )
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, "DefensePredictor_overview.pdf")
   n_contigs <- nrow(contigs)
-  layout_height <- max(1.2, 0.8 * n_contigs + 0.6)
+  legend_plot <- p_layout +
+    ggplot2::theme(
+      legend.position = "bottom",
+      legend.direction = "horizontal",
+      legend.box = "horizontal",
+      legend.title = ggplot2::element_text(face = "bold", size = 10),
+      legend.text = ggplot2::element_text(size = 9.2),
+      legend.key.width = grid::unit(1.3, "lines"),
+      legend.key.height = grid::unit(0.9, "lines"),
+      legend.margin = ggplot2::margin(0, 0, 0, 0),
+      legend.box.margin = ggplot2::margin(0, 0, 0, 0)
+    ) +
+    ggplot2::guides(fill = ggplot2::guide_legend(nrow = 1, byrow = TRUE))
+  common_legend <- cowplot::get_legend(legend_plot)
+  legend_panel <- cowplot::ggdraw() + cowplot::draw_grob(common_legend, x = 0.5, y = 0.5, width = 0.98, height = 0.95, hjust = 0.5, vjust = 0.5)
+
+  layout_height <- max(0.95, 0.58 * n_contigs + 0.34)
   composite <- cowplot::plot_grid(
-    p_hist,
-    p_layout,
-    p_top,
-    labels = c("A", "B", "C"),
-    label_size = 14,
-    label_fontface = "bold",
-    label_x = 0,
-    label_y = c(1.02, 1.02, 1.02),
-    hjust = 0,
+    add_panel_header(p_hist, "A", "DefensePredictor score distribution", plot_y = 0.06, plot_h = 0.86),
+    add_panel_header(p_layout, "B", "DefensePredictor genome layout", plot_y = 0.035, plot_h = 0.90),
+    add_panel_header(p_top, "C", "Top DefensePredictor candidates", plot_y = 0.06, plot_h = 0.86),
+    legend_panel,
     ncol = 1,
-    rel_heights = c(0.80, layout_height, 1.25)
+    rel_heights = c(0.86, layout_height, 1.10, 0.30)
   )
-  total_h <- max(11, 2.0 + layout_height * 2.5 + 3.5)
+  total_h <- max(10.2, 1.9 + layout_height * 2.15 + 3.1)
   .dnmb_module_plot_save(composite, pdf_path, width = 10, height = total_h)
   list(pdf = pdf_path)
 }

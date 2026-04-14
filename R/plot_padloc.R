@@ -115,21 +115,23 @@
       ),
       color = "grey35", linewidth = 0.25, alpha = 0.95
     ) +
-    ggplot2::geom_segment(
+    ggrepel::geom_text_repel(
       data = loci,
-      ggplot2::aes(x = .data$midpoint, xend = .data$midpoint, y = 0.54, yend = 0.60),
-      linewidth = 0.3, color = "grey50"
-    ) +
-    ggplot2::geom_text(
-      data = loci,
-      ggplot2::aes(x = .data$midpoint, y = 0.61, label = .data$label),
-      size = 2.3, vjust = 0, lineheight = 0.85
+      ggplot2::aes(x = .data$midpoint, y = 0.54, label = .data$label),
+      size = 2.1, vjust = 0, lineheight = 0.85,
+      direction = "both", nudge_y = 0.06,
+      segment.size = 0.2, segment.color = "grey55",
+      max.overlaps = Inf, seed = 42,
+      min.segment.length = 0.05,
+      force = 2, force_pull = 0.5,
+      box.padding = 0.2, point.padding = 0.05,
+      ylim = c(0.55, 0.78)
     ) +
     ggplot2::facet_wrap(~contig_facet, ncol = 1, scales = "free_x",
                         strip.position = "top") +
     ggplot2::scale_fill_manual(values = palette) +
     ggplot2::scale_x_continuous(labels = scales::label_comma()) +
-    ggplot2::scale_y_continuous(limits = c(0.42, 0.82), expand = c(0, 0)) +
+    ggplot2::scale_y_continuous(limits = c(0.42, 0.80), expand = c(0, 0)) +
     ggplot2::labs(title = "PADLOC genome layout", x = "Genome coordinate (bp)", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(

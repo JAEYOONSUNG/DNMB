@@ -146,7 +146,7 @@
     ggplot2::labs(title = "A   dbCAN CGC genome layout", x = "Genome coordinate (bp)", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold"),
+      plot.title = ggplot2::element_text(face = "bold", size = 11),
       plot.title.position = "plot",
       legend.position = "bottom",
       panel.grid.minor = ggplot2::element_blank(),

@@ -98,10 +98,6 @@
   contigs$contig_facet <- factor(contig_labels[contigs$contig], levels = unname(contig_labels))
 
   loci$midpoint <- (loci$start + loci$end) / 2
-  # Stagger labels: alternate above/below by position order within each contig
-  loci <- loci[order(loci$contig, loci$midpoint), , drop = FALSE]
-  loci$label_tier <- ave(seq_len(nrow(loci)), loci$contig, FUN = function(x) ((seq_along(x) - 1) %% 3))
-  loci$label_y <- 0.53 + loci$label_tier * 0.06
 
   p_layout <- ggplot2::ggplot() +
     ggplot2::geom_segment(
@@ -118,22 +114,23 @@
       ),
       color = "grey35", linewidth = 0.2, alpha = 0.95
     ) +
-    ggplot2::geom_segment(
+    ggrepel::geom_text_repel(
       data = loci,
-      ggplot2::aes(x = .data$midpoint, xend = .data$midpoint,
-                   y = 0.52, yend = .data$label_y),
-      linewidth = 0.2, color = "grey55"
-    ) +
-    ggplot2::geom_text(
-      data = loci,
-      ggplot2::aes(x = .data$midpoint, y = .data$label_y, label = .data$label),
-      size = 2.0, vjust = 0, lineheight = 0.85
+      ggplot2::aes(x = .data$midpoint, y = 0.52, label = .data$label),
+      size = 1.9, lineheight = 0.85,
+      direction = "y", nudge_y = 0.03,
+      segment.size = 0.2, segment.color = "grey55",
+      max.overlaps = Inf, seed = 42,
+      min.segment.length = 0,
+      force = 1.5, force_pull = 0.3,
+      box.padding = 0.12,
+      ylim = c(0.54, 0.72)
     ) +
     ggplot2::facet_wrap(~contig_facet, ncol = 1, scales = "free_x",
                         strip.position = "top") +
     ggplot2::scale_fill_manual(values = palette) +
     ggplot2::scale_x_continuous(labels = scales::label_comma()) +
-    ggplot2::scale_y_continuous(limits = c(0.44, 0.72), expand = c(0, 0)) +
+    ggplot2::scale_y_continuous(limits = c(0.44, 0.74), expand = c(0, 0)) +
     ggplot2::labs(title = "PADLOC genome layout", x = "Genome coordinate (bp)", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(

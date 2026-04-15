@@ -336,7 +336,11 @@ run_DNMB <- function(
             cache = module_cache_status$cache,
             signature = module_stage_signature
           )
-          reused_results <- if (length(reusable_aliases)) cached_results[reusable_aliases] else list()
+          reusable_result_keys <- unique(unlist(lapply(
+            reusable_aliases,
+            .dnmb_module_stage_result_keys
+          ), use.names = FALSE))
+          reused_results <- if (length(reusable_result_keys)) cached_results[reusable_result_keys] else list()
           missing_aliases <- setdiff(module_aliases, reusable_aliases)
 
           if (length(reusable_aliases)) {

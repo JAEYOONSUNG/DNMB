@@ -622,26 +622,28 @@
            " / <span style='color:#1565C0'>N5C</span>",
            " / <span style='color:#FF8F00'>N4C</span>")
   } else NULL
+  title_label <- if (!is.null(meth_annot_label) && has_ggtext) {
+    paste0(
+      "<span style='font-weight:700;'>REBASE BLAST match quality</span>",
+      "<span style='font-weight:400;'>  High confidence Methylated base: ",
+      meth_annot_label,
+      "</span>"
+    )
+  } else {
+    "REBASE BLAST match quality"
+  }
 
   p + ggplot2::scale_shape_manual(values = c(High = 21, Low = 1), name = "Confidence") +
     ggplot2::annotate("text", x = 49, y = Inf, label = "low", hjust = 1, vjust = 1.5,
                       size = 2.3, color = "#BF360C", fontface = "italic") +
     ggplot2::annotate("text", x = 51, y = Inf, label = "high confidence", hjust = 0, vjust = 1.5,
                       size = 2.3, color = "#2E7D32", fontface = "italic") +
-    { if (!is.null(meth_annot_label) && has_ggtext)
-      ggtext::geom_richtext(
-        data = data.frame(x = 100, y = Inf, label = paste0("Methylated base: ", meth_annot_label)),
-        ggplot2::aes(x = .data$x, y = .data$y, label = .data$label),
-        inherit.aes = FALSE, size = 2.3, hjust = 1, vjust = 1.5,
-        fill = "white", label.colour = NA, label.padding = grid::unit(1, "pt")
-      )
-    else NULL } +
     ggplot2::scale_fill_manual(values = role_palette, name = "Enzyme Role") +
     ggplot2::scale_color_manual(values = rm_palette, name = "R-M Type") +
     ggplot2::scale_x_continuous(limits = c(x_left_limit, 115),
                                 breaks = seq(0, 100, by = 10)) +
     ggplot2::labs(
-      title = "REBASE BLAST match quality",
+      title = title_label,
       subtitle = NULL,
       x = "Sequence identity (%)", y = NULL
     ) +
@@ -658,7 +660,7 @@
     ggplot2::theme(
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_line(color = "grey92"),
-      plot.title = ggplot2::element_text(face = "bold"),
+      plot.title = if (has_ggtext) ggtext::element_markdown(face = "plain") else ggplot2::element_text(face = "bold"),
       plot.subtitle = if (has_ggtext) ggtext::element_markdown(size = 8) else ggplot2::element_text(size = 8),
       axis.text.y = if (has_ggtext) ggtext::element_markdown(size = 7.5) else ggplot2::element_text(size = 7.5),
       legend.position = "bottom",

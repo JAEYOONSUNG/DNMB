@@ -1,2 +1,4 @@
 ^DNMB\.Rproj$
 ^\.Rproj\.user$
+^data$
+^data/

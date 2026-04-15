@@ -76,7 +76,7 @@ for (genbank_file in gb_files) {
 
       #contig definition
       for(i in 1:nrow(contig_length)){
-        assign(paste("contig",i,"definition",sep="_"), get(paste("contig",i,sep="_"))[grep("DEFINITION",get(paste("contig",i,sep="_"))[,1], value = TRUE),])
+        assign(paste("contig",i,"definition",sep="_"), get(paste("contig",i,sep="_"))[grep("DEFINITION",get(paste("contig",i,sep="_"))[,1], value = FALSE),])
       }
       for(i in 1:nrow(contig_length)){
         assign(paste("contig",i,"definition",sep="_"), gsub("^DEFINITION  |\\.$","", get(paste("contig",i,"definition",sep="_"))))

@@ -236,6 +236,96 @@
   file.path(wd, ".dnmb_module_stage_cache.rds")
 }
 
+.dnmb_module_stage_expected_artifacts <- function(alias, wd = getwd()) {
+  alias <- as.character(alias)[1]
+  wd <- normalizePath(wd, winslash = "/", mustWork = FALSE)
+
+  switch(
+    alias,
+    EggNOG = list(
+      mode = "any",
+      paths = c(
+        file.path(wd, "dnmb_module_eggnog", "eggnog_out.emapper.annotations.xlsx"),
+        file.path(wd, "dnmb_module_eggnog", "eggnog_out.emapper.annotations")
+      )
+    ),
+    CLEAN = list(
+      mode = "all",
+      paths = c(file.path(wd, "dnmb_module_clean", "clean_module_trace.log"))
+    ),
+    DefenseFinder = list(
+      mode = "all",
+      paths = c(file.path(wd, "dnmb_module_defensefinder", "defensefinder_systems.tsv"))
+    ),
+    PADLOC = list(
+      mode = "all",
+      paths = c(file.path(wd, "dnmb_module_padloc", "padloc_query_proteins_padloc.csv"))
+    ),
+    DefensePredictor = list(
+      mode = "all",
+      paths = c(file.path(wd, "dnmb_module_defensepredictor", "defense_predictor_output.csv"))
+    ),
+    REBASEfinder = list(
+      mode = "all",
+      paths = c(file.path(wd, "dnmb_module_rebasefinder", "rebasefinder_input.tsv"))
+    ),
+    GapMind = list(
+      mode = "all",
+      paths = c(
+        file.path(wd, "dnmb_module_gapmindaa", "aa.sum.steps"),
+        file.path(wd, "dnmb_module_gapmindcarbon", "aa.sum.steps")
+      )
+    ),
+    MEROPS = list(
+      mode = "all",
+      paths = c(file.path(wd, "dnmb_module_merops", "merops_blastp.tsv"))
+    ),
+    dbCAN = list(
+      mode = "all",
+      paths = c(file.path(wd, "dnmb_module_dbcan", "run_dbcan", "overview.tsv"))
+    ),
+    PAZy = list(
+      mode = "all",
+      paths = c(file.path(wd, "dnmb_module_pazy", "pazy_merged.tsv"))
+    ),
+    ISelement = list(
+      mode = "all",
+      paths = c(file.path(wd, "dnmb_module_iselement", "iselement_elements.tsv"))
+    ),
+    Prophage = list(
+      mode = "all",
+      paths = c(
+        file.path(wd, "dnmb_module_prophage", "prophage_coordinates.tsv"),
+        file.path(wd, "dnmb_module_prophage", "prophage_information.tsv")
+      )
+    ),
+    list(mode = "none", paths = character())
+  )
+}
+
+.dnmb_module_stage_result_keys <- function(alias) {
+  alias <- as.character(alias)[1]
+  if (identical(alias, "GapMind")) {
+    return(c("GapMindAA", "GapMindCarbon"))
+  }
+  alias
+}
+
+.dnmb_module_stage_artifacts_exist <- function(alias, wd = getwd()) {
+  spec <- .dnmb_module_stage_expected_artifacts(alias, wd = wd)
+  paths <- spec$paths %||% character()
+  if (!length(paths)) {
+    return(TRUE)
+  }
+
+  exists_vec <- file.exists(paths)
+  if (identical(spec$mode, "any")) {
+    any(exists_vec)
+  } else {
+    all(exists_vec)
+  }
+}
+
 .dnmb_read_module_stage_cache <- function(wd = getwd()) {
   cache_path <- .dnmb_module_stage_cache_path(wd)
   if (!file.exists(cache_path)) {
@@ -272,10 +362,16 @@
     return(list(reusable = FALSE, reason = "signature_changed", cache = cache))
   }
 
+  requested_aliases <- sort(unique(as.character(signature$module_aliases)))
+  reusable_aliases <- .dnmb_module_stage_reusable_aliases(cache = cache, signature = signature, wd = wd)
+  if (!setequal(requested_aliases, reusable_aliases)) {
+    return(list(reusable = FALSE, reason = "missing_artifacts", cache = cache))
+  }
+
   list(reusable = TRUE, reason = "matching_signature", cache = cache)
 }
 
-.dnmb_module_stage_reusable_aliases <- function(cache, signature = NULL) {
+.dnmb_module_stage_reusable_aliases <- function(cache, signature = NULL, wd = getwd()) {
   if (is.null(cache) || is.null(cache$signature) || is.null(cache$module_results) || is.null(signature)) {
     return(character())
   }
@@ -301,9 +397,13 @@
   }
 
   keep <- vapply(overlap, function(alias) {
-    has_result <- alias %in% names(cache$module_results) && !is.null(cache$module_results[[alias]])
+    result_keys <- .dnmb_module_stage_result_keys(alias)
+    has_result <- all(vapply(result_keys, function(key) {
+      key %in% names(cache$module_results) && !is.null(cache$module_results[[key]])
+    }, logical(1)))
     same_db <- identical(signature$db_state[[alias]], cached_sig$db_state[[alias]])
-    isTRUE(has_result) && isTRUE(same_db)
+    has_artifacts <- .dnmb_module_stage_artifacts_exist(alias, wd = wd)
+    isTRUE(has_result) && isTRUE(same_db) && isTRUE(has_artifacts)
   }, logical(1))
 
   overlap[keep]

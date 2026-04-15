@@ -108,6 +108,47 @@
     ),
     error = function(e) NULL
   )
+  if (!is.null(bottom_row)) {
+    meth_types_present <- .dnmb_rebasefinder_infer_methylation_type(tbl)
+    has_meth_annot <- any(!is.na(meth_types_present))
+    if (has_meth_annot) {
+      bottom_row_wrapped <- cowplot::ggdraw() +
+        cowplot::draw_plot(bottom_row, x = 0, y = 0, width = 1, height = 1)
+      if (requireNamespace("gridtext", quietly = TRUE)) {
+        meth_box <- gridtext::richtext_grob(
+          paste0(
+            "Methylated base: ",
+            "<span style='color:#D32F2F'>N6A</span>",
+            " / <span style='color:#1565C0'>N5C</span>",
+            " / <span style='color:#FF8F00'>N4C</span>"
+          ),
+          x = grid::unit(0, "npc"),
+          y = grid::unit(1, "npc"),
+          hjust = 0,
+          vjust = 1,
+          gp = grid::gpar(fontsize = 8.2, col = "#374151"),
+          box_gp = grid::gpar(fill = "white", col = NA),
+          padding = grid::unit(c(1.5, 3.5, 1.5, 3.5), "pt"),
+          r = grid::unit(2, "pt")
+        )
+        bottom_row <- bottom_row_wrapped +
+          cowplot::draw_grob(
+            meth_box,
+            x = 0.145, y = 0.985,
+            width = 0.26, height = 0.075,
+            hjust = 0, vjust = 1
+          )
+      } else {
+        bottom_row <- bottom_row_wrapped +
+          cowplot::draw_label(
+            "Methylated base: N6A / N5C / N4C",
+            x = 0.145, y = 0.985,
+            hjust = 0, vjust = 1,
+            size = 8.2, color = "#374151"
+          )
+      }
+    }
+  }
 
   # Full composite: A + B + legend + C/D/E (or A+B if bottom fails)
   composite <- tryCatch({
@@ -622,18 +663,8 @@
            " / <span style='color:#1565C0'>N5C</span>",
            " / <span style='color:#FF8F00'>N4C</span>")
   } else NULL
-  title_label <- if (!is.null(meth_annot_label) && has_ggtext) {
-    paste0(
-      "<span style='font-weight:700;'>REBASE BLAST match quality</span>",
-      "<span style='font-weight:400;'>  High confidence Methylated base: ",
-      meth_annot_label,
-      "</span>"
-    )
-  } else {
-    "REBASE BLAST match quality"
-  }
 
-  p + ggplot2::scale_shape_manual(values = c(High = 21, Low = 1), name = "Confidence") +
+  panel_core <- p + ggplot2::scale_shape_manual(values = c(High = 21, Low = 1), name = "Confidence") +
     ggplot2::annotate("text", x = 49, y = Inf, label = "low", hjust = 1, vjust = 1.5,
                       size = 2.3, color = "#BF360C", fontface = "italic") +
     ggplot2::annotate("text", x = 51, y = Inf, label = "high confidence", hjust = 0, vjust = 1.5,
@@ -643,7 +674,7 @@
     ggplot2::scale_x_continuous(limits = c(x_left_limit, 115),
                                 breaks = seq(0, 100, by = 10)) +
     ggplot2::labs(
-      title = title_label,
+      title = "REBASE BLAST match quality",
       subtitle = NULL,
       x = "Sequence identity (%)", y = NULL
     ) +
@@ -660,7 +691,7 @@
     ggplot2::theme(
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_line(color = "grey92"),
-      plot.title = if (has_ggtext) ggtext::element_markdown(face = "plain") else ggplot2::element_text(face = "bold"),
+      plot.title = ggplot2::element_text(face = "bold"),
       plot.subtitle = if (has_ggtext) ggtext::element_markdown(size = 8) else ggplot2::element_text(size = 8),
       axis.text.y = if (has_ggtext) ggtext::element_markdown(size = 7.5) else ggplot2::element_text(size = 7.5),
       legend.position = "bottom",
@@ -675,6 +706,8 @@
       legend.spacing.x = ggplot2::unit(0.1, "cm"),
       plot.margin = ggplot2::margin(4, 4, 4, 4)
     )
+
+  panel_core
 }
 
 # Compute operon group separator y-positions (between adjacent different operons)

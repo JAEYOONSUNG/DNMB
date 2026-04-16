@@ -5282,7 +5282,7 @@
     n("Ethanol",   bx+2.0, 1.5, "Ethanol",  "pyruvate_branch", "organic_acid"),
 
     # ---- GLYOXYLATE SHUNT ----
-    n("Glyoxylate", tca_cx, tca_cy, "Glx", "tca", "intermediate"),
+    n("Glyoxylate", tca_cx + 0.04, tca_cy + 0.10, "Glyoxylate", "tca_shunt", "intermediate"),
 
     # ---- CARBON SOURCES: dynamic, only present substrates ----
     .dnmb_cct_carbon_source_nodes(cs_xs, cs_y, n)
@@ -6310,7 +6310,7 @@
   active_entry_targets <- active_entry_targets[!is.na(active_entry_targets)]
   # Trace reachable intermediates: walk edges from active targets backward
   reachable <- active_entry_targets
-  keep_types <- c("backbone", "ppp", "tca", "carbon_source", "ed")
+  keep_types <- c("backbone", "ppp", "tca", "tca_shunt", "carbon_source", "ed")
   always_keep <- cyto_nodes$id[cyto_nodes$type %in% keep_types]
   # Iteratively expand reachable set through edges
   changed <- TRUE
@@ -7230,6 +7230,7 @@
 
   # Draw TCA cycle arc (smooth circle behind TCA nodes)
   tca_nodes <- cyto_nodes[cyto_nodes$type == "tca", , drop = FALSE]
+  tca_shunt_nodes <- cyto_nodes[cyto_nodes$type == "tca_shunt", , drop = FALSE]
   if (nrow(tca_nodes) >= 3) {
     tca_cx <- mean(tca_nodes$x)
     tca_cy <- mean(tca_nodes$y)
@@ -7244,9 +7245,24 @@
       color = "#CCCCCC", linewidth = 1.5, linetype = "solid", inherit.aes = FALSE)
   }
 
+  if (nrow(tca_shunt_nodes) > 0 &&
+      all(c("Isocit", "Malate") %in% names(node_x))) {
+    p <- p + ggplot2::geom_curve(
+      data = data.frame(
+        x = unname(node_x["Isocit"]),
+        y = unname(node_y["Isocit"]),
+        xend = unname(node_x["Malate"]),
+        yend = unname(node_y["Malate"])
+      ),
+      ggplot2::aes(x = .data$x, y = .data$y, xend = .data$xend, yend = .data$yend),
+      color = "#B8B8B8", linewidth = 0.45, linetype = "dashed",
+      curvature = -0.30, inherit.aes = FALSE
+    )
+  }
+
   # Draw SNFG nodes for all cytoplasm node types (symbols only, no labels)
   node_r <- 0.10  # unified size
-  for (ntype in c("backbone", "ppp", "entry_intermediate", "tca", "ed", "pyruvate_branch")) {
+  for (ntype in c("backbone", "ppp", "entry_intermediate", "tca", "tca_shunt", "ed", "pyruvate_branch")) {
     nset <- cyto_nodes[cyto_nodes$type == ntype, , drop = FALSE]
     for (i in seq_len(nrow(nset))) {
       nd <- nset[i, , drop = FALSE]
@@ -7618,7 +7634,7 @@
     p <- .dnmb_snfg_render_symbol_v2(p, hp$x, hp$y, st, r = 0.10, label = abbr)
   }
 
-  for (ntype in c("backbone", "ppp", "entry_intermediate", "tca", "ed", "pyruvate_branch")) {
+  for (ntype in c("backbone", "ppp", "entry_intermediate", "tca", "tca_shunt", "ed", "pyruvate_branch")) {
     nset <- cyto_nodes[cyto_nodes$type == ntype, , drop = FALSE]
     for (i in seq_len(nrow(nset))) {
       nd <- nset[i, , drop = FALSE]
@@ -7660,6 +7676,16 @@
         stringsAsFactors = FALSE
       ))
     }
+  }
+  if (nrow(tca_shunt_nodes) > 0) {
+    all_metab_labels <- rbind(all_metab_labels, data.frame(
+      x = tca_shunt_nodes$x,
+      y = tca_shunt_nodes$y,
+      label = tca_shunt_nodes$label,
+      nudge_x = 0,
+      nudge_y = 0,
+      stringsAsFactors = FALSE
+    ))
   }
   # Single unified ggrepel layer — bold, size 1.3, dark gray
   if (nrow(all_metab_labels) > 0) {

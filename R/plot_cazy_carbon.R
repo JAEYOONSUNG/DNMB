@@ -6513,6 +6513,7 @@
   extra_x_map <- stats::setNames(extra_layout$x_start, extra_layout$id)
   extra_center_map <- stats::setNames(extra_layout$x_center, extra_layout$id)
   extra_y_map <- stats::setNames(extra_layout$y, extra_layout$id)
+  extra_top_actual <- if (nrow(extra_layout) > 0) max(extra_layout$y, na.rm = TRUE) + 0.35 else (y_memb + 1.0)
 
   # x_max adapts to both cytoplasm lanes and extracellular chain width
   x_max <- max(max(cs_x_pos) + 0.6, max(extra_layout$x_right) + 0.2)
@@ -6570,7 +6571,7 @@
 
   # --- Zone labels ---
   p <- p +
-    ggplot2::annotate("text", x = x_max + 0.3, y = y_extra_top + 0.5,
+    ggplot2::annotate("text", x = x_max + 0.25, y = extra_top_actual + 0.18,
                       label = "Extracellular", hjust = 1, size = 3,
                       fontface = "italic", color = "#BDBDBD") +
     ggplot2::annotate("text", x = x_max + 0.3, y = y_memb,
@@ -7747,52 +7748,52 @@
     label = c("Glc", "Gal", "Man", "Fru", "GlcNAc", "Fuc", "Rha", "Xyl",
               "Ara", "GlcA", "GalA", "Rib"),
     stringsAsFactors = FALSE, row.names = NULL)
-  # Right side x: just past the rightmost cytoplasm node
-  leg_x <- max(cyto_nodes$x) + 1.5
-  # y aligned with TCA circle center
-  tca_cy_leg <- if (nrow(tca_nodes) > 0) mean(tca_nodes$y) else 0.5
-  sp <- 0.20  # tight row spacing
+  # Pull the legend into the unused lower-right interior space.
+  leg_x <- max(cyto_nodes$x) - 0.28
+  # y aligned slightly above the TCA circle center so the block sits tighter.
+  tca_cy_leg <- if (nrow(tca_nodes) > 0) mean(tca_nodes$y) + 0.20 else 0.7
+  sp <- 0.19
   n_snfg <- nrow(snfg_leg)
   leg_y_top <- tca_cy_leg + (n_snfg / 2) * sp
-  p <- p + ggplot2::annotate("text", x = leg_x, y = leg_y_top + 0.3,
-    hjust = 0, size = 1.4, fontface = "bold", color = "#333333",
+  p <- p + ggplot2::annotate("text", x = leg_x, y = leg_y_top + 0.22,
+    hjust = 0, size = 1.9, fontface = "bold", color = "#333333",
     label = "SNFG Symbols")
   for (i in seq_len(n_snfg)) {
     ly <- leg_y_top - (i - 1) * sp
-    p <- .dnmb_snfg_render_symbol_v2(p, leg_x, ly, snfg_leg$sugar[i], r = 0.04)
-    p <- p + ggplot2::annotate("text", x = leg_x + 0.16, y = ly,
-      label = snfg_leg$label[i], hjust = 0, size = 1.1, color = "#555555")
+    p <- .dnmb_snfg_render_symbol_v2(p, leg_x, ly, snfg_leg$sugar[i], r = 0.08)
+    p <- p + ggplot2::annotate("text", x = leg_x + 0.19, y = ly,
+      label = snfg_leg$label[i], hjust = 0, size = 1.7, color = "#555555")
   }
   # Bond legend below SNFG
   bleg_y <- leg_y_top - n_snfg * sp - 0.15
   p <- p +
     ggplot2::geom_segment(
-      data = data.frame(x = leg_x, xend = leg_x + 0.3, y = bleg_y, yend = bleg_y),
+      data = data.frame(x = leg_x, xend = leg_x + 0.24, y = bleg_y, yend = bleg_y),
       ggplot2::aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$yend),
-      linewidth = 0.5, color = "#444444", linetype = "solid", inherit.aes = FALSE) +
-    ggplot2::annotate("text", x = leg_x + 0.4, y = bleg_y,
-      label = "\u03b1 bond", hjust = 0, size = 1.0, color = "#555555")
+      linewidth = 0.75, color = "#444444", linetype = "solid", inherit.aes = FALSE) +
+    ggplot2::annotate("text", x = leg_x + 0.33, y = bleg_y,
+      label = "\u03b1 bond", hjust = 0, size = 1.45, color = "#555555")
   p <- p +
     ggplot2::geom_segment(
-      data = data.frame(x = leg_x, xend = leg_x + 0.3, y = bleg_y - sp, yend = bleg_y - sp),
+      data = data.frame(x = leg_x, xend = leg_x + 0.24, y = bleg_y - sp, yend = bleg_y - sp),
       ggplot2::aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$yend),
-      linewidth = 0.5, color = "#444444", linetype = "dashed", inherit.aes = FALSE) +
-    ggplot2::annotate("text", x = leg_x + 0.4, y = bleg_y - sp,
-      label = "\u03b2 bond", hjust = 0, size = 1.0, color = "#555555")
+      linewidth = 0.75, color = "#444444", linetype = "dashed", inherit.aes = FALSE) +
+    ggplot2::annotate("text", x = leg_x + 0.33, y = bleg_y - sp,
+      label = "\u03b2 bond", hjust = 0, size = 1.45, color = "#555555")
   # Scissors
-  sc_ly <- .dnmb_scissors_grob_v2(leg_x + 0.10, bleg_y - 2 * sp, size = 0.05)
+  sc_ly <- .dnmb_scissors_grob_v2(leg_x + 0.09, bleg_y - 2 * sp, size = 0.09)
   for (l in sc_ly) p <- p + l
-  p <- p + ggplot2::annotate("text", x = leg_x + 0.4, y = bleg_y - 2 * sp,
-    label = "GH cleavage", hjust = 0, size = 1.0, color = "#555555")
+  p <- p + ggplot2::annotate("text", x = leg_x + 0.33, y = bleg_y - 2 * sp,
+    label = "GH cleavage", hjust = 0, size = 1.45, color = "#555555")
   enz_leg_y <- bleg_y - 3 * sp
 
   # ====================================================================
   # THEME & OUTPUT
   # ====================================================================
   y_bottom <- y_bot - 0.5
-  y_top_plot <- max(y_extra_top + 1.5, max(cyto_nodes$y) + 1.5)
+  y_top_plot <- max(extra_top_actual + 0.55, max(cyto_nodes$y) + 1.15)
   x_left <- mem_xmin - 0.05
-  x_right <- max(mem_xmax + 0.10, leg_x + 2.0)  # include right-side legend
+  x_right <- max(mem_xmax + 0.10, leg_x + 1.02)
   x_span <- max(1, x_right - x_left)
   y_span <- max(1, y_top_plot - y_bottom)
   n_active <- length(cs_ids_ordered)
@@ -7826,7 +7827,7 @@
       legend.text = ggplot2::element_text(size = 6),
       legend.key.width = grid::unit(12, "pt"),
       legend.key.height = grid::unit(5, "pt"),
-      plot.margin = ggplot2::margin(14, 12, 16, 12))
+      plot.margin = ggplot2::margin(8, 8, 10, 8))
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, paste0(file_stub, ".pdf"))

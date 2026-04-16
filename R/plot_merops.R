@@ -196,6 +196,52 @@
   out
 }
 
+.dnmb_merops_has_signal_peptide <- function(sequence) {
+  sequence <- toupper(gsub("[^A-Z]", "", as.character(sequence)[1]))
+  if (!nzchar(sequence) || nchar(sequence) < 18L) {
+    return(FALSE)
+  }
+
+  aa <- strsplit(substr(sequence, 1, min(35L, nchar(sequence))), "", fixed = TRUE)[[1]]
+  if (!length(aa)) {
+    return(FALSE)
+  }
+
+  hydrophobic <- c("A", "V", "I", "L", "M", "F", "W", "Y", "C")
+  basic <- c("R", "K")
+  n_region <- aa[seq_len(min(5L, length(aa)))]
+  has_basic_n <- any(n_region %in% basic)
+
+  best_hydrophobic_run <- 0L
+  max_start <- max(1L, min(12L, length(aa) - 7L))
+  for (start_idx in seq_len(max_start)) {
+    end_idx <- min(length(aa), start_idx + 7L)
+    best_hydrophobic_run <- max(best_hydrophobic_run, sum(aa[start_idx:end_idx] %in% hydrophobic))
+  }
+
+  cleavage_like <- FALSE
+  if (length(aa) >= 18L) {
+    for (idx in 15:min(30, length(aa) - 2L)) {
+      triplet <- aa[idx:(idx + 2L)]
+      if (triplet[1] %in% c("A", "V", "L", "I", "S", "T", "G") &&
+          triplet[2] %in% c("A", "V", "S", "T", "G") &&
+          !triplet[3] %in% c("P")) {
+        cleavage_like <- TRUE
+        break
+      }
+    }
+  }
+
+  has_basic_n && best_hydrophobic_run >= 6L && cleavage_like
+}
+
+.dnmb_merops_signal_palette <- function() {
+  c(
+    `Signal peptide +` = "#7C3AED",
+    `Signal peptide -` = "#D1D5DB"
+  )
+}
+
 .dnmb_read_merops_best_hits_for_plot <- function(output_dir) {
   blast_path <- file.path(output_dir, "dnmb_module_merops", "merops_blastp.tsv")
   if (!file.exists(blast_path)) {
@@ -224,6 +270,59 @@
   colnames(best) <- c("locus_tag", "MEROPS_evalue", "MEROPS_bitscore")
   rownames(best) <- NULL
   best
+}
+
+.dnmb_merops_draw_rect_legend <- function(x_npc,
+                                          y_npc_top,
+                                          title,
+                                          labels,
+                                          fills,
+                                          title_cex = 0.92,
+                                          item_cex = 0.84,
+                                          line_h_npc = 0.030,
+                                          swatch_w_npc = 0.013,
+                                          swatch_h_npc = 0.013,
+                                          text_gap_npc = 0.010) {
+  x0 <- graphics::grconvertX(x_npc, from = "npc", to = "user")
+  y0 <- graphics::grconvertY(y_npc_top, from = "npc", to = "user")
+  line_h <- abs(diff(graphics::grconvertY(c(0, line_h_npc), from = "npc", to = "user")))
+  swatch_w <- abs(diff(graphics::grconvertX(c(0, swatch_w_npc), from = "npc", to = "user")))
+  swatch_h <- abs(diff(graphics::grconvertY(c(0, swatch_h_npc), from = "npc", to = "user")))
+  text_gap <- abs(diff(graphics::grconvertX(c(0, text_gap_npc), from = "npc", to = "user")))
+
+  graphics::text(
+    x = x0,
+    y = y0,
+    labels = title,
+    adj = c(0, 1),
+    cex = title_cex,
+    font = 2,
+    col = "#374151",
+    xpd = NA
+  )
+
+  item_y <- y0 - line_h * 1.20
+  for (i in seq_along(labels)) {
+    yy <- item_y - (i - 1) * line_h
+    graphics::rect(
+      xleft = x0,
+      ybottom = yy - swatch_h / 2,
+      xright = x0 + swatch_w,
+      ytop = yy + swatch_h / 2,
+      col = fills[[i]],
+      border = NA,
+      xpd = NA
+    )
+    graphics::text(
+      x = x0 + swatch_w + text_gap,
+      y = yy,
+      labels = labels[[i]],
+      adj = c(0, 0.5),
+      cex = item_cex,
+      col = "#374151",
+      xpd = NA
+    )
+  }
 }
 
 .dnmb_plot_merops_module <- function(genbank_table, output_dir) {
@@ -262,6 +361,9 @@
   class_palette <- .dnmb_merops_class_palette()
   tbl$merops_class <- .dnmb_merops_class_from_family(tbl$MEROPS_family_id)
   tbl$plot_color <- unname(class_palette[match(tbl$merops_class, names(class_palette))])
+  tbl$signal_peptide <- vapply(tbl$translation, .dnmb_merops_has_signal_peptide, logical(1))
+  tbl$signal_state <- ifelse(tbl$signal_peptide, "Signal peptide +", "Signal peptide -")
+  signal_palette <- .dnmb_merops_signal_palette()
   # Thin labels so they have >= min_deg angular spacing per contig
   gap_sizes <- ifelse(contigs$length_bp > 100000, 5, 2)
   total_bp <- sum(contigs$length_bp)
@@ -408,11 +510,10 @@
     ggplot2::scale_fill_manual(values = bc_fill_vals) +
     ggplot2::scale_x_discrete(labels = stats::setNames(x_display, x_labels)) +
     ggplot2::facet_grid(. ~ class_label, scales = "free_x", space = "free_x") +
-    ggplot2::labs(title = "B. Family distribution by protease class", x = NULL, y = "Hits") +
+    ggplot2::labs(title = NULL, x = NULL, y = "Hits") +
     ggplot2::theme_minimal(base_size = 11) +
     ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold", size = 14, hjust = 0),
-      plot.title.position = "plot",
+      plot.title = ggplot2::element_blank(),
       panel.grid.major.x = ggplot2::element_blank(),
       panel.grid.minor = ggplot2::element_blank(),
       axis.text.x = ggplot2::element_text(size = 8, color = "#374151", angle = 45, hjust = 1),
@@ -481,16 +582,71 @@
           ytop = 0.95, col = grDevices::adjustcolor(hits$plot_color[i], alpha.f = bar_alpha), border = NA)
       }
     })
+  # Signal peptide binary track
+  circlize::circos.trackPlotRegion(ylim = c(0, 1), track.height = 0.028,
+    bg.border = NA, bg.col = "white",
+    panel.fun = function(x, y) {
+      sector <- circlize::CELL_META$sector.index
+      hits <- tbl[tbl$contig == sector, , drop = FALSE]
+      if (!nrow(hits)) return()
+      for (i in seq_len(nrow(hits))) {
+        circlize::circos.rect(
+          xleft = hits$start[i], ybottom = 0.10,
+          xright = max(hits$end[i], hits$start[i] + circlize::CELL_META$xlim[2] * 0.001),
+          ytop = 0.90,
+          col = unname(signal_palette[hits$signal_state[i]]),
+          border = NA
+        )
+      }
+    })
   # Links (disabled — too few to be informative at this scale)
-  graphics::title(main = "A. MEROPS protease distribution", cex.main = 1.5, col.main = "#1E293B", font.main = 2, adj = 0)
-  graphics::legend("topleft", legend = c("Metallo (M)", "Cysteine (C)", "Serine (S)", "Aspartic (A)", "Other"),
-    fill = unname(class_palette[c("M", "C", "S", "A", "other")]), border = NA, cex = 0.9, bty = "n",
-    title = "Protease class", title.col = "#374151", title.font = 2)
+  graphics::text(
+    x = graphics::grconvertX(0.006, from = "npc", to = "user"),
+    y = graphics::grconvertY(1.01, from = "npc", to = "user"),
+    labels = "A  MEROPS protease distribution",
+    adj = c(0, 1),
+    cex = 1.15,
+    font = 2,
+    col = "#1E293B",
+    xpd = NA
+  )
+  .dnmb_merops_draw_rect_legend(
+    x_npc = 0.87,
+    y_npc_top = 0.235,
+    title = "Signal peptide",
+    labels = c("Signal peptide +", "Signal peptide -"),
+    fills = unname(signal_palette[c("Signal peptide +", "Signal peptide -")]),
+    title_cex = 0.74,
+    item_cex = 0.68,
+    line_h_npc = 0.020,
+    swatch_w_npc = 0.009,
+    swatch_h_npc = 0.009,
+    text_gap_npc = 0.007
+  )
+  .dnmb_merops_draw_rect_legend(
+    x_npc = 0.87,
+    y_npc_top = 0.165,
+    title = "Protease class",
+    labels = c("Metallo (M)", "Cysteine (C)", "Serine (S)", "Aspartic (A)", "Other"),
+    fills = unname(class_palette[c("M", "C", "S", "A", "other")]),
+    title_cex = 0.74,
+    item_cex = 0.68,
+    line_h_npc = 0.020,
+    swatch_w_npc = 0.009,
+    swatch_h_npc = 0.009,
+    text_gap_npc = 0.007
+  )
   circlize::circos.clear()
 
   # --- Panel B: faceted family chart in bottom viewport ---
   print(p_bc, vp = grid::viewport(x = 0.5, y = 0.14, width = 0.97, height = 0.26))
+  grid::grid.text(
+    "B  Family distribution by protease class",
+    x = grid::unit(0.008, "npc"),
+    y = grid::unit(0.304, "npc"),
+    just = c("left", "top"),
+    gp = grid::gpar(fontface = "bold", fontsize = 16, col = "#1E293B")
+  )
 
   list(pdf = pdf_path)
 }
-

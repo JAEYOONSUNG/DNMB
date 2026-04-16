@@ -24,18 +24,18 @@
   tbl$score_band_plot <- ifelse(tbl$is_hit, tbl$DefensePredictor_score_band, "DP_lt4")
   band_levels <- c("DP_10plus", "DP_8to10", "DP_6to8", "DP_4to6", "DP_lt4")
   band_palette <- c(
-    DP_10plus = "#A50026",
-    DP_8to10 = "#D73027",
-    DP_6to8 = "#F46D43",
-    DP_4to6 = "#FDAE61",
-    DP_lt4 = "#BDBDBD"
+    DP_10plus = "#C2185B",
+    DP_8to10 = "#D84A8A",
+    DP_6to8 = "#E67BB4",
+    DP_4to6 = "#F2A7CF",
+    DP_lt4 = "#F7D8E9"
   )
   tbl$score_band_plot <- factor(tbl$score_band_plot, levels = band_levels)
 
   p_hist <- ggplot2::ggplot(tbl, ggplot2::aes(x = .data$DefensePredictor_mean_log_odds)) +
     ggplot2::geom_histogram(
       bins = 45,
-      fill = "#D81B60",
+      fill = "#D84A8A",
       color = "white",
       linewidth = 0.2,
       alpha = 0.9

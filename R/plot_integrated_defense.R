@@ -362,7 +362,7 @@
   max_lane <- max(defense_windows$label_lane, na.rm = TRUE)
   type_breaks <- names(defense_palette)
   n_type <- length(type_breaks)
-  fill_rows <- max(1L, ceiling(n_type / 5L))
+  fill_rows <- max(1L, ceiling(n_type / 10L))
 
   contig_map <- contig_lengths$length_bp[match(defense_windows$contig, contig_lengths$contig)]
   offset_bp <- pmax(1200, contig_map * 0.0100)
@@ -434,32 +434,35 @@
     ggplot2::scale_size_continuous(range = c(4.0, 8.0), breaks = sort(unique(defense_windows$score)), name = "Score") +
     ggplot2::labs(
       title = "Integrated defense genome layout",
-      subtitle = "Segment = system span | point size = score | lower mini-bars = profile/sequence coverage",
       x = "Genome coordinate (bp)",
       y = NULL
     ) +
     ggplot2::scale_x_continuous(labels = scales::label_comma(), expand = ggplot2::expansion(mult = c(0.02, 0.08))) +
     ggplot2::scale_y_continuous(
-      limits = c(0.84, 1.18 + 0.065 * max_lane + 0.03),
+      limits = c(0.74, 1.18 + 0.065 * max_lane + 0.03),
       expand = ggplot2::expansion(mult = c(0, 0), add = c(0, 0))
     ) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
       plot.title = ggplot2::element_text(face = "bold"),
-      axis.title.x = ggplot2::element_text(margin = ggplot2::margin(t = 10, b = 8)),
+      axis.title.x = ggplot2::element_text(margin = ggplot2::margin(t = 0, b = 0)),
       panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
       axis.text.y = ggplot2::element_blank(),
       axis.ticks.y = ggplot2::element_blank(),
       legend.position = legend_position,
-      legend.box = "vertical",
+      legend.box = "horizontal",
+      legend.box.just = "left",
       legend.direction = "horizontal",
       legend.margin = ggplot2::margin(0, 0, 0, 0),
       legend.spacing.y = grid::unit(0.08, "cm"),
-      legend.spacing.x = grid::unit(0.20, "cm"),
+      legend.spacing.x = grid::unit(0.14, "cm"),
+      legend.box.spacing = grid::unit(0.10, "cm"),
+      legend.key.width = grid::unit(0.42, "cm"),
+      legend.key.height = grid::unit(0.30, "cm"),
       legend.title = ggplot2::element_text(size = 9, face = "bold"),
       legend.text = ggplot2::element_text(size = 8),
-      plot.margin = ggplot2::margin(6, 6, 18, 0)
+      plot.margin = ggplot2::margin(4, 8, 8, 2)
     ) +
     ggplot2::guides(
       fill = ggplot2::guide_legend(
@@ -924,6 +927,7 @@
     values = c(system_summary$display_name, plot_members$DefenseFinder_system_subtype),
     sources = c(system_summary$system_group_source, plot_members$system_group_source)
   )
+  fill_rows <- max(1L, ceiling(length(palette) / 10L))
 
   overview_windows <- system_summary |>
     dplyr::transmute(
@@ -947,18 +951,37 @@
     output_dir = output_dir,
     defense_palette = palette,
     legend_position = "none"
-  ) + ggplot2::labs(title = NULL) + ggplot2::theme(plot.margin = ggplot2::margin(4, 4, 4, 0))
+  ) + ggplot2::labs(title = NULL) + ggplot2::theme(plot.margin = ggplot2::margin(6, 8, 18, 2))
 
   p_context_legend <- .dnmb_plot_integrated_defense_context(
     plot_members,
     output_dir = output_dir,
     defense_palette = palette,
     legend_position = "bottom"
-  ) + ggplot2::labs(title = NULL) + ggplot2::theme(plot.margin = ggplot2::margin(4, 4, 4, 0))
+  ) + ggplot2::labs(title = NULL) + ggplot2::theme(plot.margin = ggplot2::margin(6, 8, 18, 2))
 
-  legend_context <- cowplot::get_legend(p_context_legend)
-  legend_row <- cowplot::ggdraw() +
-    cowplot::draw_grob(legend_context, x = 0.5, y = 0.5, width = 0.92, height = 0.92, hjust = 0.5, vjust = 0.5)
+  p_context_meta_legend <- p_context_legend +
+    ggplot2::guides(
+      fill = "none",
+      size = ggplot2::guide_legend(order = 1, nrow = 1, byrow = TRUE),
+      shape = ggplot2::guide_legend(order = 2, nrow = 1, byrow = TRUE),
+      color = ggplot2::guide_legend(order = 3, nrow = 1, byrow = TRUE)
+    )
+  p_context_fill_legend <- p_context_legend +
+    ggplot2::guides(
+      fill = ggplot2::guide_legend(
+        order = 1,
+        nrow = fill_rows,
+        byrow = TRUE,
+        override.aes = list(shape = 22, size = 5, color = NA)
+      ),
+      size = "none",
+      shape = "none",
+      color = "none"
+    )
+
+  legend_context_meta <- cowplot::get_legend(p_context_meta_legend)
+  legend_context_fill <- cowplot::get_legend(p_context_fill_legend)
 
   top_systems <- system_summary |>
     dplyr::transmute(
@@ -1005,17 +1028,30 @@
   p_detail_wrapped <- cowplot::ggdraw() +
     cowplot::draw_plot(p_detail, x = 0.005, y = 0.05, width = 0.99, height = 0.92)
   d_context_wrapped <- cowplot::ggdraw() +
-    cowplot::draw_plot(d_context_panel, x = 0.01, y = 0.055, width = 0.98, height = 0.90)
+    cowplot::draw_plot(d_context_panel, x = 0.01, y = 0.00, width = 0.98, height = 0.98)
   common_legend <- cowplot::ggdraw() +
-    cowplot::draw_grob(legend_context, x = 0.5, y = 0.52, width = 0.98, height = 0.96, hjust = 0.5, vjust = 0.5)
+    cowplot::draw_plot(
+      cowplot::plot_grid(
+        cowplot::ggdraw() +
+          cowplot::draw_grob(legend_context_meta, x = 0.5, y = 0.80, width = 0.86, height = 0.22, hjust = 0.5, vjust = 0.5),
+        cowplot::ggdraw() +
+          cowplot::draw_grob(legend_context_fill, x = 0.5, y = 0.42, width = 0.995, height = 0.26, hjust = 0.5, vjust = 0.5),
+        ncol = 1,
+        rel_heights = c(0.40, 0.60)
+      ),
+      x = 0,
+      y = 0,
+      width = 1,
+      height = 1
+    )
 
   composite <- cowplot::plot_grid(
     top_row,
     add_panel_header(p_detail_wrapped, "C", "Integrated defense radial detail", plot_y = 0.01, plot_h = 0.90),
-    add_panel_header(d_context_wrapped, "D", "Integrated defense genome layout", plot_y = 0.045, plot_h = 0.90),
+    add_panel_header(d_context_wrapped, "D", "Integrated defense genome layout", plot_y = 0.11, plot_h = 0.82),
     common_legend,
     ncol = 1,
-    rel_heights = c(2.05, 4.00, 1.25, 0.52),
+    rel_heights = c(2.05, 4.00, 1.50, 0.22),
     align = "v"
   )
 

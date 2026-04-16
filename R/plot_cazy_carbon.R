@@ -5227,12 +5227,12 @@
     # ---- TCA CYCLE (perfect circle, gapmind_aa style) ----
     n("OAA",       tx[1], ty[1], "OAA",       "tca", "intermediate"),
     n("Citrate",   tx[2], ty[2], "Citrate",   "tca", "intermediate"),
-    n("Isocit",    tx[3], ty[3], "Isocit",    "tca", "intermediate"),
-    n("AKG",       tx[4], ty[4], "\u03b1-KG", "tca", "intermediate"),
-    n("SucCoA",    tx[5], ty[5], "Suc-CoA",   "tca", "intermediate"),
-    n("Succinate", tx[6], ty[6], "Succ",      "tca", "intermediate"),
-    n("Fumarate",  tx[7], ty[7], "Fum",       "tca", "intermediate"),
-    n("Malate",    tx[8], ty[8], "Mal",       "tca", "intermediate"),
+    n("Isocit",    tx[3], ty[3], "Isocitrate", "tca", "intermediate"),
+    n("AKG",       tx[4], ty[4], "a-KG",       "tca", "intermediate"),
+    n("SucCoA",    tx[5], ty[5], "Suc-CoA",    "tca", "intermediate"),
+    n("Succinate", tx[6], ty[6], "Succinate",  "tca", "intermediate"),
+    n("Fumarate",  tx[7], ty[7], "Fumarate",   "tca", "intermediate"),
+    n("Malate",    tx[8], ty[8], "Malate",     "tca", "intermediate"),
 
     # ---- PHOSPHORYLATION ROW: y=7.5, each at its parent carbon source x ----
     # First phosphorylated form — placed directly below parent carbon source
@@ -5282,7 +5282,7 @@
     n("Ethanol",   bx+2.0, 1.5, "Ethanol",  "pyruvate_branch", "organic_acid"),
 
     # ---- GLYOXYLATE SHUNT ----
-    n("Glyoxylate", tca_cx + 0.04, tca_cy + 0.10, "Glyoxylate", "tca_shunt", "intermediate"),
+    n("Glyoxylate", tca_cx + 0.34, tca_cy + 0.22, "Glyoxylate", "tca_shunt", "intermediate"),
 
     # ---- CARBON SOURCES: dynamic, only present substrates ----
     .dnmb_cct_carbon_source_nodes(cs_xs, cs_y, n)

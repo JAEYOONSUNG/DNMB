@@ -18,6 +18,116 @@
   list(pdf = pdf_path)
 }
 
+.dnmb_prophage_add_score_overlay <- function(plot_obj, sub_tbl) {
+  sub_tbl <- as.data.frame(sub_tbl, stringsAsFactors = FALSE)
+  if (!nrow(sub_tbl)) {
+    return(plot_obj)
+  }
+
+  lane_left <- -5.72
+  lane_right <- 5.72
+  gene_center_y <- 1.80
+  gene_height <- 0.08 * 0.60
+  gene_top_y <- gene_center_y + gene_height / 2
+  rf_ymin <- gene_top_y + 0.002
+  rf_ymax <- rf_ymin + 0.020
+  rf_mid <- (rf_ymin + rf_ymax) / 2
+  rank_ymin <- rf_ymax + 0.020
+  rank_ymax <- rank_ymin + 0.060
+  pp_ymin <- rf_ymax + 0.012
+  pp_ymax <- pp_ymin + 0.050
+
+  zoom_start <- if ("Prophage_prophage_start" %in% names(sub_tbl) && any(!is.na(sub_tbl$Prophage_prophage_start))) {
+    suppressWarnings(min(as.numeric(sub_tbl$Prophage_prophage_start), na.rm = TRUE))
+  } else {
+    suppressWarnings(min(pmin(as.numeric(sub_tbl$start), as.numeric(sub_tbl$end)), na.rm = TRUE))
+  }
+  zoom_end <- if ("Prophage_prophage_end" %in% names(sub_tbl) && any(!is.na(sub_tbl$Prophage_prophage_end))) {
+    suppressWarnings(max(as.numeric(sub_tbl$Prophage_prophage_end), na.rm = TRUE))
+  } else {
+    suppressWarnings(max(pmax(as.numeric(sub_tbl$start), as.numeric(sub_tbl$end)), na.rm = TRUE))
+  }
+  if (!is.finite(zoom_start) || !is.finite(zoom_end) || zoom_end <= zoom_start) {
+    return(plot_obj)
+  }
+
+  score_tbl <- sub_tbl
+  score_tbl$plot_start <- pmin(suppressWarnings(as.numeric(score_tbl$start)), suppressWarnings(as.numeric(score_tbl$end)), na.rm = TRUE)
+  score_tbl$plot_end <- pmax(suppressWarnings(as.numeric(score_tbl$start)), suppressWarnings(as.numeric(score_tbl$end)), na.rm = TRUE)
+  score_tbl$plot_mid <- (score_tbl$plot_start + score_tbl$plot_end) / 2
+  score_tbl$x_mid <- .dnmb_linear_map_x(score_tbl$plot_mid, xmin = zoom_start, xmax = zoom_end, x_min_plot = lane_left, x_max_plot = lane_right)
+  score_tbl$x_start <- .dnmb_linear_map_x(score_tbl$plot_start, xmin = zoom_start, xmax = zoom_end, x_min_plot = lane_left, x_max_plot = lane_right)
+  score_tbl$x_end <- .dnmb_linear_map_x(score_tbl$plot_end, xmin = zoom_start, xmax = zoom_end, x_min_plot = lane_left, x_max_plot = lane_right)
+  score_tbl <- score_tbl[order(score_tbl$x_mid), , drop = FALSE]
+
+  score_tbl$rank_scaled <- suppressWarnings(as.numeric(score_tbl$Prophage_prophage_rank))
+  score_tbl$pp_scaled <- suppressWarnings(as.numeric(score_tbl$Prophage_prophage_pp))
+  score_tbl$my_status_flag <- suppressWarnings(as.numeric(score_tbl$Prophage_prophage_my_status)) > 0
+  score_tbl$category <- .dnmb_gene_arrow_category_prophage(score_tbl$product)
+  prophage_palette <- .dnmb_gene_arrow_palette_prophage()
+  score_tbl$tile_border <- unname(prophage_palette[score_tbl$category])
+  score_tbl$tile_border[is.na(score_tbl$tile_border)] <- "#9CA3AF"
+
+  rank_vals <- score_tbl$rank_scaled[is.finite(score_tbl$rank_scaled)]
+  pp_vals <- score_tbl$pp_scaled[is.finite(score_tbl$pp_scaled)]
+  if (!length(rank_vals)) rank_vals <- c(0, 1)
+  if (!length(pp_vals)) pp_vals <- c(0, 1)
+  rank_upper <- max(1, max(rank_vals, na.rm = TRUE))
+  pp_upper <- max(1, max(pp_vals, na.rm = TRUE))
+
+  score_tbl$rank_y <- scales::rescale(score_tbl$rank_scaled, to = c(rank_ymin, rank_ymax), from = c(0, rank_upper))
+  score_tbl$pp_y <- scales::rescale(score_tbl$pp_scaled, to = c(pp_ymin, pp_ymax), from = c(0, pp_upper))
+  score_tbl$rf_ymin <- rf_ymin
+  score_tbl$rf_ymax <- rf_ymax
+  score_tbl$rf_fill <- ifelse(score_tbl$my_status_flag, "#FCA5A5", "#E5E7EB")
+
+  overlay_tbl <- score_tbl[is.finite(score_tbl$x_mid), , drop = FALSE]
+  if (!nrow(overlay_tbl)) {
+    return(plot_obj)
+  }
+
+  plot_obj +
+    ggplot2::geom_rect(
+      data = data.frame(xmin = lane_left, xmax = lane_right, ymin = rf_ymin, ymax = rf_ymax),
+      ggplot2::aes(xmin = .data$xmin, xmax = .data$xmax, ymin = .data$ymin, ymax = .data$ymax),
+      fill = "#F3F4F6",
+      color = "#D1D5DB",
+      linewidth = 0.14,
+      inherit.aes = FALSE
+    ) +
+    ggplot2::geom_rect(
+      data = overlay_tbl,
+      ggplot2::aes(xmin = .data$x_start, xmax = .data$x_end, ymin = .data$rf_ymin, ymax = .data$rf_ymax),
+      fill = overlay_tbl$rf_fill,
+      color = NA,
+      inherit.aes = FALSE
+    ) +
+    ggplot2::geom_line(
+      data = overlay_tbl[is.finite(overlay_tbl$rank_y), , drop = FALSE],
+      ggplot2::aes(x = .data$x_mid, y = .data$rank_y, group = 1),
+      linewidth = 0.36,
+      color = "#2563EB",
+      inherit.aes = FALSE
+    ) +
+    ggplot2::geom_point(
+      data = overlay_tbl[is.finite(overlay_tbl$rank_y), , drop = FALSE],
+      ggplot2::aes(x = .data$x_mid, y = .data$rank_y),
+      size = 0.75,
+      color = "#2563EB",
+      inherit.aes = FALSE
+    ) +
+    ggplot2::geom_point(
+      data = overlay_tbl[is.finite(overlay_tbl$pp_y), , drop = FALSE],
+      ggplot2::aes(x = .data$x_mid, y = .data$pp_y),
+      size = 0.80,
+      color = "#DC2626",
+      inherit.aes = FALSE
+    ) +
+    ggplot2::annotate("text", x = lane_right - 0.10, y = rank_ymax + 0.010, label = "rank", hjust = 1, size = 1.9, color = "#2563EB") +
+    ggplot2::annotate("text", x = lane_right - 0.10, y = pp_ymax - 0.002, label = "PP", hjust = 1, size = 1.9, color = "#DC2626") +
+    ggplot2::annotate("text", x = lane_right - 0.10, y = rf_mid, label = "RF", hjust = 1, size = 1.8, color = "#9CA3AF")
+}
+
 .dnmb_plot_prophage_module <- function(genbank_table, output_dir, cache_root = NULL) {
   tbl <- .dnmb_contig_ordered_table(genbank_table)
 
@@ -97,6 +207,7 @@
       show_legend = FALSE,
       region_class = rc
     )
+    p <- .dnmb_prophage_add_score_overlay(p, sub_tbl)
     # Add att site markers + summary annotation if available
     if (!is.null(p) && is.data.frame(att_summary) && nrow(att_summary)) {
       att_row <- att_summary[att_summary$region_id == region_id, , drop = FALSE]
@@ -107,7 +218,9 @@
         zoom_end <- max(pmax(as.numeric(sub_tbl$start), as.numeric(sub_tbl$end)), na.rm = TRUE)
         gene_left <- -5.72
         gene_right <- 5.72
-        gene_center_y <- 1.72
+        gene_center_y <- 1.80
+        gene_height <- 0.08 * 0.60
+        gene_top_y <- gene_center_y + gene_height / 2
 
         # att site markers
         has_att <- !is.na(att_row$att_core_seq[[1]]) && nzchar(att_row$att_core_seq[[1]])
@@ -117,15 +230,46 @@
           attR_x <- .dnmb_linear_map_x(pp_e, xmin = zoom_start, xmax = zoom_end, x_min_plot = gene_left, x_max_plot = gene_right)
           att_marker_tbl <- data.frame(
             x = c(attL_x, attR_x),
-            y = gene_center_y - 0.07,
             label = c("attL", "attR"),
             stringsAsFactors = FALSE
           )
+          att_tip_y <- gene_top_y + 0.002
+          att_half_width <- 0.090
+          # Screen-space equilateral correction: x/y panel units are anisotropic here,
+          # so a mathematically exact equilateral looks too pointy on render.
+          att_height <- sqrt(3) * att_half_width * 0.50
+          att_base_y <- att_tip_y + att_height
+          att_marker_poly <- dplyr::bind_rows(lapply(seq_len(nrow(att_marker_tbl)), function(i) {
+            data.frame(
+              x = c(
+                att_marker_tbl$x[[i]] - att_half_width,
+                att_marker_tbl$x[[i]] + att_half_width,
+                att_marker_tbl$x[[i]]
+              ),
+              y = c(att_base_y, att_base_y, att_tip_y),
+              group = i,
+              stringsAsFactors = FALSE
+            )
+          }))
+          att_marker_tbl$label_y <- att_tip_y + att_height * 0.58
           p <- p +
-            ggplot2::geom_point(data = att_marker_tbl, ggplot2::aes(x = .data$x, y = .data$y),
-                                shape = 25, size = 3, fill = "#DC2626", color = "#DC2626", inherit.aes = FALSE) +
-            ggplot2::geom_text(data = att_marker_tbl, ggplot2::aes(x = .data$x, y = .data$y - 0.05, label = .data$label),
-                               size = 2.2, vjust = 1, color = "#DC2626", fontface = "bold", inherit.aes = FALSE)
+            ggplot2::geom_polygon(
+              data = att_marker_poly,
+              ggplot2::aes(x = .data$x, y = .data$y, group = .data$group),
+              fill = grDevices::adjustcolor("#DC2626", alpha.f = 0.5),
+              color = "#DC2626",
+              linewidth = 0.18,
+              inherit.aes = FALSE
+            ) +
+            ggplot2::geom_text(
+              data = att_marker_tbl,
+              ggplot2::aes(x = .data$x, y = .data$label_y, label = .data$label),
+              size = 2.0,
+              vjust = 0.5,
+              color = "white",
+              fontface = "bold",
+              inherit.aes = FALSE
+            )
         }
 
         # Summary annotation line below storyboard
@@ -163,9 +307,15 @@
         )
 
         p <- p +
-          ggplot2::annotate("text", x = gene_left, y = 0.88,
-                           label = summary_line, hjust = 0, size = 2.6,
-                           color = "#4B5563", fontface = "italic")
+          ggplot2::labs(subtitle = summary_line) +
+          ggplot2::theme(
+            plot.subtitle = ggplot2::element_text(
+              size = 8.2,
+              color = "#4B5563",
+              hjust = 0,
+              margin = ggplot2::margin(t = 1, b = 0.1, l = 18)
+            )
+          )
       }
     }
     p
@@ -525,26 +675,24 @@
     colors = .dnmb_gene_arrow_palette_prophage()
   )
   if (!is.null(category_legend_row)) {
-    plots_to_save <- c(region_panels, list(category_legend_row, p_score), if (!is.null(p_reference)) list(p_reference) else list(), if (!is.null(p_att_validation)) list(p_att_validation) else list())
+    plots_to_save <- c(region_panels, list(category_legend_row), if (!is.null(p_reference)) list(p_reference) else list(), if (!is.null(p_att_validation)) list(p_att_validation) else list())
     legend_h <- if (length(.dnmb_gene_arrow_palette_prophage()) > 5L) 0.22 else 0.12
-    next_letter <- length(region_panels) + 1L
+    next_letter <- length(region_panels)
     ref_offset <- if (!is.null(p_reference)) 1L else 0L
-    rel_heights <- c(rep(1.12, length(region_panels)), legend_h, 1.0, if (!is.null(p_reference)) 1.45 else NULL, if (!is.null(p_att_validation)) 0.85 else NULL)
+    rel_heights <- c(rep(1.12, length(region_panels)), legend_h, if (!is.null(p_reference)) 2.10 else NULL, if (!is.null(p_att_validation)) 0.85 else NULL)
     labels_to_use <- c(
       base::LETTERS[seq_along(region_panels)],
       "",
-      base::LETTERS[[next_letter]],
       if (!is.null(p_reference)) base::LETTERS[[next_letter + 1L]] else NULL,
       if (!is.null(p_att_validation)) base::LETTERS[[next_letter + ref_offset + 1L]] else NULL
     )
   } else {
-    plots_to_save <- c(region_panels, list(p_score), if (!is.null(p_reference)) list(p_reference) else list(), if (!is.null(p_att_validation)) list(p_att_validation) else list())
-    next_letter <- length(region_panels) + 1L
+    plots_to_save <- c(region_panels, if (!is.null(p_reference)) list(p_reference) else list(), if (!is.null(p_att_validation)) list(p_att_validation) else list())
+    next_letter <- length(region_panels)
     ref_offset <- if (!is.null(p_reference)) 1L else 0L
-    rel_heights <- c(rep(1.12, length(region_panels)), 1.0, if (!is.null(p_reference)) 1.45 else NULL, if (!is.null(p_att_validation)) 0.85 else NULL)
+    rel_heights <- c(rep(1.12, length(region_panels)), if (!is.null(p_reference)) 2.10 else NULL, if (!is.null(p_att_validation)) 0.85 else NULL)
     labels_to_use <- c(
       base::LETTERS[seq_along(region_panels)],
-      base::LETTERS[[next_letter]],
       if (!is.null(p_reference)) base::LETTERS[[next_letter + 1L]] else NULL,
       if (!is.null(p_att_validation)) base::LETTERS[[next_letter + ref_offset + 1L]] else NULL
     )
@@ -555,7 +703,13 @@
     ncol = 1,
     rel_heights = rel_heights,
     align = "v",
-    axis = "lr"
+    axis = "lr",
+    label_size = 11.5,
+    label_fontface = "bold",
+    label_x = 0.003,
+    label_y = 0.988,
+    hjust = 0,
+    vjust = 1
   )
   total_panels <- length(region_panels) + 1L + (if (!is.null(p_reference)) 1L else 0L) + (if (!is.null(p_summary)) 1L else 0L)
   ggplot2::ggsave(pdf_path, composite, width = 14, height = 3.0 * length(region_panels) + total_panels * 0.6 + 2.5, bg = "white")
@@ -845,6 +999,14 @@
   if (!"molecule" %in% names(ref_genes_df)) {
     ref_genes_df$molecule <- ref_organism_name
   }
+  query_genome_label <- .dnmb_prophage_compact_genome_label(s$contig)
+  if (is.na(query_genome_label) || !nzchar(query_genome_label)) {
+    query_genome_label <- sub(",.*$", "", s$contig)
+  }
+  ref_genome_label <- .dnmb_prophage_compact_genome_label(ref_organism_name)
+  if (is.na(ref_genome_label) || !nzchar(ref_genome_label)) {
+    ref_genome_label <- ref_organism_name
+  }
 
   att_seq <- if (has_att) s$att_core_seq else "?"
   att_len <- if (has_att) s$att_core_length else "?"
@@ -1024,10 +1186,10 @@
     ggplot2::annotate("segment", x=attB_xn, xend=attB_xn, y=y_r-gh-0.05, yend=y_r+gh+0.05, linetype="dashed", color="#22C55E", linewidth=0.5) +
     ggplot2::annotate("text", x=attB_xn, y=y_r+gh+0.12, label="attB", color="#22C55E", fontface="bold", size=2.8) +
     # Genome labels with real coordinates and organism name
-    ggplot2::annotate("text", x=-0.02, y=y_q, label=paste0(sub(",.*$", "", s$contig), "\n", format(q_min, big.mark=","), "-", format(q_max, big.mark=",")),
+    ggplot2::annotate("text", x=-0.02, y=y_q, label=paste0(query_genome_label, "\n", format(q_min, big.mark=","), "-", format(q_max, big.mark=",")),
                      hjust=1, size=2.4, fontface="bold", lineheight=0.85) +
     ggplot2::annotate("text", x=-0.02, y=y_r,
-                     label=paste0(ref_organism_name,
+                     label=paste0(ref_genome_label,
                                   "\n", ref_accession %||% "", " | site ",
                                   format(ref_locus_start_bp %||% 0, big.mark=","), "-",
                                   format((ref_locus_start_bp %||% 0) + as.integer(max(ref_genes_df$end)), big.mark=",")),
@@ -1041,7 +1203,7 @@
     ggplot2::coord_cartesian(xlim=c(-0.15, 1.18), ylim=c(y_r-gh-0.35, y_q+gh+0.25), clip="off") +
     ggplot2::labs(title=paste0("Integration Site: Prophage ", s$region_id), subtitle=subtitle_text, y=NULL) +
     ggplot2::theme_void(base_size=11) +
-    ggplot2::theme(plot.title=ggplot2::element_text(face="bold", size=12),
+    ggplot2::theme(plot.title=ggplot2::element_text(face="bold", size=12, margin=ggplot2::margin(l=16, b=2)),
                    plot.subtitle=ggplot2::element_text(size=8.5, color="#4B5563"),
                    plot.margin=ggplot2::margin(t=8,r=12,b=8,l=12))
   # Add identity labels on ribbons

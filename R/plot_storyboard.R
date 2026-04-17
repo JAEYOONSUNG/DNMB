@@ -718,13 +718,14 @@
   overview_right <- 4.9
   line_y <- 2.24
   line_half <- 0.045
+  highlight_half <- 0.018
   lower_left <- plot_x_left
   lower_right <- plot_x_right
-  gene_center_y <- 1.72
-  gene_height <- 0.08
+  gene_center_y <- 1.80
+  gene_height <- 0.08 * 0.60
   gene_top_y <- gene_center_y + gene_height / 2
-  lower_top <- gene_top_y + 0.07
-  lower_bottom <- gene_center_y - gene_height / 2 - 0.02
+  lower_top <- gene_top_y + 0.028
+  lower_bottom <- gene_center_y - gene_height / 2 - 0.012
   gene_left <- lower_left
   gene_right <- lower_right
   funnel_left <- gene_left + 0.22
@@ -749,20 +750,25 @@
     x_min_plot = overview_left,
     x_max_plot = overview_right
   )
+  highlight_pad <- min(0.05, max(0, (highlight_x[[2]] - highlight_x[[1]]) * 0.12))
+  highlight_x_draw <- c(highlight_x[[1]] + highlight_pad, highlight_x[[2]] - highlight_pad)
+  if (!is.finite(highlight_x_draw[[1]]) || !is.finite(highlight_x_draw[[2]]) || highlight_x_draw[[2]] <= highlight_x_draw[[1]]) {
+    highlight_x_draw <- highlight_x
+  }
   funnel_tbl <- data.frame(
-    x = c(highlight_x[[1]], highlight_x[[2]], funnel_right, funnel_left),
-    y = c(line_y - line_half, line_y - line_half, lower_top, lower_top),
+    x = c(highlight_x_draw[[1]], highlight_x_draw[[2]], funnel_right, funnel_left),
+    y = c(line_y - highlight_half, line_y - highlight_half, lower_top, lower_top),
     stringsAsFactors = FALSE
   )
   funnel_slices <- lapply(seq_len(14L), function(i) {
     t0 <- (i - 1) / 14
     t1 <- i / 14
-    x_left0 <- highlight_x[[1]] + (funnel_left - highlight_x[[1]]) * t0
-    x_right0 <- highlight_x[[2]] + (funnel_right - highlight_x[[2]]) * t0
-    x_left1 <- highlight_x[[1]] + (funnel_left - highlight_x[[1]]) * t1
-    x_right1 <- highlight_x[[2]] + (funnel_right - highlight_x[[2]]) * t1
-    y0 <- (line_y - line_half) + (lower_top - (line_y - line_half)) * t0
-    y1 <- (line_y - line_half) + (lower_top - (line_y - line_half)) * t1
+    x_left0 <- highlight_x_draw[[1]] + (funnel_left - highlight_x_draw[[1]]) * t0
+    x_right0 <- highlight_x_draw[[2]] + (funnel_right - highlight_x_draw[[2]]) * t0
+    x_left1 <- highlight_x_draw[[1]] + (funnel_left - highlight_x_draw[[1]]) * t1
+    x_right1 <- highlight_x_draw[[2]] + (funnel_right - highlight_x_draw[[2]]) * t1
+    y0 <- (line_y - highlight_half) + (lower_top - (line_y - highlight_half)) * t0
+    y1 <- (line_y - highlight_half) + (lower_top - (line_y - highlight_half)) * t1
     data.frame(
       x = c(x_left0, x_right0, x_right1, x_left1),
       y = c(y0, y0, y1, y1),
@@ -829,15 +835,20 @@
     ) + scales::rescale(abs(as.numeric(label_tbl$end) - as.numeric(label_tbl$start)), to = c(0, 20))
     label_tbl <- label_tbl[order(-label_tbl$priority), , drop = FALSE]
     label_tbl <- head(label_tbl, 8L)
+    label_tbl$y <- gene_top_y + 0.05
   }
 
   cluster_tick_tbl <- data.frame(
     x = c(gene_left, gene_right),
-    y = c(gene_center_y - gene_height / 2 - 0.008, gene_center_y - gene_height / 2 - 0.008),
+    y = c(gene_center_y - gene_height / 2 - 0.006, gene_center_y - gene_height / 2 - 0.006),
     label = c(.dnmb_fmt_bp_exact(zoom_start_raw), .dnmb_fmt_bp_exact(zoom_end_raw)),
     hjust = c(0, 1),
     stringsAsFactors = FALSE
   )
+  lane_label <- .dnmb_prophage_compact_genome_label(sub_tbl$contig[[1]])
+  if (is.na(lane_label) || !nzchar(lane_label)) {
+    lane_label <- as.character(sub_tbl$contig[[1]])
+  }
   panel_ymin <- max(0.98, min(cluster_tick_tbl$y) - 0.035)
 
   plot_obj <- ggplot2::ggplot() +
@@ -849,10 +860,10 @@
     ) +
     ggplot2::geom_rect(
       ggplot2::aes(
-        xmin = highlight_x[[1]],
-        xmax = highlight_x[[2]],
-        ymin = line_y - line_half,
-        ymax = line_y + line_half
+        xmin = highlight_x_draw[[1]],
+        xmax = highlight_x_draw[[2]],
+        ymin = line_y - highlight_half,
+        ymax = line_y + highlight_half
       ),
       fill = region_highlight_fill,
       color = NA,
@@ -864,13 +875,6 @@
       fill = grDevices::adjustcolor("white", alpha.f = 0.9),
       color = NA
     ) +
-    # Region border box (solid for complete, dashed for partial)
-    ggplot2::annotate("rect",
-      xmin = lower_left, xmax = lower_right,
-      ymin = lower_bottom, ymax = lower_top,
-      fill = NA, color = region_border_col,
-      linewidth = if (is_partial) 0.6 else 0.4,
-      linetype = region_border_lty) +
     ggplot2::geom_segment(
       ggplot2::aes(x = gene_left, xend = gene_right, y = gene_center_y, yend = gene_center_y),
       linewidth = 0.35,
@@ -880,22 +884,21 @@
       data = poly_tbl,
       ggplot2::aes(x = .data$x, y = .data$y, group = .data$feature_id, fill = .data$fill_value),
       color = if (is_partial) "grey60" else "grey25",
-      linewidth = 0.28,
+      linewidth = 0.14,
       alpha = region_gene_alpha
     ) +
     ggplot2::labs(
       title = paste0("Prophage ", region_id,
                      if (is_partial) " (partial/questionable)" else "",
                      " (", .dnmb_fmt_bp_label(zoom_end_raw - zoom_start_raw + 1), ")"),
-      subtitle = as.character(sub_tbl$contig[[1]]),
       x = NULL,
       y = NULL,
       fill = "Category"
     ) +
     ggplot2::theme_void(base_size = 11) +
     ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold", hjust = 0, margin = ggplot2::margin(l = 0, b = 1)),
-      plot.subtitle = ggplot2::element_text(size = 10, hjust = 0, margin = ggplot2::margin(l = 0, b = 0)),
+      plot.title = ggplot2::element_text(face = "bold", hjust = 0, size = 11.5, margin = ggplot2::margin(l = 18, b = 1.5)),
+      plot.subtitle = ggplot2::element_blank(),
       plot.margin = ggplot2::margin(t = 4, r = 180, b = 12, l = 12),
       legend.position = if (show_legend) "bottom" else "none",
       legend.margin = ggplot2::margin(t = 0, b = 0),
@@ -920,6 +923,16 @@
       color = "grey30",
       show.legend = FALSE,
       inherit.aes = FALSE
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = overview_left,
+      y = line_y + 0.060,
+      label = lane_label,
+      hjust = 0,
+      vjust = 0.5,
+      size = 2.9,
+      color = "#6B7280"
     )
   for (slice_tbl in funnel_slices) {
     plot_obj <- plot_obj +
@@ -941,6 +954,9 @@
         nudge_y = 0.12,
         segment.size = 0.2,
         segment.color = "grey60",
+        box.padding = 0.12,
+        point.padding = 0.08,
+        min.segment.length = 0,
         max.overlaps = 12,
         fontface = "bold",
         lineheight = 0.92,
@@ -1627,4 +1643,3 @@
   )
   p
 }
-

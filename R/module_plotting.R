@@ -43,13 +43,14 @@
   item_gap <- 0.14
   label_widths <- pmax(0.56, nchar(labels) * 0.072)
   item_widths <- key_width + key_gap + label_widths
+  slot_width <- max(item_widths) + item_gap
   outer_pad <- 0.55
   row_height <- 0.32
   row_gap <- 0.18
   total_height <- n_rows * row_height + (n_rows - 1) * row_gap + 0.36
   row_items <- split(seq_len(n), ceiling(seq_len(n) / items_per_row))
   row_max_width <- max(vapply(row_items, function(idx) {
-    sum(item_widths[idx]) + item_gap * max(0, length(idx) - 1)
+    length(idx) * slot_width - item_gap
   }, numeric(1)))
   inner_width <- title_width + 0.24 + row_max_width
   total_width <- inner_width + 2 * outer_pad
@@ -59,10 +60,11 @@
   for (r in seq_along(row_items)) {
     idx <- row_items[[r]]
     row_y_center <- total_height - 0.18 - (r - 1) * (row_height + row_gap)
-    cum_w <- 0
+    row_width <- length(idx) * slot_width - item_gap
+    row_left <- key_left + (row_max_width - row_width) / 2
     for (j in seq_along(idx)) {
       i <- idx[[j]]
-      left <- key_left + cum_w
+      left <- row_left + (j - 1) * slot_width
       item_tbl_list[[length(item_tbl_list) + 1L]] <- data.frame(
         label = labels[[i]],
         fill = unname(colors[[i]]),
@@ -74,7 +76,6 @@
         label_y = row_y_center,
         stringsAsFactors = FALSE
       )
-      cum_w <- cum_w + item_widths[[i]] + item_gap
     }
   }
   item_tbl <- dplyr::bind_rows(item_tbl_list)

@@ -18,6 +18,191 @@
   list(pdf = pdf_path)
 }
 
+.dnmb_prophage_region_header_plot <- function(title_text, subtitle_text = NULL) {
+  subtitle_text <- subtitle_text %||% ""
+  subtitle_alpha <- if (nzchar(trimws(subtitle_text))) 1 else 0
+  p <- ggplot2::ggplot() +
+    ggplot2::annotate(
+      "text",
+      x = -0.035, y = 0.80,
+      label = title_text,
+      hjust = 0, vjust = 1,
+      size = 4.6,
+      fontface = "bold",
+      color = "#111827"
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = -0.035, y = 0.18,
+      label = subtitle_text,
+      hjust = 0, vjust = 0,
+      size = 2.85,
+      color = grDevices::adjustcolor("#4B5563", alpha.f = subtitle_alpha)
+    ) +
+    ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), clip = "off") +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin = ggplot2::margin(2, 8, 0, 0))
+  list(plot = p, height = 0.34)
+}
+
+.dnmb_prophage_detected_bounds <- function(output_dir, region_id) {
+  path <- file.path(output_dir, "dnmb_module_prophage", "prophage_coordinates.tsv")
+  if (!file.exists(path)) {
+    return(NULL)
+  }
+  tbl <- tryCatch(
+    utils::read.delim(path, header = FALSE, stringsAsFactors = FALSE),
+    error = function(e) NULL
+  )
+  if (!is.data.frame(tbl) || ncol(tbl) < 4L || !nrow(tbl)) {
+    return(NULL)
+  }
+  key <- paste0("pp", as.character(region_id)[1])
+  hit <- tbl[tolower(trimws(tbl[[1]])) == tolower(key), , drop = FALSE]
+  if (!nrow(hit)) {
+    return(NULL)
+  }
+  start <- suppressWarnings(as.numeric(hit[[3]][1]))
+  end <- suppressWarnings(as.numeric(hit[[4]][1]))
+  if (!is.finite(start) || !is.finite(end) || end <= start) {
+    return(NULL)
+  }
+  list(
+    contig = as.character(hit[[2]][1]),
+    start = start,
+    end = end
+  )
+}
+
+.dnmb_prophage_apply_detected_bounds <- function(sub_tbl, output_dir, region_id) {
+  sub_tbl <- as.data.frame(sub_tbl, stringsAsFactors = FALSE)
+  start_col <- .dnmb_pick_column(sub_tbl, c("Prophage_prophage_start", "prophage_start"))
+  end_col <- .dnmb_pick_column(sub_tbl, c("Prophage_prophage_end", "prophage_end"))
+  has_detected <- !is.null(start_col) && !is.null(end_col) &&
+    any(is.finite(suppressWarnings(as.numeric(sub_tbl[[start_col]])))) &&
+    any(is.finite(suppressWarnings(as.numeric(sub_tbl[[end_col]]))))
+  if (has_detected) {
+    return(sub_tbl)
+  }
+  bounds <- .dnmb_prophage_detected_bounds(output_dir, region_id)
+  if (is.null(bounds)) {
+    return(sub_tbl)
+  }
+  sub_tbl$Prophage_prophage_start <- bounds$start
+  sub_tbl$Prophage_prophage_end <- bounds$end
+  sub_tbl
+}
+
+.dnmb_prophage_region_shell_config <- function(embedded = FALSE, has_reference = TRUE) {
+  top_shell_min_units <- 1.90
+  ref_shell_min_units <- 0
+  region_shell_min_units <- top_shell_min_units
+  no_ref_spacer_units <- 0.20
+  embedded_gap_units <- 0.10
+  nonembedded_gap_units <- 0.10
+  list(
+    top_shell_min_units = top_shell_min_units,
+    ref_shell_min_units = ref_shell_min_units,
+    region_shell_min_units = region_shell_min_units,
+    no_ref_spacer_units = no_ref_spacer_units,
+    embedded_gap_units = embedded_gap_units,
+    nonembedded_gap_units = nonembedded_gap_units,
+    gap_units = if (has_reference) {
+      if (embedded) embedded_gap_units else nonembedded_gap_units
+    } else {
+      no_ref_spacer_units
+    }
+  )
+}
+
+.dnmb_compose_prophage_region_pair <- function(top_plot, ref_plot, embedded = FALSE) {
+  shell_cfg <- .dnmb_prophage_region_shell_config(
+    embedded = embedded,
+    has_reference = !is.null(ref_plot)
+  )
+  if (is.null(ref_plot)) {
+    top_ymin <- attr(top_plot, "panel_ymin")
+    top_ymax <- attr(top_plot, "panel_ymax")
+    top_span <- if (all(is.finite(c(top_ymin, top_ymax)))) {
+      top_ymax - top_ymin
+    } else {
+      1.12
+    }
+    top_span_eff <- max(top_span, shell_cfg$top_shell_min_units)
+    spacer_units <- shell_cfg$gap_units
+    total_units <- max(
+      top_span_eff + spacer_units,
+      shell_cfg$region_shell_min_units
+    )
+    top_frac <- top_span_eff / total_units
+    return(list(
+      plot = cowplot::ggdraw() +
+        cowplot::draw_plot(top_plot, x = 0, y = spacer_units / total_units, width = 1, height = top_frac),
+      height = total_units,
+      has_reference = FALSE
+    ))
+  }
+
+  top_ymin <- attr(top_plot, "panel_ymin")
+  top_ymax <- attr(top_plot, "panel_ymax")
+  top_track_bottom <- attr(top_plot, "track_bottom")
+  top_track_center <- attr(top_plot, "track_center")
+  ref_ymin <- attr(ref_plot, "panel_ymin")
+  ref_ymax <- attr(ref_plot, "panel_ymax")
+  ref_track_top <- attr(ref_plot, "track_top")
+  ref_first_row_center <- attr(ref_plot, "first_row_center")
+  ref_row_pitch <- attr(ref_plot, "row_pitch")
+
+  if (!all(is.finite(c(top_ymin, top_ymax, top_track_bottom, top_track_center, ref_ymin, ref_ymax, ref_track_top, ref_first_row_center)))) {
+    return(list(
+      plot = cowplot::plot_grid(top_plot, ref_plot, ncol = 1, rel_heights = c(1, 1)),
+      height = 2.0,
+      has_reference = TRUE
+    ))
+  }
+
+  top_span <- top_ymax - top_ymin
+  ref_span <- ref_ymax - ref_ymin
+  top_span_eff <- max(top_span, shell_cfg$top_shell_min_units)
+  ref_span_eff <- max(ref_span, shell_cfg$ref_shell_min_units)
+  center_gap_units <- if (is.finite(ref_row_pitch)) ref_row_pitch else 0.20
+
+  top_track_bottom_units <- top_track_bottom - top_ymin
+  top_track_center_units <- top_track_center - top_ymin
+  ref_track_top_units <- ref_track_top - ref_ymin
+  ref_first_row_center_units <- ref_first_row_center - ref_ymin
+  top_scale <- if (isTRUE(all.equal(top_span, 0))) 1 else top_span_eff / top_span
+  ref_scale <- if (isTRUE(all.equal(ref_span, 0))) 1 else ref_span_eff / ref_span
+  top_track_bottom_units <- top_track_bottom_units * top_scale
+  top_track_center_units <- top_track_center_units * top_scale
+  ref_track_top_units <- ref_track_top_units * ref_scale
+  ref_first_row_center_units <- ref_first_row_center_units * ref_scale
+
+  ref_y_units <- 0
+  top_y_units <- ref_first_row_center_units + center_gap_units - top_track_center_units
+
+  shift <- min(ref_y_units, top_y_units)
+  ref_y_units <- ref_y_units - shift
+  top_y_units <- top_y_units - shift
+
+  total_units <- max(
+    ref_y_units + ref_span_eff,
+    top_y_units + top_span_eff,
+    shell_cfg$region_shell_min_units
+  )
+
+  top_frac <- top_span_eff / total_units
+  ref_frac <- ref_span_eff / total_units
+
+  list(
+    plot = cowplot::ggdraw() +
+      cowplot::draw_plot(ref_plot, x = 0, y = ref_y_units / total_units, width = 1, height = ref_frac) +
+      cowplot::draw_plot(top_plot, x = 0, y = top_y_units / total_units, width = 1, height = top_frac),
+    height = total_units,
+    has_reference = TRUE
+  )
+}
+
 .dnmb_prophage_add_score_overlay <- function(plot_obj, sub_tbl) {
   sub_tbl <- as.data.frame(sub_tbl, stringsAsFactors = FALSE)
   if (!nrow(sub_tbl)) {
@@ -185,13 +370,23 @@
   )
 
   region_panels <- lapply(top_regions, function(region_id) {
+    body_width <- 1.00
     sub_tbl <- gene_tbl[gene_tbl$Prophage_prophage_id == region_id, , drop = FALSE]
+    sub_tbl <- .dnmb_prophage_apply_detected_bounds(sub_tbl, output_dir = output_dir, region_id = region_id)
     sub_labels <- label_tbl[label_tbl$Prophage_prophage_id == region_id, , drop = FALSE]
     contig_id <- as.character(sub_tbl$contig[[1]])
     contig_length <- contig_lengths$length_bp[match(contig_id, contig_lengths$contig)]
     # Determine region classification
     rc <- region_stats$region_class[region_stats$Prophage_prophage_id == region_id]
     rc <- if (length(rc) == 1) rc else "complete"
+    region_start_bp <- min(pmin(as.numeric(sub_tbl$start), as.numeric(sub_tbl$end)), na.rm = TRUE)
+    region_end_bp <- max(pmax(as.numeric(sub_tbl$start), as.numeric(sub_tbl$end)), na.rm = TRUE)
+    title_text <- paste0(
+      "Prophage ", region_id,
+      if (rc == "partial") " (partial/questionable)" else "",
+      " (", .dnmb_fmt_bp_label(region_end_bp - region_start_bp + 1), ")"
+    )
+    summary_line <- ""
     sub_tbl$panel <- paste0("Prophage ", region_id,
                             if (rc == "partial") " (partial/questionable)" else "")
     sub_tbl$label_short <- NA_character_
@@ -305,20 +500,43 @@
           ))],
           collapse = "  |  "
         )
-
-        p <- p +
-          ggplot2::labs(subtitle = summary_line) +
-          ggplot2::theme(
-            plot.subtitle = ggplot2::element_text(
-              size = 8.2,
-              color = "#4B5563",
-              hjust = 0,
-              margin = ggplot2::margin(t = 1, b = 0.1, l = 18)
-            )
-          )
       }
     }
-    p
+    header <- .dnmb_prophage_region_header_plot(title_text, summary_line)
+    # Always embedded: storyboard above already shows the query at natural scale,
+    # so the ref panel below only needs ref rows (no duplicated query row).
+    p_ref_below <- tryCatch(
+      .dnmb_plot_prophage_reference_panel(sub_tbl, region_id = region_id, output_dir = output_dir, top_n = 5L, cache_root = cache_root, embedded = TRUE),
+      error = function(e) NULL
+    )
+    # Mirror the ref panel's horizontal margins on the storyboard so both plots have
+    # the same drawable width — without this, the ref panel's wide right gutter (for
+    # reference labels) shrinks its inner x-range relative to the storyboard, and
+    # ribbons from query bp → ref bp no longer line up vertically between the two.
+    top_right_margin <- attr(p_ref_below, "plot_right_margin_pt") %||% 8
+    top_left_margin <- attr(p_ref_below, "plot_left_margin_pt") %||% 12
+    p <- p +
+      ggplot2::labs(title = NULL, subtitle = NULL) +
+      ggplot2::theme(
+        plot.title = ggplot2::element_blank(),
+        plot.subtitle = ggplot2::element_blank(),
+        plot.margin = ggplot2::margin(t = 0, r = top_right_margin, b = 12, l = top_left_margin)
+      )
+    body_pair <- .dnmb_compose_prophage_region_pair(
+      top_plot = p,
+      ref_plot = p_ref_below,
+      embedded = TRUE
+    )
+    list(
+      plot = cowplot::plot_grid(
+        header$plot,
+        body_pair$plot,
+        ncol = 1,
+        rel_heights = c(header$height, body_pair$height)
+      ),
+      height = header$height + body_pair$height,
+      has_reference = body_pair$has_reference
+    )
   })
   score_tbl <- tbl
   score_tbl$panel_label <- paste0("Prophage ", score_tbl$Prophage_prophage_id)
@@ -438,14 +656,6 @@
       color = "#6B7280"
     ) +
     ggplot2::coord_cartesian(xlim = c(b_x_left, b_x_right), ylim = c(-0.12, NA), clip = "off")
-  p_reference <- NULL
-  if (length(top_regions) >= 1L) {
-    top_region_tbl <- gene_tbl[gene_tbl$Prophage_prophage_id == top_regions[[1]], , drop = FALSE]
-    p_reference <- tryCatch(
-      .dnmb_plot_prophage_reference_panel(top_region_tbl, region_id = top_regions[[1]], output_dir = output_dir, top_n = 5L, cache_root = cache_root),
-      error = function(e) NULL
-    )
-  }
   p_summary <- NULL
   gbff_for_summary <- .dnmb_find_gbff_for_plot(output_dir)
   summary_tbl <- tryCatch(
@@ -674,27 +884,29 @@
     title = "Category",
     colors = .dnmb_gene_arrow_palette_prophage()
   )
+  region_plotlist <- lapply(region_panels, `[[`, "plot")
+  region_heights <- vapply(region_panels, `[[`, numeric(1), "height")
+  has_any_reference <- any(vapply(region_panels, function(x) isTRUE(x$has_reference), logical(1)))
+  reference_shared_legend <- if (has_any_reference) .dnmb_prophage_reference_shared_legend_plot() else NULL
   if (!is.null(category_legend_row)) {
-    plots_to_save <- c(region_panels, list(category_legend_row), if (!is.null(p_reference)) list(p_reference) else list(), if (!is.null(p_att_validation)) list(p_att_validation) else list())
+    plots_to_save <- c(region_plotlist, list(category_legend_row), if (!is.null(p_att_validation)) list(p_att_validation) else list(), if (!is.null(reference_shared_legend)) list(reference_shared_legend) else list())
     legend_h <- if (length(.dnmb_gene_arrow_palette_prophage()) > 5L) 0.22 else 0.12
     next_letter <- length(region_panels)
-    ref_offset <- if (!is.null(p_reference)) 1L else 0L
-    rel_heights <- c(rep(1.12, length(region_panels)), legend_h, if (!is.null(p_reference)) 2.10 else NULL, if (!is.null(p_att_validation)) 0.85 else NULL)
+    rel_heights <- c(region_heights, legend_h, if (!is.null(p_att_validation)) 0.85 else NULL, if (!is.null(reference_shared_legend)) 0.32 else NULL)
     labels_to_use <- c(
       base::LETTERS[seq_along(region_panels)],
       "",
-      if (!is.null(p_reference)) base::LETTERS[[next_letter + 1L]] else NULL,
-      if (!is.null(p_att_validation)) base::LETTERS[[next_letter + ref_offset + 1L]] else NULL
+      if (!is.null(p_att_validation)) base::LETTERS[[next_letter + 1L]] else NULL,
+      if (!is.null(reference_shared_legend)) "" else NULL
     )
   } else {
-    plots_to_save <- c(region_panels, if (!is.null(p_reference)) list(p_reference) else list(), if (!is.null(p_att_validation)) list(p_att_validation) else list())
+    plots_to_save <- c(region_plotlist, if (!is.null(p_att_validation)) list(p_att_validation) else list(), if (!is.null(reference_shared_legend)) list(reference_shared_legend) else list())
     next_letter <- length(region_panels)
-    ref_offset <- if (!is.null(p_reference)) 1L else 0L
-    rel_heights <- c(rep(1.12, length(region_panels)), if (!is.null(p_reference)) 2.10 else NULL, if (!is.null(p_att_validation)) 0.85 else NULL)
+    rel_heights <- c(region_heights, if (!is.null(p_att_validation)) 0.85 else NULL, if (!is.null(reference_shared_legend)) 0.32 else NULL)
     labels_to_use <- c(
       base::LETTERS[seq_along(region_panels)],
-      if (!is.null(p_reference)) base::LETTERS[[next_letter + 1L]] else NULL,
-      if (!is.null(p_att_validation)) base::LETTERS[[next_letter + ref_offset + 1L]] else NULL
+      if (!is.null(p_att_validation)) base::LETTERS[[next_letter + 1L]] else NULL,
+      if (!is.null(reference_shared_legend)) "" else NULL
     )
   }
   composite <- cowplot::plot_grid(
@@ -711,7 +923,7 @@
     hjust = 0,
     vjust = 1
   )
-  total_panels <- length(region_panels) + 1L + (if (!is.null(p_reference)) 1L else 0L) + (if (!is.null(p_summary)) 1L else 0L)
+  total_panels <- length(region_panels) + 1L + (if (!is.null(p_summary)) 1L else 0L) + (if (!is.null(reference_shared_legend)) 1L else 0L)
   ggplot2::ggsave(pdf_path, composite, width = 14, height = 3.0 * length(region_panels) + total_panels * 0.6 + 2.5, bg = "white")
   list(pdf = pdf_path)
 }

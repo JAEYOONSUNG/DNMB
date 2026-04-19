@@ -54,7 +54,7 @@
       right_center + x_radius * cos(right_theta),
       right_center,
       left_center,
-      left_center + x_radius * cos(left_theta)
+      left_center - x_radius * cos(left_theta)
     ),
     y = c(
       y_center + half_height,
@@ -521,6 +521,103 @@
   trimws(title)
 }
 
+.dnmb_prophage_reference_cluster_key <- function(title) {
+  title <- .dnmb_prophage_reference_short_name(title)
+  if (is.na(title) || !nzchar(title)) {
+    return(NA_character_)
+  }
+  title <- tolower(title)
+  title <- gsub("[^a-z0-9]+", "", title)
+  trimws(title)
+}
+
+.dnmb_prophage_query_overlap_fraction <- function(tbl_a, tbl_b) {
+  if (!is.data.frame(tbl_a) || !nrow(tbl_a) || !is.data.frame(tbl_b) || !nrow(tbl_b)) {
+    return(0)
+  }
+  a <- tbl_a[, c("query_start", "query_end"), drop = FALSE]
+  b <- tbl_b[, c("query_start", "query_end"), drop = FALSE]
+  a$width <- a$query_end - a$query_start + 1
+  b$width <- b$query_end - b$query_start + 1
+  overlap <- 0
+  for (i in seq_len(nrow(a))) {
+    for (j in seq_len(nrow(b))) {
+      st <- max(a$query_start[[i]], b$query_start[[j]])
+      en <- min(a$query_end[[i]], b$query_end[[j]])
+      if (is.finite(st) && is.finite(en) && en >= st) {
+        overlap <- overlap + (en - st + 1)
+      }
+    }
+  }
+  denom <- min(sum(a$width, na.rm = TRUE), sum(b$width, na.rm = TRUE))
+  if (!is.finite(denom) || denom <= 0) {
+    return(0)
+  }
+  overlap / denom
+}
+
+.dnmb_prophage_prune_reference_candidates <- function(segment_tbl, candidate_meta, max_refs = 5L) {
+  if (!is.data.frame(candidate_meta) || !nrow(candidate_meta)) {
+    return(character())
+  }
+  candidate_meta <- candidate_meta[order(-candidate_meta$score, -candidate_meta$coverage, -candidate_meta$identity), , drop = FALSE]
+  n <- nrow(candidate_meta)
+  if (n <= 1L) {
+    return(candidate_meta$row[seq_len(min(n, max_refs))])
+  }
+
+  adjacency <- vector("list", n)
+  for (i in seq_len(n)) {
+    adjacency[[i]] <- i
+  }
+
+  for (i in seq_len(n - 1L)) {
+    row_i <- candidate_meta$row[[i]]
+    key_i <- candidate_meta$cluster_key[[i]]
+    tbl_i <- segment_tbl[segment_tbl$row == row_i & segment_tbl$segment_type == "gene" & segment_tbl$fill_hex != "#FFFFFF", , drop = FALSE]
+    for (j in seq.int(i + 1L, n)) {
+      row_j <- candidate_meta$row[[j]]
+      key_j <- candidate_meta$cluster_key[[j]]
+      same_named_cluster <- !is.na(key_i) && nzchar(key_i) && !is.na(key_j) && nzchar(key_j) && identical(key_i, key_j)
+      tbl_j <- segment_tbl[segment_tbl$row == row_j & segment_tbl$segment_type == "gene" & segment_tbl$fill_hex != "#FFFFFF", , drop = FALSE]
+      ov_frac <- .dnmb_prophage_query_overlap_fraction(tbl_i, tbl_j)
+      similar_id <- abs(candidate_meta$identity[[i]] - candidate_meta$identity[[j]]) <= 3
+      similar_cov <- abs(candidate_meta$coverage[[i]] - candidate_meta$coverage[[j]]) <= 8
+      similar_len <- abs(candidate_meta$row_len[[i]] - candidate_meta$row_len[[j]]) <= max(500, 0.05 * max(candidate_meta$row_len[[i]], candidate_meta$row_len[[j]]))
+      same_alignment_cluster <- ov_frac >= 0.92 && similar_id && similar_cov && similar_len
+      if (same_named_cluster || same_alignment_cluster) {
+        adjacency[[i]] <- c(adjacency[[i]], j)
+        adjacency[[j]] <- c(adjacency[[j]], i)
+      }
+    }
+  }
+
+  component_id <- rep(NA_integer_, n)
+  component_counter <- 0L
+  for (i in seq_len(n)) {
+    if (!is.na(component_id[[i]])) next
+    component_counter <- component_counter + 1L
+    stack <- i
+    while (length(stack)) {
+      cur <- stack[[length(stack)]]
+      stack <- stack[-length(stack)]
+      if (!is.na(component_id[[cur]])) next
+      component_id[[cur]] <- component_counter
+      nbrs <- adjacency[[cur]]
+      stack <- c(stack, nbrs[is.na(component_id[nbrs])])
+    }
+  }
+
+  candidate_meta$component_id <- component_id
+  reps <- lapply(split(candidate_meta, candidate_meta$component_id), function(df) {
+    df <- df[order(-df$score, -df$coverage, -df$identity), , drop = FALSE]
+    df[1, , drop = FALSE]
+  })
+  rep_meta <- dplyr::bind_rows(reps)
+  rep_meta <- rep_meta[order(-rep_meta$score, -rep_meta$coverage, -rep_meta$identity), , drop = FALSE]
+  head(rep_meta$row, max_refs)
+}
+
 .dnmb_prophage_alignment_identity <- function(aln_tbl) {
   if (!is.data.frame(aln_tbl) || !nrow(aln_tbl)) {
     return(NA_real_)
@@ -787,6 +884,7 @@
     }
     muts[[length(muts) + 1L]] <- data.frame(
       position = pos,
+      query_position = pos,
       ref_position = ref_pos[[pos]],
       class = cls,
       stringsAsFactors = FALSE
@@ -820,6 +918,7 @@
     }
     mapped_ref <- ref_pos[idx]
     mapped_ref <- mapped_ref[is.finite(mapped_ref)]
+    mapped_query <- idx[is.finite(ref_pos[idx])]
     data.frame(
       segment_id = segment_tbl$segment_id[[i]],
       segment_type = segment_tbl$segment_type[[i]],
@@ -827,6 +926,8 @@
       query_end = en,
       start = if (length(mapped_ref)) min(mapped_ref) else NA_real_,
       end = if (length(mapped_ref)) max(mapped_ref) else NA_real_,
+      projected_query_start = if (length(mapped_query)) min(mapped_query) else st,
+      projected_query_end = if (length(mapped_query)) max(mapped_query) else en,
       query_span = en - st + 1,
       aligned_frac = aligned_frac,
       pident = pident,
@@ -990,6 +1091,38 @@
   dplyr::bind_rows(out)
 }
 
+.dnmb_prophage_union_width <- function(start, end) {
+  start <- suppressWarnings(as.numeric(start))
+  end <- suppressWarnings(as.numeric(end))
+  keep <- is.finite(start) & is.finite(end)
+  if (!any(keep)) {
+    return(NA_real_)
+  }
+  iv <- data.frame(
+    start = pmin(start[keep], end[keep]),
+    end = pmax(start[keep], end[keep]),
+    stringsAsFactors = FALSE
+  )
+  iv <- iv[order(iv$start, iv$end), , drop = FALSE]
+  cur_s <- iv$start[[1]]
+  cur_e <- iv$end[[1]]
+  total <- 0
+  if (nrow(iv) > 1L) {
+    for (i in 2:nrow(iv)) {
+      s <- iv$start[[i]]
+      e <- iv$end[[i]]
+      if (s <= cur_e + 1) {
+        cur_e <- max(cur_e, e)
+      } else {
+        total <- total + (cur_e - cur_s + 1)
+        cur_s <- s
+        cur_e <- e
+      }
+    }
+  }
+  total + (cur_e - cur_s + 1)
+}
+
 .dnmb_prophage_chain_rows <- function(segment_tbl, row_identity_map) {
   rows <- names(row_identity_map)
   if (length(rows) <= 1L) {
@@ -1029,8 +1162,157 @@
   order_out
 }
 
-.dnmb_plot_prophage_reference_panel <- function(sub_tbl, region_id, output_dir, top_n = 5L, cache_root = NULL) {
+.dnmb_prophage_reference_shared_legend_plot <- function(max_len = 5000L) {
+  max_len <- suppressWarnings(as.numeric(max_len)[1])
+  if (!is.finite(max_len) || max_len <= 0) {
+    max_len <- 5000
+  }
+  scale_len <- if (max_len >= 5000) 5000 else if (max_len >= 2000) 2000 else 1000
+  grad_vals <- seq(40, 95, length.out = 30L)
+  grad_fun <- scales::col_numeric(palette = c("#D8E5FF", "#7FB1FF", "#1D4ED8"), domain = c(40, 95))
+  scale_tbl <- data.frame(x = 0.08, xend = 0.22, y = 0.52, label = .dnmb_fmt_bp_label(scale_len))
+  identity_legend_tbl <- data.frame(
+    xmin = seq(0.42, 0.72, length.out = length(grad_vals)),
+    xmax = seq(0.42, 0.72, length.out = length(grad_vals)) + 0.30 / length(grad_vals),
+    ymin = 0.38,
+    ymax = 0.66,
+    fill_hex = grad_fun(grad_vals)
+  )
+  identity_label_tbl <- data.frame(x = 0.42, y = 0.80, label = "Identity (%)")
+  identity_tick_tbl <- data.frame(x = c(0.42, 0.72 + 0.30 / length(grad_vals)), y = c(0.26, 0.26), label = c("40", "95"))
+  ggplot2::ggplot() +
+    ggplot2::geom_segment(data = scale_tbl, ggplot2::aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$y), linewidth = 0.5, color = "grey35", inherit.aes = FALSE) +
+    ggplot2::geom_text(data = scale_tbl, ggplot2::aes(x = (.data$x + .data$xend) / 2, y = .data$y - 0.18, label = .data$label), size = 3.0, vjust = 1, inherit.aes = FALSE) +
+    ggplot2::geom_rect(data = identity_legend_tbl, ggplot2::aes(xmin = .data$xmin, xmax = .data$xmax, ymin = .data$ymin, ymax = .data$ymax, fill = .data$fill_hex), color = NA, inherit.aes = FALSE) +
+    ggplot2::geom_text(data = identity_label_tbl, ggplot2::aes(x = .data$x, y = .data$y, label = .data$label), hjust = 0, size = 2.8, color = "#4B5563", inherit.aes = FALSE) +
+    ggplot2::geom_text(data = identity_tick_tbl, ggplot2::aes(x = .data$x, y = .data$y, label = .data$label), hjust = c(0, 1), size = 2.5, color = "#6B7280", inherit.aes = FALSE) +
+    ggplot2::scale_fill_identity() +
+    ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), clip = "off") +
+    ggplot2::theme_void(base_size = 11) +
+    ggplot2::theme(plot.margin = ggplot2::margin(0, 40, 4, 12))
+}
+
+.dnmb_prophage_reference_style_spec <- function(embedded = FALSE, n_ref_rows = 1L) {
+  n_ref_rows <- max(1L, as.integer(n_ref_rows[1]))
+  multi_ref_extra <- max(0, n_ref_rows - 1L)
+  lane_fill_pad <- 0.0045 + multi_ref_extra * 0.0030
+  inter_ref_ribbon_clearance <- 0.018 + multi_ref_extra * 0.012
+  inter_ref_ribbon_alpha_scale <- max(0.30, 0.62 - multi_ref_extra * 0.14)
+  inter_ref_taper_frac <- min(0.34, 0.20 + multi_ref_extra * 0.05)
+  inter_ref_taper_min_bp <- 10
+  embedded_label_gutter <- 0.016 + max(0, n_ref_rows - 1L) * 0.004
+  embedded_label_margin <- 118 + max(0, n_ref_rows - 1L) * 22
+  embedded_label_size <- max(2.0, 2.45 - max(0, n_ref_rows - 1L) * 0.18)
+  embedded_projection_gain <- 1.00
+  list(
+    lane_fill_pad = lane_fill_pad,
+    lane_cap_outer_multiplier = 1.9,
+    lane_cap_inner_multiplier = 1.7,
+    query_outline_width = 0.10,
+    ref_outline_width = 0.08,
+    lane_outline_width = 0.18,
+    ribbon_alpha_min = 0.24,
+    ribbon_alpha_max = 0.82,
+    embedded_base_taper_frac = 0.02,
+    embedded_identity_taper_frac = 0.10,
+    embedded_taper_min_bp = 4,
+    inter_ref_ribbon_clearance = inter_ref_ribbon_clearance,
+    inter_ref_ribbon_alpha_scale = inter_ref_ribbon_alpha_scale,
+    inter_ref_taper_frac = inter_ref_taper_frac,
+    inter_ref_taper_min_bp = inter_ref_taper_min_bp,
+    embedded_projection_gain = embedded_projection_gain,
+    label_gutter_frac = if (embedded) embedded_label_gutter else 0.018,
+    label_right_margin = if (embedded) embedded_label_margin else 165,
+    label_size = if (embedded) embedded_label_size else 2.8,
+    panel_bottom_pad = if (embedded) 0.02 else 0.05,
+    panel_top_pad = if (embedded) 0 else 0.05
+  )
+}
+
+.dnmb_prophage_project_interval_to_query_axis <- function(start, end, src_min, src_max, query_len) {
+  start <- suppressWarnings(as.numeric(start)[1])
+  end <- suppressWarnings(as.numeric(end)[1])
+  src_min <- suppressWarnings(as.numeric(src_min)[1])
+  src_max <- suppressWarnings(as.numeric(src_max)[1])
+  query_len <- suppressWarnings(as.numeric(query_len)[1])
+  if (!all(is.finite(c(start, end, src_min, src_max, query_len))) ||
+      src_max <= src_min || query_len <= 0) {
+    return(c(start, end))
+  }
+  st <- min(start, end)
+  en <- max(start, end)
+  if ((src_max - src_min) <= 1 || query_len <= 1) {
+    return(c(1, max(1, query_len)))
+  }
+  p_st <- 1 + (st - src_min) * (query_len - 1) / (src_max - src_min)
+  p_en <- 1 + (en - src_min) * (query_len - 1) / (src_max - src_min)
+  c(max(1, p_st), min(query_len, p_en))
+}
+
+.dnmb_prophage_rescale_interval_to_frame <- function(start, end, src_len, dst_min, dst_max) {
+  start <- suppressWarnings(as.numeric(start)[1])
+  end <- suppressWarnings(as.numeric(end)[1])
+  src_len <- suppressWarnings(as.numeric(src_len)[1])
+  dst_min <- suppressWarnings(as.numeric(dst_min)[1])
+  dst_max <- suppressWarnings(as.numeric(dst_max)[1])
+  if (!all(is.finite(c(start, end, src_len, dst_min, dst_max))) || src_len <= 0 || dst_max <= dst_min) {
+    return(c(start, end))
+  }
+  st <- min(start, end)
+  en <- max(start, end)
+  if (src_len <= 1) {
+    return(c(dst_min, dst_max))
+  }
+  span <- dst_max - dst_min
+  p_st <- dst_min + (st - 1) * span / (src_len - 1)
+  p_en <- dst_min + (en - 1) * span / (src_len - 1)
+  c(max(dst_min, p_st), min(dst_max, p_en))
+}
+
+.dnmb_prophage_rescale_interval_between_domains <- function(start, end, src_min, src_max, dst_min, dst_max) {
+  start <- suppressWarnings(as.numeric(start)[1])
+  end <- suppressWarnings(as.numeric(end)[1])
+  src_min <- suppressWarnings(as.numeric(src_min)[1])
+  src_max <- suppressWarnings(as.numeric(src_max)[1])
+  dst_min <- suppressWarnings(as.numeric(dst_min)[1])
+  dst_max <- suppressWarnings(as.numeric(dst_max)[1])
+  if (!all(is.finite(c(start, end, src_min, src_max, dst_min, dst_max))) || src_max <= src_min || dst_max <= dst_min) {
+    return(c(start, end))
+  }
+  st <- min(start, end)
+  en <- max(start, end)
+  p_st <- dst_min + (st - src_min) * (dst_max - dst_min) / (src_max - src_min)
+  p_en <- dst_min + (en - src_min) * (dst_max - dst_min) / (src_max - src_min)
+  c(max(dst_min, p_st), min(dst_max, p_en))
+}
+
+.dnmb_prophage_comparison_layout <- function(n_ref_rows) {
+  n_ref_rows <- max(1L, as.integer(n_ref_rows[1]))
+  gene_full_height <- 0.08 * 0.60
+  lane_inner_half <- gene_full_height / 2
+  lane_border_gap <- 0.004
+  lane_outer_half <- lane_inner_half + lane_border_gap
+  row_pitch <- 0.20
+  ref_base_y <- 0.20
+  ref_top_y <- ref_base_y + (n_ref_rows - 1L) * row_pitch
+  ref_centers <- ref_top_y - (seq_len(n_ref_rows) - 1L) * row_pitch
+  query_y <- ref_top_y + row_pitch
+  list(
+    gene_full_height = gene_full_height,
+    lane_inner_half = lane_inner_half,
+    lane_outer_half = lane_outer_half,
+    lane_border_gap = lane_border_gap,
+    row_pitch = row_pitch,
+    ref_centers = ref_centers,
+    query_y = query_y,
+    panel_top = query_y + lane_outer_half + 0.03,
+    panel_bottom = min(ref_centers) - lane_outer_half - 0.08
+  )
+}
+
+.dnmb_plot_prophage_reference_panel <- function(sub_tbl, region_id, output_dir, top_n = 5L, cache_root = NULL, embedded = FALSE, show_panel_legend = FALSE) {
   text_family <- "sans"
+  sub_tbl <- .dnmb_prophage_apply_detected_bounds(sub_tbl, output_dir = output_dir, region_id = region_id)
   gbff_path <- .dnmb_find_gbff_for_plot(output_dir)
   if (is.null(gbff_path) || !file.exists(gbff_path)) {
     return(NULL)
@@ -1050,8 +1332,18 @@
   if (is.na(query_sequence) || !nzchar(query_sequence)) {
     return(NULL)
   }
-  region_start <- min(pmin(as.numeric(sub_tbl$start), as.numeric(sub_tbl$end)), na.rm = TRUE)
-  region_end <- max(pmax(as.numeric(sub_tbl$start), as.numeric(sub_tbl$end)), na.rm = TRUE)
+  region_start_col <- .dnmb_pick_column(sub_tbl, c("Prophage_prophage_start", "prophage_start"))
+  region_end_col <- .dnmb_pick_column(sub_tbl, c("Prophage_prophage_end", "prophage_end"))
+  region_start <- if (!is.null(region_start_col) && any(!is.na(sub_tbl[[region_start_col]]))) {
+    suppressWarnings(min(as.numeric(sub_tbl[[region_start_col]]), na.rm = TRUE))
+  } else {
+    min(pmin(as.numeric(sub_tbl$start), as.numeric(sub_tbl$end)), na.rm = TRUE)
+  }
+  region_end <- if (!is.null(region_end_col) && any(!is.na(sub_tbl[[region_end_col]]))) {
+    suppressWarnings(max(as.numeric(sub_tbl[[region_end_col]]), na.rm = TRUE))
+  } else {
+    max(pmax(as.numeric(sub_tbl$start), as.numeric(sub_tbl$end)), na.rm = TRUE)
+  }
   if (!is.finite(region_start) || !is.finite(region_end) || region_end <= region_start) {
     return(NULL)
   }
@@ -1060,7 +1352,7 @@
   cache_dir <- .dnmb_prophage_reference_cache_dir(output_dir, region_id)
   query_fasta <- file.path(cache_dir, "query_region.fna")
   .dnmb_write_single_fasta(paste0("Prophage_", region_id), query_region_seq, query_fasta)
-  hit_tbl <- .dnmb_prophage_remote_reference_hits(query_fasta, cache_dir = cache_dir, top_n = top_n, cache_root = cache_root)
+  hit_tbl <- .dnmb_prophage_remote_reference_hits(query_fasta, cache_dir = cache_dir, top_n = max(12L, top_n * 4L), cache_root = cache_root)
   if (!nrow(hit_tbl)) {
     return(NULL)
   }
@@ -1079,6 +1371,7 @@
   row_identity_map <- numeric()
   row_coverage_map <- numeric()
   row_length_map <- c("Query prophage" = query_len)
+  row_effective_len_map <- c("Query prophage" = query_len)
 
   for (i in seq_len(nrow(hit_tbl))) {
     acc <- hit_tbl$accession[[i]]
@@ -1146,6 +1439,13 @@
     }
     seg_profile$start <- pmax(1, pmin(ref_total_len, seg_profile$start))
     seg_profile$end   <- pmax(1, pmin(ref_total_len, seg_profile$end))
+    seg_profile$ref_window_start <- ref_interval$ref_start
+    seg_profile$ref_window_end <- ref_interval$ref_end
+    seg_profile$ref_total_len <- ref_total_len
+    seg_profile$effective_ref_span <- max(
+      1,
+      .dnmb_prophage_union_width(seg_profile$start, seg_profile$end)
+    )
     seg_profile$row <- acc
     seg_profile$fill_hex <- ifelse(
       !is.na(seg_profile$pident) & !is.na(seg_profile$aligned_frac) & seg_profile$pident >= 40 & seg_profile$aligned_frac >= 10,
@@ -1166,14 +1466,19 @@
       row = acc,
       label = paste0(
         ref_short,
+        " (", .dnmb_fmt_bp_label(ref_total_len), ")",
         "\n",
-        sprintf("%.1f%% id | %.1f%% cov", profile_identity, profile_coverage)
+        "Coverage ", sprintf("%.1f", profile_coverage),
+        "\n",
+        "Identity (%) ", sprintf("%.1f", profile_identity)
       ),
       stringsAsFactors = FALSE
     )
     row_identity_map[[acc]] <- profile_identity
     row_coverage_map[[acc]] <- profile_coverage
     row_length_map[[acc]] <- ref_total_len
+    cov_scaled_len <- max(1, query_len * (profile_coverage / 100))
+    row_effective_len_map[[acc]] <- min(seg_profile$effective_ref_span[[1]], cov_scaled_len)
   }
 
   segment_tbl <- dplyr::bind_rows(ref_seg_rows)
@@ -1182,34 +1487,101 @@
   if (!nrow(segment_tbl)) {
     return(NULL)
   }
+  candidate_meta <- data.frame(
+    row = names(row_identity_map),
+    identity = as.numeric(row_identity_map),
+    coverage = as.numeric(row_coverage_map),
+    score = as.numeric(row_identity_map) * as.numeric(row_coverage_map) / 100,
+    row_len = as.numeric(row_length_map[names(row_identity_map)]),
+    cluster_key = vapply(names(row_identity_map), function(r) {
+      idx <- which(label_tbl$row == r)
+      if (!length(idx)) return(NA_character_)
+      .dnmb_prophage_reference_cluster_key(label_tbl$label[[idx[1]]])
+    }, character(1)),
+    stringsAsFactors = FALSE
+  )
+  keep_rows <- .dnmb_prophage_prune_reference_candidates(segment_tbl, candidate_meta, max_refs = top_n)
+  if (!length(keep_rows)) {
+    return(NULL)
+  }
+  segment_tbl <- segment_tbl[segment_tbl$row %in% keep_rows, , drop = FALSE]
+  snv_tbl <- snv_tbl[snv_tbl$row %in% keep_rows, , drop = FALSE]
+  label_tbl <- label_tbl[label_tbl$row %in% keep_rows, , drop = FALSE]
+  row_identity_map <- row_identity_map[keep_rows]
+  row_coverage_map <- row_coverage_map[keep_rows]
+  row_length_map <- c("Query prophage" = query_len, row_length_map[keep_rows])
+  row_effective_len_map <- c("Query prophage" = query_len, row_effective_len_map[keep_rows])
   # Sort by composite score (coverage * identity) so best overall match is on top
   row_score_map <- row_identity_map * row_coverage_map / 100
-  row_levels <- c("Query prophage", names(sort(row_score_map, decreasing = TRUE)))
-  row_spacing <- 1.10
-  row_map <- stats::setNames(rev(seq_along(row_levels)) * row_spacing, row_levels)
-  max_row_len <- max(as.numeric(row_length_map[row_levels]), na.rm = TRUE)
+  ref_order <- names(sort(row_score_map, decreasing = TRUE))
+  row_levels <- c("Query prophage", ref_order)
+  layout_spec <- .dnmb_prophage_comparison_layout(length(ref_order))
+  style_spec <- .dnmb_prophage_reference_style_spec(
+    embedded = embedded,
+    n_ref_rows = length(ref_order)
+  )
+  # Panel frame = query's native bp frame [1, query_len]. Storyboard above uses
+  # the same scale, so query bp-per-pixel matches storyboard exactly.
+  # Each ref row is rescaled from its native bp [1, ref_native_len] into the panel
+  # frame — ref segments therefore show where in the ref a region sits (ribbons
+  # become diagonal because ref bp ≠ query bp even when they align), while the
+  # visible row width still equals the query width instead of stretching with ref.
+  row_native_len_map <- row_length_map
+  row_native_len_map[["Query prophage"]] <- query_len
+  panel_len <- query_len
+  row_xmin_map <- stats::setNames(rep(1, length(row_levels)), row_levels)
+  row_xmax_map <- stats::setNames(rep(panel_len, length(row_levels)), row_levels)
+  row_map <- c("Query prophage" = layout_spec$query_y, stats::setNames(layout_spec$ref_centers, ref_order))
+  draw_row_levels <- if (embedded) ref_order else row_levels
+
+  rescale_native_to_panel <- function(pos, native_len) {
+    native_len <- as.numeric(native_len)
+    pos <- as.numeric(pos)
+    out <- pos
+    ok <- is.finite(native_len) & native_len > 1 & is.finite(panel_len) & panel_len > 1
+    if (length(native_len) == 1L) {
+      if (isTRUE(ok)) out <- 1 + (pos - 1) * (panel_len - 1) / (native_len - 1)
+    } else {
+      idx <- which(ok & is.finite(pos))
+      if (length(idx)) out[idx] <- 1 + (pos[idx] - 1) * (panel_len - 1) / (native_len[idx] - 1)
+    }
+    out
+  }
+
   segment_tbl$y <- row_map[segment_tbl$row]
   snv_tbl$y <- row_map[snv_tbl$row]
+
+  # Ref segment bottom x: native ref bp rescaled so the ref's full length spans the
+  # same width as the query. Diagonal ribbons emerge because query_start/query_end
+  # (top) and the ref's own ref_start/ref_end position (bottom) are on different
+  # percentages of each row's native length.
+  seg_native_len <- as.numeric(row_native_len_map[segment_tbl$row])
+  segment_tbl$plot_start <- pmax(1, pmin(panel_len, rescale_native_to_panel(segment_tbl$start, seg_native_len)))
+  segment_tbl$plot_end   <- pmax(1, pmin(panel_len, rescale_native_to_panel(segment_tbl$end,   seg_native_len)))
   if (is.data.frame(label_tbl) && nrow(label_tbl) && "row" %in% names(label_tbl)) {
     label_tbl$y <- row_map[label_tbl$row]
-    label_tbl$x_label <- as.numeric(row_length_map[label_tbl$row]) + max_row_len * 0.018
+    label_tbl$x_label <- as.numeric(row_xmax_map[label_tbl$row]) + panel_len * style_spec$label_gutter_frac
+    label_tbl$label_hjust <- 0
   } else {
     label_tbl <- data.frame(row = character(), label = character(), y = numeric(), stringsAsFactors = FALSE)
   }
 
-  lane_outer_half <- 0.090
-  lane_border_gap <- 0.008
-  lane_inner_half <- lane_outer_half - lane_border_gap
-  lane_fill_pad <- 0.0015
-  lane_cap_x_radius_outer <- function(row_len) max(lane_outer_half * 1.9, row_len * 0.0105)
-  lane_cap_x_radius_inner <- function(row_len) max(lane_inner_half * 1.7, row_len * 0.0095)
+  lane_outer_half <- layout_spec$lane_outer_half
+  lane_border_gap <- layout_spec$lane_border_gap
+  lane_inner_half <- layout_spec$lane_inner_half
+  lane_fill_pad <- style_spec$lane_fill_pad
+  lane_cap_x_radius_outer <- function(row_len) lane_outer_half * style_spec$lane_cap_outer_multiplier
+  lane_cap_x_radius_inner <- function(row_len) lane_inner_half * style_spec$lane_cap_inner_multiplier
   gene_bar_half <- lane_inner_half - lane_fill_pad
   aux_bar_half <- gene_bar_half
   snv_tick_half <- lane_inner_half - 0.004
+  query_anchor_y <- unname(row_map[["Query prophage"]]) - gene_bar_half
 
   query_bar_tbl <- query_genes
-  query_bar_tbl$xmin <- query_bar_tbl$plot_start
-  query_bar_tbl$xmax <- query_bar_tbl$plot_end
+  # Query genes are already in query-local bp [1, query_len] — that is also the
+  # panel frame, so no rescale is needed.
+  query_bar_tbl$xmin <- pmax(1, pmin(panel_len, as.numeric(query_bar_tbl$plot_start)))
+  query_bar_tbl$xmax <- pmax(1, pmin(panel_len, as.numeric(query_bar_tbl$plot_end)))
   query_bar_tbl$y <- row_map[["Query prophage"]]
   query_bar_tbl$bar_hex <- unname(palette[query_bar_tbl$category])
   query_bar_tbl$bar_hex[is.na(query_bar_tbl$bar_hex)] <- "#9270CA"
@@ -1248,20 +1620,21 @@
         NULL
       }
       for (j in seq_len(nrow(lower_segs))) {
-        # Top coordinates: query position (for Query row) or ref position (for ref rows)
-        qs <- lower_segs$query_start[[j]]
-        qe <- lower_segs$query_end[[j]]
+        # All ribbon endpoints live on the query-anchored panel frame [1, query_len],
+        # so ribbons are simple rectangles spanning the query bp range that aligns
+        # between the two rows.
+        qs <- pmax(1, pmin(panel_len, as.numeric(lower_segs$query_start[[j]])))
+        qe <- pmax(1, pmin(panel_len, as.numeric(lower_segs$query_end[[j]])))
         if (identical(upper_row, "Query prophage")) {
           top_left <- qs
           top_right <- qe
           top_half <- gene_bar_half
         } else if (!is.null(upper_segs) && nrow(upper_segs)) {
-          # Find matching upper segment by segment_id
           match_idx <- which(upper_segs$segment_id == lower_segs$segment_id[[j]])
           if (length(match_idx)) {
             us <- upper_segs[match_idx[1], ]
-            top_left <- if (is.finite(us$start)) us$start else qs
-            top_right <- if (is.finite(us$end)) us$end else qe
+            top_left <- if (is.finite(us$plot_start)) us$plot_start else qs
+            top_right <- if (is.finite(us$plot_end))   us$plot_end   else qe
             top_half <- if (is.finite(us$render_half)) us$render_half else gene_bar_half
           } else {
             top_left <- qs
@@ -1273,21 +1646,39 @@
           top_right <- qe
           top_half <- gene_bar_half
         }
-        # Bottom coordinates: reference position from lower row (clamped to query range)
-        rs <- lower_segs$start[[j]]
-        re <- lower_segs$end[[j]]
-        lower_row_len <- as.numeric(row_length_map[[lower_row]])
-        bottom_left <- pmax(1, pmin(lower_row_len, if (is.finite(rs)) rs else qs))
-        bottom_right <- pmax(1, pmin(lower_row_len, if (is.finite(re)) re else qe))
+        bottom_left  <- if (is.finite(lower_segs$plot_start[[j]])) lower_segs$plot_start[[j]] else qs
+        bottom_right <- if (is.finite(lower_segs$plot_end[[j]]))   lower_segs$plot_end[[j]]   else qe
         bottom_half <- if (is.finite(lower_segs$render_half[[j]])) lower_segs$render_half[[j]] else aux_bar_half
-        top_y <- upper_y - top_half
+        top_y <- if (embedded && identical(upper_row, "Query prophage")) query_anchor_y else upper_y - top_half
         bottom_y <- lower_y + bottom_half
+        pident_val <- lower_segs$pident[[j]]
+        if (!identical(upper_row, "Query prophage")) {
+          top_y <- top_y - style_spec$inter_ref_ribbon_clearance
+          bottom_y <- bottom_y + style_spec$inter_ref_ribbon_clearance
+        }
         top_w <- max(1, top_right - top_left + 1)
         bottom_w <- max(1, bottom_right - bottom_left + 1)
-        top_taper <- min(top_w * 0.10, max(6, top_w * 0.16))
-        bottom_taper <- min(bottom_w * 0.10, max(6, bottom_w * 0.16))
-        pident_val <- lower_segs$pident[[j]]
-        alpha_val <- pmin(0.92, pmax(0.34, scales::rescale(pident_val, to = c(0.34, 0.92), from = c(40, 100))))
+        if (embedded) {
+          # Embedded panels keep projected alignment, but use a small identity-aware
+          # taper so ribbons remain readable instead of collapsing into vertical boxes.
+          taper_frac <- style_spec$embedded_base_taper_frac +
+            (1 - pmin(100, pmax(40, pident_val)) / 100) * style_spec$embedded_identity_taper_frac
+          top_taper <- min(top_w * (taper_frac * 0.6), max(style_spec$embedded_taper_min_bp, top_w * 0.01))
+          bottom_taper <- min(bottom_w * taper_frac, max(style_spec$embedded_taper_min_bp, bottom_w * 0.015))
+        } else {
+          taper_frac <- if (embedded) style_spec$inter_ref_taper_frac else 0.10
+          taper_min_bp <- if (embedded) style_spec$inter_ref_taper_min_bp else 6
+          top_taper <- min(top_w * taper_frac, max(taper_min_bp, top_w * 0.16))
+          bottom_taper <- min(bottom_w * taper_frac, max(taper_min_bp, bottom_w * 0.16))
+        }
+        alpha_val <- pmin(style_spec$ribbon_alpha_max, pmax(style_spec$ribbon_alpha_min, scales::rescale(
+          pident_val,
+          to = c(style_spec$ribbon_alpha_min, style_spec$ribbon_alpha_max),
+          from = c(40, 100)
+        )))
+        if (!identical(upper_row, "Query prophage")) {
+          alpha_val <- alpha_val * style_spec$inter_ref_ribbon_alpha_scale
+        }
         seg_mid <- (qs + qe) / 2
         gene_idx <- which(query_genes$plot_start <= seg_mid & query_genes$plot_end >= seg_mid)
         seg_category <- if (length(gene_idx)) as.character(query_genes$category[[gene_idx[1]]]) else "Other"
@@ -1319,14 +1710,16 @@
     snv_palette <- c("Synonymous" = "#A5BFF9", "Nonsynonymous" = "#2563EB", "Noncoding" = "#D9468B")
     snv_tbl$color_hex <- unname(snv_palette[snv_tbl$class])
     snv_tbl$color_hex[is.na(snv_tbl$color_hex)] <- "#94A3B8"
+    # SNVs are plotted at the query bp position where the mismatch lives, since the
+    # panel is now query-anchored.
+    snv_tbl$plot_position <- pmax(1, pmin(panel_len, as.numeric(snv_tbl$query_position)))
     snv_tbl <- dplyr::bind_rows(lapply(split(snv_tbl, snv_tbl$row), function(d) {
-      row_len <- as.numeric(row_length_map[[unique(d$row)[1]]])
       snv_allowed_half <- .dnmb_prophage_capsule_half_height_at_x(
-        x = d$position,
+        x = d$plot_position,
         lane_xmin = 1,
-        lane_xmax = row_len,
+        lane_xmax = panel_len,
         half_height = lane_inner_half,
-        x_radius = lane_cap_x_radius_inner(row_len)
+        x_radius = lane_cap_x_radius_inner(panel_len)
       )
       snv_half <- pmin(snv_tick_half, pmax(0.004, snv_allowed_half - 0.003))
       d$ymin <- d$y - snv_half
@@ -1335,42 +1728,23 @@
     }))
   }
 
-  scale_len <- if (max_row_len >= 5000) 5000 else if (max_row_len >= 2000) 2000 else 1000
-  legend_y_base <- -0.55
-  scale_tbl <- data.frame(x = 1, xend = scale_len + 1, y = legend_y_base + 0.10, label = .dnmb_fmt_bp_label(scale_len))
-  grad_fun <- scales::col_numeric(palette = c("#D8E5FF", "#7FB1FF", "#1D4ED8"), domain = c(40, 95))
-  grad_vals <- seq(40, 95, length.out = 30L)
-  grad_total_w <- max_row_len * 0.28
-  grad_xmin <- max_row_len * 0.36
-  grad_w <- grad_total_w / length(grad_vals)
-  identity_legend_tbl <- data.frame(
-    xmin = grad_xmin + grad_w * (seq_along(grad_vals) - 1L),
-    xmax = grad_xmin + grad_w * seq_along(grad_vals),
-    ymin = legend_y_base,
-    ymax = legend_y_base + 0.16,
-    fill_hex = grad_fun(grad_vals)
-  )
-  identity_label_tbl <- data.frame(x = grad_xmin, y = legend_y_base + 0.26, label = "Identity (%)", hjust = 0)
-  identity_tick_tbl <- data.frame(
-    x = c(identity_legend_tbl$xmin[[1]], identity_legend_tbl$xmax[[nrow(identity_legend_tbl)]]),
-    y = c(legend_y_base - 0.08, legend_y_base - 0.08),
-    label = c("40", "95")
-  )
-
   lane_tbl <- data.frame(
-    row = row_levels,
-    y = unname(row_map[row_levels]),
-    row_len = as.numeric(row_length_map[row_levels]),
+    row = draw_row_levels,
+    y = unname(row_map[draw_row_levels]),
+    x_min = as.numeric(row_xmin_map[draw_row_levels]),
+    x_max = as.numeric(row_xmax_map[draw_row_levels]),
     stringsAsFactors = FALSE
   )
   lane_outer_poly <- dplyr::bind_rows(lapply(seq_len(nrow(lane_tbl)), function(i) {
-    poly <- .dnmb_prophage_capsule_polygon(1, lane_tbl$row_len[[i]], lane_tbl$y[[i]], lane_outer_half, x_radius = lane_cap_x_radius_outer(lane_tbl$row_len[[i]]))
+    row_len <- lane_tbl$x_max[[i]] - lane_tbl$x_min[[i]] + 1
+    poly <- .dnmb_prophage_capsule_polygon(lane_tbl$x_min[[i]], lane_tbl$x_max[[i]], lane_tbl$y[[i]], lane_outer_half, x_radius = lane_cap_x_radius_outer(row_len))
     if (!nrow(poly)) return(NULL)
     poly$group <- paste0("lane_outer_", i)
     poly
   }))
   lane_inner_poly <- dplyr::bind_rows(lapply(seq_len(nrow(lane_tbl)), function(i) {
-    poly <- .dnmb_prophage_capsule_polygon(1, lane_tbl$row_len[[i]], lane_tbl$y[[i]], lane_inner_half, x_radius = lane_cap_x_radius_inner(lane_tbl$row_len[[i]]))
+    row_len <- lane_tbl$x_max[[i]] - lane_tbl$x_min[[i]] + 1
+    poly <- .dnmb_prophage_capsule_polygon(lane_tbl$x_min[[i]], lane_tbl$x_max[[i]], lane_tbl$y[[i]], lane_inner_half, x_radius = lane_cap_x_radius_inner(row_len))
     if (!nrow(poly)) return(NULL)
     poly$group <- paste0("lane_inner_", i)
     poly
@@ -1382,9 +1756,9 @@
       y_center = query_bar_tbl$y[[i]],
       bar_half = query_bar_tbl$bar_half[[i]],
       lane_xmin = 1,
-      lane_xmax = query_len,
+      lane_xmax = panel_len,
       lane_half = lane_inner_half,
-      lane_x_radius = lane_cap_x_radius_inner(query_len)
+      lane_x_radius = lane_cap_x_radius_inner(panel_len)
     )
     if (!nrow(poly)) return(NULL)
     poly$group <- paste0("query_bar_", i)
@@ -1393,14 +1767,14 @@
   }))
   ref_bar_poly <- dplyr::bind_rows(lapply(seq_len(nrow(segment_tbl)), function(i) {
     poly <- .dnmb_prophage_clipped_bar_polygon(
-      xmin = segment_tbl$query_start[[i]],
-      xmax = segment_tbl$query_end[[i]],
+      xmin = segment_tbl$plot_start[[i]],
+      xmax = segment_tbl$plot_end[[i]],
       y_center = segment_tbl$y[[i]],
       bar_half = segment_tbl$render_half[[i]],
-      lane_xmin = 1,
-      lane_xmax = as.numeric(row_length_map[[segment_tbl$row[[i]]]]),
+      lane_xmin = as.numeric(row_xmin_map[[segment_tbl$row[[i]]]]),
+      lane_xmax = as.numeric(row_xmax_map[[segment_tbl$row[[i]]]]),
       lane_half = lane_inner_half,
-      lane_x_radius = lane_cap_x_radius_inner(as.numeric(row_length_map[[segment_tbl$row[[i]]]]))
+      lane_x_radius = lane_cap_x_radius_inner(as.numeric(row_xmax_map[[segment_tbl$row[[i]]]] - row_xmin_map[[segment_tbl$row[[i]]]] + 1))
     )
     if (!nrow(poly)) return(NULL)
     poly$group <- paste0("ref_bar_", i)
@@ -1415,13 +1789,6 @@
       fill = "#C7CED7",
       color = NA,
       inherit.aes = FALSE
-    ) +
-    ggplot2::geom_polygon(
-      data = lane_inner_poly,
-      ggplot2::aes(x = .data$x, y = .data$y, group = .data$group),
-      fill = "#F4F6F8",
-      color = NA,
-      inherit.aes = FALSE
     )
   if (nrow(ribbon_tbl)) {
     p <- p + ggplot2::geom_polygon(
@@ -1432,11 +1799,22 @@
   }
   p <- p +
     ggplot2::geom_polygon(
-      data = query_bar_poly,
-      ggplot2::aes(x = .data$x, y = .data$y, group = .data$group, fill = .data$fill_hex),
+      data = lane_inner_poly,
+      ggplot2::aes(x = .data$x, y = .data$y, group = .data$group),
+      fill = "#F4F6F8",
       color = NA,
       inherit.aes = FALSE
-    ) +
+    )
+  if (!embedded) {
+    p <- p +
+      ggplot2::geom_polygon(
+        data = query_bar_poly,
+        ggplot2::aes(x = .data$x, y = .data$y, group = .data$group, fill = .data$fill_hex),
+        color = NA,
+        inherit.aes = FALSE
+      )
+  }
+  p <- p +
     ggplot2::geom_polygon(
       data = ref_bar_poly,
       ggplot2::aes(x = .data$x, y = .data$y, group = .data$group, fill = .data$fill_hex),
@@ -1448,25 +1826,28 @@
   if (show_snv && nrow(snv_tbl)) {
     p <- p + ggplot2::geom_segment(
       data = snv_tbl,
-      ggplot2::aes(x = .data$position, xend = .data$position, y = .data$ymin, yend = .data$ymax, color = .data$color_hex),
+      ggplot2::aes(x = .data$plot_position, xend = .data$plot_position, y = .data$ymin, yend = .data$ymax, color = .data$color_hex),
       linewidth = 0.34
     )
   }
+  if (!embedded) {
+    p <- p +
+      ggplot2::geom_polygon(
+        data = query_bar_poly,
+        ggplot2::aes(x = .data$x, y = .data$y, group = .data$group),
+        fill = NA,
+        color = "#AEB8C3",
+        linewidth = style_spec$query_outline_width,
+        inherit.aes = FALSE
+      )
+  }
   p <- p +
-    ggplot2::geom_polygon(
-      data = query_bar_poly,
-      ggplot2::aes(x = .data$x, y = .data$y, group = .data$group),
-      fill = NA,
-      color = "#AEB8C3",
-      linewidth = 0.10,
-      inherit.aes = FALSE
-    ) +
     ggplot2::geom_polygon(
       data = ref_bar_poly,
       ggplot2::aes(x = .data$x, y = .data$y, group = .data$group),
       fill = NA,
       color = "#B7C0CA",
-      linewidth = 0.08,
+      linewidth = style_spec$ref_outline_width,
       inherit.aes = FALSE
     ) +
     ggplot2::geom_polygon(
@@ -1474,35 +1855,58 @@
       ggplot2::aes(x = .data$x, y = .data$y, group = .data$group),
       fill = NA,
       color = "#B8C1CC",
-      linewidth = 0.18,
+      linewidth = style_spec$lane_outline_width,
       inherit.aes = FALSE
     ) +
-    ggplot2::geom_segment(data = scale_tbl, ggplot2::aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$y), linewidth = 0.5, color = "grey35") +
-    ggplot2::geom_rect(data = identity_legend_tbl, ggplot2::aes(xmin = .data$xmin, xmax = .data$xmax, ymin = .data$ymin, ymax = .data$ymax, fill = .data$fill_hex), color = NA, inherit.aes = FALSE) +
-    ggplot2::geom_text(data = identity_label_tbl, ggplot2::aes(x = .data$x, y = .data$y, label = .data$label), hjust = identity_label_tbl$hjust[[1]], vjust = 0.5, size = 2.8, color = "#4B5563", family = text_family, inherit.aes = FALSE) +
-    ggplot2::geom_text(data = identity_tick_tbl, ggplot2::aes(x = .data$x, y = .data$y, label = .data$label), hjust = c(0, 1), vjust = 0.5, size = 2.5, color = "#6B7280", family = text_family, inherit.aes = FALSE) +
-    ggplot2::geom_text(data = scale_tbl, ggplot2::aes(x = (.data$x + .data$xend) / 2, y = .data$y - 0.18, label = .data$label), size = 3.2, vjust = 1, family = text_family) +
-    ggplot2::geom_text(data = data.frame(label = "Query prophage", y = row_map[["Query prophage"]], x_label = query_len + max_row_len * 0.018), ggplot2::aes(x = .data$x_label, y = .data$y, label = .data$label), hjust = 0, vjust = 0.5, size = 3.1, fontface = "bold", family = text_family, inherit.aes = FALSE) +
-    ggplot2::geom_text(data = label_tbl, ggplot2::aes(x = .data$x_label, y = .data$y, label = .data$label), hjust = 0, vjust = 0.5, size = 2.8, lineheight = 0.92, family = text_family, inherit.aes = FALSE) +
+    ggplot2::geom_text(data = label_tbl, ggplot2::aes(x = .data$x_label, y = .data$y, label = .data$label), hjust = label_tbl$label_hjust[[1]], vjust = 0.5, size = style_spec$label_size, lineheight = 0.92, family = text_family, inherit.aes = FALSE) +
     ggplot2::scale_color_identity(guide = "none") +
     ggplot2::scale_alpha_identity() +
     ggplot2::scale_fill_identity() +
     ggplot2::scale_x_continuous(expand = c(0, 0)) +
-    ggplot2::coord_cartesian(xlim = c(1, max_row_len), ylim = c(legend_y_base - 0.20, max(row_map) + 0.32), clip = "off") +
-    ggplot2::labs(title = "Reference Phage Comparison", x = "Prophage coordinate (bp)", y = NULL) +
+    ggplot2::coord_cartesian(
+      xlim = c(1, panel_len),
+      ylim = c(
+        min(lane_tbl$y - lane_outer_half) - 0.05,
+        if (embedded) query_anchor_y else max(lane_tbl$y + lane_outer_half) + style_spec$panel_top_pad
+      ),
+      clip = "off"
+    ) +
+    ggplot2::labs(title = NULL, x = "Phage coordinate (bp)", y = NULL) +
     ggplot2::theme_bw(base_size = 11, base_family = text_family) +
     ggplot2::theme(
       panel.border = ggplot2::element_blank(),
       panel.grid = ggplot2::element_blank(),
-      plot.title = ggplot2::element_text(face = "bold", hjust = 0, family = text_family, size = 11.5, margin = ggplot2::margin(l = 18, b = 1.5)),
+      plot.title = ggplot2::element_blank(),
       axis.text.y = ggplot2::element_blank(),
       axis.ticks.y = ggplot2::element_blank(),
       axis.title.x = ggplot2::element_blank(),
       axis.text.x = ggplot2::element_blank(),
       axis.ticks.x = ggplot2::element_blank(),
       legend.position = "none",
-      plot.margin = ggplot2::margin(2, 250, 14, 12)
+      plot.margin = if (embedded) {
+        ggplot2::margin(0, style_spec$label_right_margin, 2, 12)
+      } else {
+        ggplot2::margin(2, style_spec$label_right_margin, 14, 12)
+      }
     ) +
     ggplot2::geom_hline(yintercept = 0.6, linewidth = 0.3, color = "#D1D5DB")
+  panel_ymin <- min(lane_tbl$y - lane_outer_half) - style_spec$panel_bottom_pad
+  panel_ymax <- max(
+    if (embedded) query_anchor_y else -Inf,
+    max(lane_tbl$y + lane_outer_half),
+    na.rm = TRUE
+  ) + style_spec$panel_top_pad
+  attr(p, "embedded_ok") <- TRUE
+  attr(p, "reference_rows") <- setdiff(row_levels, "Query prophage")
+  attr(p, "reference_row_count") <- length(draw_row_levels)
+  attr(p, "panel_ymin") <- panel_ymin
+  attr(p, "panel_ymax") <- panel_ymax
+  attr(p, "track_top") <- max(lane_tbl$y + lane_outer_half)
+  attr(p, "track_bottom") <- min(lane_tbl$y - lane_outer_half)
+  attr(p, "first_row_center") <- max(lane_tbl$y)
+  attr(p, "row_pitch") <- layout_spec$row_pitch
+  attr(p, "panel_y_span") <- panel_ymax - panel_ymin
+  attr(p, "plot_left_margin_pt") <- 12
+  attr(p, "plot_right_margin_pt") <- style_spec$label_right_margin
   p
 }

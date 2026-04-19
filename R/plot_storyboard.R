@@ -305,6 +305,7 @@
     poly
   })
   poly_tbl <- dplyr::bind_rows(Filter(Negate(is.null), poly_list))
+  poly_edge_tbl <- poly_tbl
   label_tbl <- NULL
   if (!is.null(label_col) && label_col %in% names(tbl)) {
     mid_angle <- .dnmb_arc_map_angle((tbl$start + tbl$end) / 2, xmin, xmax)
@@ -724,8 +725,10 @@
   gene_center_y <- 1.80
   gene_height <- 0.08 * 0.60
   gene_top_y <- gene_center_y + gene_height / 2
+  gene_bottom_y <- gene_center_y - gene_height / 2
+  gene_boundary_height <- gene_height * 0.10
   lower_top <- gene_top_y + 0.028
-  lower_bottom <- gene_center_y - gene_height / 2 - 0.012
+  lower_bottom <- gene_bottom_y - 0.012
   gene_left <- lower_left
   gene_right <- lower_right
   funnel_left <- gene_left + 0.22
@@ -810,6 +813,57 @@
   })
   poly_tbl <- dplyr::bind_rows(Filter(Negate(is.null), poly_list))
 
+  in_gene_label_tbl <- sub_tbl
+  in_gene_label_tbl$xmin_plot <- .dnmb_linear_map_x(
+    pmin(as.numeric(in_gene_label_tbl$start), as.numeric(in_gene_label_tbl$end)),
+    xmin = zoom_start,
+    xmax = zoom_end,
+    x_min_plot = gene_left,
+    x_max_plot = gene_right
+  )
+  in_gene_label_tbl$xmax_plot <- .dnmb_linear_map_x(
+    pmax(as.numeric(in_gene_label_tbl$start), as.numeric(in_gene_label_tbl$end)),
+    xmin = zoom_start,
+    xmax = zoom_end,
+    x_min_plot = gene_left,
+    x_max_plot = gene_right
+  )
+  in_gene_label_tbl$x <- (in_gene_label_tbl$xmin_plot + in_gene_label_tbl$xmax_plot) / 2
+  in_gene_label_tbl$plot_width <- abs(in_gene_label_tbl$xmax_plot - in_gene_label_tbl$xmin_plot)
+  old_locus_label <- if ("old_locus_tag" %in% names(in_gene_label_tbl)) trimws(as.character(in_gene_label_tbl$old_locus_tag)) else rep("", nrow(in_gene_label_tbl))
+  locus_label <- if ("locus_tag" %in% names(in_gene_label_tbl)) trimws(as.character(in_gene_label_tbl$locus_tag)) else rep("", nrow(in_gene_label_tbl))
+  base_locus_label <- ifelse(nzchar(locus_label), locus_label, old_locus_label)
+  wrapped_locus_label <- sub("_", "_\n", base_locus_label, fixed = TRUE)
+  fallback_label <- if ("gene" %in% names(in_gene_label_tbl)) trimws(as.character(in_gene_label_tbl$gene)) else rep("", nrow(in_gene_label_tbl))
+  in_gene_label_tbl$label <- ifelse(nzchar(base_locus_label), wrapped_locus_label, fallback_label)
+  max_line_chars <- vapply(
+    strsplit(in_gene_label_tbl$label, "\n", fixed = TRUE),
+    function(parts) {
+      parts <- parts[nzchar(parts)]
+      if (!length(parts)) return(0L)
+      max(nchar(parts), na.rm = TRUE)
+    },
+    integer(1)
+  )
+  line_count <- pmax(1L, lengths(strsplit(in_gene_label_tbl$label, "\n", fixed = TRUE)))
+  label_threshold <- pmax(0.50, max_line_chars * 0.082 + (line_count - 1) * 0.09)
+  in_gene_label_tbl$fill_hex <- unname(palette[as.character(in_gene_label_tbl$category)])
+  in_gene_label_tbl$fill_hex[is.na(in_gene_label_tbl$fill_hex)] <- "#9270CA"
+  in_gene_label_tbl$label_color <- vapply(in_gene_label_tbl$fill_hex, function(hex) {
+    rgb <- grDevices::col2rgb(hex) / 255
+    luminance <- 0.2126 * rgb[1] + 0.7152 * rgb[2] + 0.0722 * rgb[3]
+    if (is.finite(luminance) && luminance > 0.62) "#1F2937" else "white"
+  }, character(1))
+  in_gene_label_tbl <- in_gene_label_tbl[
+    !is.na(in_gene_label_tbl$label) &
+      nzchar(in_gene_label_tbl$label) &
+      is.finite(in_gene_label_tbl$plot_width) &
+      in_gene_label_tbl$plot_width >= label_threshold,
+    ,
+    drop = FALSE
+  ]
+  in_gene_label_tbl$y <- if (nrow(in_gene_label_tbl)) gene_center_y else numeric(0)
+
   core_categories <- c("Tail", "Head/packaging", "Integration", "Lysis", "Regulation", "DNA replication", "Anti-defense", "Recombination")
   label_tbl <- sub_tbl[sub_tbl$category %in% core_categories, , drop = FALSE]
   if (nrow(label_tbl)) {
@@ -840,7 +894,7 @@
 
   cluster_tick_tbl <- data.frame(
     x = c(gene_left, gene_right),
-    y = c(gene_center_y - gene_height / 2 - 0.006, gene_center_y - gene_height / 2 - 0.006),
+    y = c(gene_bottom_y - gene_boundary_height - 0.004, gene_bottom_y - gene_boundary_height - 0.004),
     label = c(.dnmb_fmt_bp_exact(zoom_start_raw), .dnmb_fmt_bp_exact(zoom_end_raw)),
     hjust = c(0, 1),
     stringsAsFactors = FALSE
@@ -875,16 +929,20 @@
       fill = grDevices::adjustcolor("white", alpha.f = 0.9),
       color = NA
     ) +
-    ggplot2::geom_segment(
-      ggplot2::aes(x = gene_left, xend = gene_right, y = gene_center_y, yend = gene_center_y),
-      linewidth = 0.35,
-      color = "grey45"
+    ggplot2::geom_rect(
+      ggplot2::aes(
+        xmin = gene_left,
+        xmax = gene_right,
+        ymin = gene_bottom_y - gene_boundary_height,
+        ymax = gene_bottom_y
+      ),
+      fill = "grey45",
+      color = NA
     ) +
     ggplot2::geom_polygon(
       data = poly_tbl,
       ggplot2::aes(x = .data$x, y = .data$y, group = .data$feature_id, fill = .data$fill_value),
-      color = if (is_partial) "grey60" else "grey25",
-      linewidth = 0.14,
+      color = NA,
       alpha = region_gene_alpha
     ) +
     ggplot2::labs(
@@ -899,7 +957,7 @@
     ggplot2::theme(
       plot.title = ggplot2::element_text(face = "bold", hjust = 0, size = 11.5, margin = ggplot2::margin(l = 18, b = 1.5)),
       plot.subtitle = ggplot2::element_blank(),
-      plot.margin = ggplot2::margin(t = 4, r = 180, b = 12, l = 12),
+      plot.margin = ggplot2::margin(t = 4, r = 8, b = 12, l = 12),
       legend.position = if (show_legend) "bottom" else "none",
       legend.margin = ggplot2::margin(t = 0, b = 0),
       legend.box.margin = ggplot2::margin(t = 0, b = 0),
@@ -934,6 +992,32 @@
       size = 2.9,
       color = "#6B7280"
     )
+  plot_obj <- plot_obj +
+    ggplot2::geom_polygon(
+      data = poly_tbl,
+      ggplot2::aes(x = .data$x, y = .data$y, group = .data$feature_id),
+      fill = NA,
+      color = if (is_partial) "grey60" else "grey25",
+      linewidth = 0.14,
+      inherit.aes = FALSE
+    ) +
+    ggplot2::geom_text(
+      data = in_gene_label_tbl,
+      ggplot2::aes(x = .data$x, y = .data$y, label = .data$label, color = .data$label_color),
+      size = 1.55,
+      lineheight = 0.84,
+      show.legend = FALSE,
+      inherit.aes = FALSE
+    ) +
+    ggplot2::geom_text(
+      data = cluster_tick_tbl,
+      ggplot2::aes(x = .data$x, y = .data$y, label = .data$label, hjust = .data$hjust),
+      size = 3.0,
+      vjust = 1,
+      color = "grey30",
+      show.legend = FALSE,
+      inherit.aes = FALSE
+    )
   for (slice_tbl in funnel_slices) {
     plot_obj <- plot_obj +
       ggplot2::geom_polygon(
@@ -964,6 +1048,11 @@
         inherit.aes = FALSE
       )
   }
+  attr(plot_obj, "panel_ymin") <- panel_ymin
+  attr(plot_obj, "panel_ymax") <- 2.38
+  attr(plot_obj, "track_top") <- gene_top_y
+  attr(plot_obj, "track_bottom") <- gene_bottom_y - gene_boundary_height
+  attr(plot_obj, "track_center") <- gene_center_y
   plot_obj
 }
 

@@ -7,7 +7,7 @@
 dnmb_plot_comparative_merops(
   data_root,
   output_dir = NULL,
-  output_file = "Comparative_MEROPS_Heatmap.pdf",
+  output_file = "Comparative_MEROPS_family_Heatmap.pdf",
   color_palette = c("white", "#B71C1C"),
   bar_color = "#E53935",
   line_width = 1,

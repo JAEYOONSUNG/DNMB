@@ -15,9 +15,9 @@
 dnmb_plot_comparative_dbcan <- function(
     data_root,
     output_dir = NULL,
-    output_file = "Comparative_dbCAN_Heatmap.pdf",
-    color_palette = c("white", "#1B5E20"),
-    bar_color = "#43A047",
+    output_file = "Comparative_dbCAN_class_Heatmap.pdf",
+    color_palette = c("white", "#E65100"),
+    bar_color = "#FB8C00",
     line_width = 1,
     line_col = "grey80",
     auto_run_missing = TRUE,
@@ -44,7 +44,7 @@ dnmb_plot_comparative_dbcan <- function(
   }
 
   collected <- .dnmb_comparative_collect_dbcan(data_root, marker_rel = marker_rel,
-                                               verbose = verbose)
+                                               level = "class", verbose = verbose)
   if (!nrow(collected$systems)) {
     if (verbose) message("No dbCAN results found under ", data_root)
     return(invisible(NULL))
@@ -53,7 +53,75 @@ dnmb_plot_comparative_dbcan <- function(
   .dnmb_comparative_render_heatmap(
     long_df = collected$systems,
     organism_map = collected$organism,
-    title = "dbCAN",
+    title = "dbCAN (class)",
+    output_dir = output_dir,
+    output_file = output_file,
+    color_palette = color_palette,
+    bar_color = bar_color,
+    line_width = line_width,
+    line_col = line_col,
+    verbose = verbose
+  )
+}
+
+#' Comparative dbCAN CAZy-Family Heatmap Across Genomes
+#'
+#' Finer-grained counterpart to \code{dnmb_plot_comparative_dbcan()}: each
+#' recommended call is kept at family resolution (e.g. \code{GH13},
+#' \code{GT2}, \code{CBM50}) instead of being rolled up to its class
+#' letter. Subfamily suffixes such as \code{GH13_3} are collapsed so
+#' \code{GH13_3} and \code{GH13_5} share a single column.
+#'
+#' Shares the auto-run logic and overview-reading collector with
+#' \code{dnmb_plot_comparative_dbcan()}; only the per-call aggregation
+#' differs.
+#'
+#' @inheritParams dnmb_plot_comparative_defensefinder
+#' @return Invisibly, a list with \code{pdf}, \code{xlsx}, \code{matrix},
+#'   and \code{genomes}.
+#' @export
+dnmb_plot_comparative_dbcan_family <- function(
+    data_root,
+    output_dir = NULL,
+    output_file = "Comparative_dbCAN_family_Heatmap.pdf",
+    color_palette = c("white", "#E65100"),
+    bar_color = "#FB8C00",
+    line_width = 1,
+    line_col = "grey80",
+    auto_run_missing = TRUE,
+    module_cache_root = NULL,
+    module_install = TRUE,
+    module_cpu = NULL,
+    verbose = TRUE
+) {
+  stopifnot(is.character(data_root), length(data_root) == 1L, dir.exists(data_root))
+  if (is.null(output_dir)) output_dir <- file.path(data_root, "comparative")
+
+  marker_rel <- file.path("dnmb_module_dbcan", "run_dbcan", "overview.tsv")
+
+  if (isTRUE(auto_run_missing)) {
+    .dnmb_comparative_autorun_module(
+      data_root,
+      module_db = "dbCAN",
+      module_marker_rel = marker_rel,
+      verbose = verbose,
+      module_cache_root = module_cache_root,
+      module_install = module_install,
+      module_cpu = module_cpu
+    )
+  }
+
+  collected <- .dnmb_comparative_collect_dbcan(data_root, marker_rel = marker_rel,
+                                               level = "family", verbose = verbose)
+  if (!nrow(collected$systems)) {
+    if (verbose) message("No dbCAN results found under ", data_root)
+    return(invisible(NULL))
+  }
+
+  .dnmb_comparative_render_heatmap(
+    long_df = collected$systems,
+    organism_map = collected$organism,
+    title = "dbCAN (family)",
     output_dir = output_dir,
     output_file = output_file,
     color_palette = color_palette,
@@ -66,23 +134,31 @@ dnmb_plot_comparative_dbcan <- function(
 
 # ---- dbCAN-specific collector ----
 
-.dnmb_comparative_dbcan_class <- function(call) {
+.dnmb_comparative_dbcan_token <- function(call, level = c("class", "family")) {
   # Calls look like "GH13_3", "GT2", "CE1(24-257)", "GH18_e66|CBM5_e25",
   # "CBM50_e705|CBM50_e699|GH18_e157". Take the first "|"-separated token,
-  # strip any "(...)" / "_..." / "+..." suffix, and retain the leading
-  # alphabetic prefix as the CAZy class.
+  # strip any "(...)" positional suffix, then either collapse to the
+  # leading alphabetic prefix (class) or to the alpha+digit head (family,
+  # with the "_subfamily" suffix dropped so GH13_3 rolls into GH13).
+  level <- match.arg(level)
   x <- as.character(call)
   x[is.na(x) | x == "-" | !nzchar(x)] <- NA_character_
   first <- vapply(strsplit(x, "[|+]"), function(v) if (length(v)) v[[1]] else NA_character_,
                   character(1))
   first <- sub("\\(.*$", "", first)
-  first <- sub("_.*$", "", first)
-  class_ <- sub("^([A-Za-z]+).*$", "\\1", first)
-  class_[!nzchar(class_)] <- NA_character_
-  class_
+  if (level == "class") {
+    out <- sub("^([A-Za-z]+).*$", "\\1", first)
+  } else {
+    out <- sub("^([A-Za-z]+\\d+).*$", "\\1", first)
+  }
+  out[!nzchar(out)] <- NA_character_
+  out
 }
 
-.dnmb_comparative_collect_dbcan <- function(data_root, marker_rel, verbose = TRUE) {
+.dnmb_comparative_collect_dbcan <- function(data_root, marker_rel,
+                                            level = c("class", "family"),
+                                            verbose = TRUE) {
+  level <- match.arg(level)
   genomes <- .dnmb_comparative_discover_gbff_dirs(data_root)
   systems_all <- list()
   organism_map <- character()
@@ -119,18 +195,18 @@ dnmb_plot_comparative_dbcan <- function(
       take <- is.na(pick) & !is.na(val) & nzchar(val) & val != "-"
       pick[take] <- val[take]
     }
-    klass <- .dnmb_comparative_dbcan_class(pick)
-    klass <- klass[!is.na(klass) & nzchar(klass)]
-    if (!length(klass)) {
+    tokens <- .dnmb_comparative_dbcan_token(pick, level = level)
+    tokens <- tokens[!is.na(tokens) & nzchar(tokens)]
+    if (!length(tokens)) {
       if (verbose) message("  ", genome_id, " — 0 CAZymes (analyzed, empty)")
       next
     }
     systems_all[[length(systems_all) + 1L]] <- data.frame(
       File = genome_id,
-      subtype = klass,
+      subtype = tokens,
       stringsAsFactors = FALSE
     )
-    if (verbose) message("  ", genome_id, " — ", length(klass), " CAZymes")
+    if (verbose) message("  ", genome_id, " — ", length(tokens), " CAZymes")
   }
   list(
     systems = if (length(systems_all)) do.call(rbind, systems_all) else data.frame(),

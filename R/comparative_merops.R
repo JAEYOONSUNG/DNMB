@@ -15,9 +15,9 @@
 dnmb_plot_comparative_merops <- function(
     data_root,
     output_dir = NULL,
-    output_file = "Comparative_MEROPS_Heatmap.pdf",
-    color_palette = c("white", "#B71C1C"),
-    bar_color = "#E53935",
+    output_file = "Comparative_MEROPS_family_Heatmap.pdf",
+    color_palette = c("white", "#0D47A1"),
+    bar_color = "#1976D2",
     line_width = 1,
     line_col = "grey80",
     auto_run_missing = TRUE,
@@ -53,7 +53,7 @@ dnmb_plot_comparative_merops <- function(
   .dnmb_comparative_render_heatmap(
     long_df = collected$systems,
     organism_map = collected$organism,
-    title = "MEROPS",
+    title = "MEROPS (family)",
     output_dir = output_dir,
     output_file = output_file,
     color_palette = color_palette,
@@ -62,6 +62,89 @@ dnmb_plot_comparative_merops <- function(
     line_col = line_col,
     verbose = verbose
   )
+}
+
+#' Comparative MEROPS Catalytic-Type Heatmap Across Genomes
+#'
+#' Rolls every MEROPS family hit up to its catalytic type letter, so
+#' (e.g.) \code{C26}, \code{C60}, \code{C01} all contribute to the
+#' \code{Cysteine} column. The letter-to-name map follows the MEROPS
+#' scheme: \code{A}=Aspartic, \code{C}=Cysteine, \code{G}=Glutamic,
+#' \code{I}=Inhibitor, \code{M}=Metallo, \code{N}=Asparagine,
+#' \code{P}=Mixed, \code{S}=Serine, \code{T}=Threonine,
+#' \code{U}=Unknown.
+#'
+#' Shares the collector and auto-run logic of
+#' \code{dnmb_plot_comparative_merops()}; only the subtype aggregation
+#' differs.
+#'
+#' @inheritParams dnmb_plot_comparative_defensefinder
+#' @return Invisibly, a list with \code{pdf}, \code{xlsx}, \code{matrix},
+#'   and \code{genomes}.
+#' @export
+dnmb_plot_comparative_merops_catalytic <- function(
+    data_root,
+    output_dir = NULL,
+    output_file = "Comparative_MEROPS_catalytic_Heatmap.pdf",
+    color_palette = c("white", "#0D47A1"),
+    bar_color = "#1976D2",
+    line_width = 1,
+    line_col = "grey80",
+    auto_run_missing = TRUE,
+    module_cache_root = NULL,
+    module_install = TRUE,
+    module_cpu = NULL,
+    verbose = TRUE
+) {
+  stopifnot(is.character(data_root), length(data_root) == 1L, dir.exists(data_root))
+  if (is.null(output_dir)) output_dir <- file.path(data_root, "comparative")
+
+  marker_rel <- file.path("dnmb_module_merops", "merops_blastp.tsv")
+
+  if (isTRUE(auto_run_missing)) {
+    .dnmb_comparative_autorun_module(
+      data_root,
+      module_db = "MEROPS",
+      module_marker_rel = marker_rel,
+      verbose = verbose,
+      module_cache_root = module_cache_root,
+      module_install = module_install,
+      module_cpu = module_cpu
+    )
+  }
+
+  collected <- .dnmb_comparative_collect_merops(data_root, marker_rel = marker_rel,
+                                                verbose = verbose)
+  if (!nrow(collected$systems)) {
+    if (verbose) message("No MEROPS results found under ", data_root)
+    return(invisible(NULL))
+  }
+  collected$systems$subtype <- .dnmb_comparative_merops_catalytic(collected$systems$subtype)
+  collected$systems <- collected$systems[!is.na(collected$systems$subtype) &
+                                         nzchar(collected$systems$subtype), , drop = FALSE]
+
+  .dnmb_comparative_render_heatmap(
+    long_df = collected$systems,
+    organism_map = collected$organism,
+    title = "MEROPS (catalytic type)",
+    output_dir = output_dir,
+    output_file = output_file,
+    color_palette = color_palette,
+    bar_color = bar_color,
+    line_width = line_width,
+    line_col = line_col,
+    verbose = verbose
+  )
+}
+
+.dnmb_comparative_merops_catalytic <- function(family) {
+  letter <- toupper(substr(as.character(family), 1L, 1L))
+  map <- c(A = "Aspartic", C = "Cysteine", G = "Glutamic", I = "Inhibitor",
+           M = "Metallo", N = "Asparagine", P = "Mixed",
+           S = "Serine", T = "Threonine", U = "Unknown")
+  out <- unname(map[letter])
+  out[is.na(out)] <- "Other"
+  out
 }
 
 # ---- MEROPS-specific collector ----

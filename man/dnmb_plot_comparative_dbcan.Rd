@@ -7,7 +7,7 @@
 dnmb_plot_comparative_dbcan(
   data_root,
   output_dir = NULL,
-  output_file = "Comparative_dbCAN_Heatmap.pdf",
+  output_file = "Comparative_dbCAN_class_Heatmap.pdf",
   color_palette = c("white", "#1B5E20"),
   bar_color = "#43A047",
   line_width = 1,

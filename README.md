@@ -183,10 +183,13 @@ dnmb_plot_comparative_defensepredictor(data_root) # DefensePredictor
 dnmb_plot_comparative_rebasefinder(data_root)     # REBASEfinder
 
 # Enzyme / CAZyme heatmaps (module-specific palettes)
-dnmb_plot_comparative_merops(data_root)           # MEROPS peptidase families
-dnmb_plot_comparative_dbcan(data_root)            # dbCAN CAZy classes
-dnmb_plot_comparative_cgc(data_root)              # CGC signature mixes
-dnmb_plot_comparative_pazy(data_root)             # PAZy families
+dnmb_plot_comparative_merops(data_root)             # MEROPS family (C26, S8, …)
+dnmb_plot_comparative_merops_catalytic(data_root)   # MEROPS catalytic type (Cysteine, Serine, …)
+dnmb_plot_comparative_dbcan(data_root)              # dbCAN class (GH, GT, PL, …)
+dnmb_plot_comparative_dbcan_family(data_root)       # dbCAN family (GH13, GT2, …)
+dnmb_plot_comparative_cgc(data_root)                # CGC signature mix (CAZyme+TC+TF, …)
+dnmb_plot_comparative_cgc_substrate(data_root)      # CGC substrate (starch, melibiose, …)
+dnmb_plot_comparative_pazy(data_root)               # PAZy families
 ```
 
 Outputs are written under `<data_root>/comparative/` as

@@ -159,6 +159,42 @@ DefenseFinder_Heatmap()
 - **Note:** [Strain of interest].defense_finder_systems.tsv output are used for merging data. GenBank’s SOURCE field is used for extracting names.
 - **Note:** protien coding sequence (.faa) output was used for defense-finder analysis (https://github.com/mdmparis/defense-finder)
 
+---
+**Comparative per-module heatmaps across genomes** (Optional)
+
+Point each plotter at a parent directory containing one subfolder per genome.
+Every subfolder that holds a GenBank file (`*.gbff` / `*.gbk` / `*.gb`) is
+treated as a genome. Genomes missing the relevant module output are
+analyzed on the fly (`auto_run_missing = TRUE`, default) — each plotter
+triggers only its own module via `run_module_set(db = ...)`, not the
+full DNMB pipeline. Genomes whose module has already run are read from
+disk; genomes that truly have no hits still render as empty rows so
+"analyzed, empty" is distinguishable from "not yet analyzed".
+
+```r
+library(DNMB)
+
+data_root <- "/path/to/parent-dir-of-genome-folders"
+
+# Defense-system heatmaps (purple palette)
+dnmb_plot_comparative_defensefinder(data_root)    # DefenseFinder
+dnmb_plot_comparative_padloc(data_root)           # PADLOC
+dnmb_plot_comparative_defensepredictor(data_root) # DefensePredictor
+dnmb_plot_comparative_rebasefinder(data_root)     # REBASEfinder
+
+# Enzyme / CAZyme heatmaps (module-specific palettes)
+dnmb_plot_comparative_merops(data_root)           # MEROPS peptidase families
+dnmb_plot_comparative_dbcan(data_root)            # dbCAN CAZy classes
+dnmb_plot_comparative_cgc(data_root)              # CGC signature mixes
+dnmb_plot_comparative_pazy(data_root)             # PAZy families
+```
+
+Outputs are written under `<data_root>/comparative/` as
+`Comparative_<Module>_Heatmap.pdf` alongside the underlying count matrix.
+
+Pass `auto_run_missing = FALSE` to skip the on-the-fly analysis and only
+render what already exists.
+
 **EggNOG-mapper** (Optional)
 
 ```python

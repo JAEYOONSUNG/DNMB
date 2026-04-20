@@ -9,7 +9,17 @@
 #' @param module_PADLOC Logical, whether to run and append PADLOC module results.
 #' @param module_DefensePredictor Logical, whether to run and append DefensePredictor module results.
 #' @param module_ISelement Logical, whether to run and append IS element module results.
-#' @param module_Prophage Logical, whether to run and append prophage module results.
+#' @param module_Prophage Deprecated. Legacy single-backend flag kept for
+#'   backward compatibility; when \code{TRUE} it is routed to the appropriate
+#'   per-backend flag (\code{module_PhiSpy}, \code{module_VirSorter2}, or
+#'   \code{module_PIDE}) based on \code{module_Prophage_backend}. Prefer the
+#'   per-backend flags in new code.
+#' @param module_PhiSpy Logical, whether to run and append PhiSpy prophage
+#'   detection results.
+#' @param module_VirSorter2 Logical, whether to run and append VirSorter2
+#'   prophage detection results.
+#' @param module_PIDE Logical, whether to run and append PIDE prophage
+#'   detection results.
 #' @param module_EggNOG Logical, whether to run and append eggnog-mapper module results.
 #' @param module_InterProScan Logical, whether to run InterProScan on protein
 #'   sequences. Requires InterProScan installed (Linux/Docker only).
@@ -106,7 +116,10 @@ run_DNMB <- function(
     module_DefensePredictor = TRUE,
     module_REBASEfinder = TRUE,
     module_ISelement = TRUE,
-    module_Prophage = TRUE,
+    module_Prophage = FALSE,
+    module_PhiSpy = TRUE,
+    module_VirSorter2 = FALSE,
+    module_PIDE = FALSE,
     module_EggNOG = TRUE,
     module_InterProScan = TRUE,
     module_Prophage_backend = .dnmb_run_default_prophage_backend(),
@@ -130,6 +143,26 @@ run_DNMB <- function(
 ) {
   .dnmb_attach_runtime_packages()
 
+  if (isTRUE(module_Prophage)) {
+    legacy_backend <- tryCatch(
+      .dnmb_prophage_normalize_backend(module_Prophage_backend),
+      error = function(e) "phispy"
+    )
+    warning(
+      "`module_Prophage = TRUE` is deprecated; use `module_PhiSpy`, ",
+      "`module_VirSorter2`, or `module_PIDE` instead.",
+      call. = FALSE
+    )
+    if (identical(legacy_backend, "phispy")) {
+      module_PhiSpy <- TRUE
+    } else if (identical(legacy_backend, "virsorter2")) {
+      module_VirSorter2 <- TRUE
+    } else if (identical(legacy_backend, "pide")) {
+      module_PIDE <- TRUE
+    }
+    module_Prophage <- FALSE
+  }
+
   genbank_signature <- .dnmb_genbank_input_signature(getwd())
   eggnog_external_status <- .dnmb_eggnog_reuse_status(
     wd = getwd(),
@@ -148,7 +181,9 @@ run_DNMB <- function(
     module_DefensePredictor = module_DefensePredictor,
     module_REBASEfinder = module_REBASEfinder,
     module_ISelement = module_ISelement,
-    module_Prophage = module_Prophage,
+    module_PhiSpy = module_PhiSpy,
+    module_VirSorter2 = module_VirSorter2,
+    module_PIDE = module_PIDE,
     module_EggNOG = requested_module_EggNOG,
     module_Prophage_backend = module_Prophage_backend
   )
@@ -302,7 +337,9 @@ run_DNMB <- function(
       module_DefensePredictor = module_DefensePredictor,
       module_REBASEfinder = module_REBASEfinder,
       module_ISelement = module_ISelement,
-      module_Prophage = module_Prophage,
+      module_PhiSpy = module_PhiSpy,
+      module_VirSorter2 = module_VirSorter2,
+      module_PIDE = module_PIDE,
       module_EggNOG = module_EggNOG,
       module_Prophage_backend = module_Prophage_backend
     )
@@ -454,7 +491,10 @@ run_DNMB <- function(
     "dnmb_plot_comparative_dbcan_family",
     "dnmb_plot_comparative_cgc",
     "dnmb_plot_comparative_cgc_substrate",
-    "dnmb_plot_comparative_pazy"
+    "dnmb_plot_comparative_pazy",
+    "dnmb_plot_comparative_phispy",
+    "dnmb_plot_comparative_virsorter2",
+    "dnmb_plot_comparative_pide"
   )
 
   message("[DNMB] Rendering comparative heatmaps under ", data_root)
@@ -489,9 +529,21 @@ dnmb_enabled_module_aliases <- function(module_dbCAN = FALSE,
                                         module_DefensePredictor = FALSE,
                                         module_REBASEfinder = FALSE,
                                         module_ISelement = FALSE,
+                                        module_PhiSpy = FALSE,
+                                        module_VirSorter2 = FALSE,
+                                        module_PIDE = FALSE,
                                         module_Prophage = FALSE,
                                         module_EggNOG = FALSE,
                                         module_Prophage_backend = .dnmb_run_default_prophage_backend()) {
+  if (isTRUE(module_Prophage)) {
+    legacy_backend <- tryCatch(
+      .dnmb_prophage_normalize_backend(module_Prophage_backend),
+      error = function(e) "phispy"
+    )
+    if (identical(legacy_backend, "phispy")) module_PhiSpy <- TRUE
+    else if (identical(legacy_backend, "virsorter2")) module_VirSorter2 <- TRUE
+    else if (identical(legacy_backend, "pide")) module_PIDE <- TRUE
+  }
   module_flags <- c(
     EggNOG = isTRUE(module_EggNOG),
     CLEAN = isTRUE(module_CLEAN),
@@ -504,7 +556,9 @@ dnmb_enabled_module_aliases <- function(module_dbCAN = FALSE,
     dbCAN = isTRUE(module_dbCAN),
     PAZy = isTRUE(module_PAZy),
     ISelement = isTRUE(module_ISelement),
-    Prophage = isTRUE(module_Prophage)
+    PhiSpy = isTRUE(module_PhiSpy),
+    VirSorter2 = isTRUE(module_VirSorter2),
+    PIDE = isTRUE(module_PIDE)
   )
 
   names(module_flags)[module_flags]
@@ -552,7 +606,9 @@ dnmb_resolve_module_results <- function(module_aliases,
     "DefensePredictor",
     "REBASEfinder",
     "ISelement",
-    "Prophage",
+    "PhiSpy",
+    "VirSorter2",
+    "PIDE",
     "EggNOG"
   )
   module_flags <- as.list(stats::setNames(rep(FALSE, length(all_module_flags)), paste0("module_", all_module_flags)))

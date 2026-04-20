@@ -384,7 +384,10 @@ run_module_set <- function(db = NULL,
                            module_DefensePredictor = TRUE,
                            module_REBASEfinder = TRUE,
                            module_ISelement = TRUE,
-                           module_Prophage = TRUE,
+                           module_Prophage = FALSE,
+                           module_PhiSpy = TRUE,
+                           module_VirSorter2 = FALSE,
+                           module_PIDE = FALSE,
                            module_EggNOG = TRUE,
                            module_Prophage_backend = .dnmb_module_default_prophage_backend(),
                            genbank_table = NULL,
@@ -403,6 +406,29 @@ run_module_set <- function(db = NULL,
                            iselement_related_metadata = NULL,
                            iselement_auto_discover_related = TRUE,
                            iselement_max_related = 5L) {
+  # Legacy `module_Prophage` shim: route onto a specific backend flag based on
+  # module_Prophage_backend, so older callers keep working without sprouting a
+  # duplicate Prophage branch.
+  if (isTRUE(module_Prophage)) {
+    legacy_backend <- tryCatch(
+      .dnmb_prophage_normalize_backend(module_Prophage_backend),
+      error = function(e) "phispy"
+    )
+    warning(
+      "`module_Prophage = TRUE` is deprecated; use `module_PhiSpy`, ",
+      "`module_VirSorter2`, or `module_PIDE` instead.",
+      call. = FALSE
+    )
+    if (identical(legacy_backend, "phispy")) {
+      module_PhiSpy <- TRUE
+    } else if (identical(legacy_backend, "virsorter2")) {
+      module_VirSorter2 <- TRUE
+    } else if (identical(legacy_backend, "pide")) {
+      module_PIDE <- TRUE
+    }
+    module_Prophage <- FALSE
+  }
+
   if (is.null(db)) {
     db <- names(which(c(
       EggNOG = isTRUE(module_EggNOG),
@@ -416,8 +442,31 @@ run_module_set <- function(db = NULL,
       dbCAN = isTRUE(module_dbCAN),
       PAZy = isTRUE(module_PAZy),
       ISelement = isTRUE(module_ISelement),
-      Prophage = isTRUE(module_Prophage)
+      PhiSpy = isTRUE(module_PhiSpy),
+      VirSorter2 = isTRUE(module_VirSorter2),
+      PIDE = isTRUE(module_PIDE)
     )))
+  } else {
+    db <- as.character(db)
+    if ("Prophage" %in% db) {
+      legacy_backend <- tryCatch(
+        .dnmb_prophage_normalize_backend(module_Prophage_backend),
+        error = function(e) "phispy"
+      )
+      replacement <- switch(
+        legacy_backend,
+        phispy = "PhiSpy",
+        virsorter2 = "VirSorter2",
+        pide = "PIDE",
+        "PhiSpy"
+      )
+      warning(
+        "Database alias 'Prophage' is deprecated; use 'PhiSpy', ",
+        "'VirSorter2', or 'PIDE' instead (routed to '", replacement, "').",
+        call. = FALSE
+      )
+      db <- unique(c(setdiff(db, "Prophage"), replacement))
+    }
   }
 
   db <- unique(as.character(db))
@@ -441,10 +490,10 @@ run_module_set <- function(db = NULL,
     return(list())
   }
 
-  unsupported <- setdiff(db, c("dbCAN", "MEROPS", "CLEAN", "PAZy", "GapMindAA", "GapMindCarbon", "DefenseFinder", "PADLOC", "DefensePredictor", "REBASEfinder", "ISelement", "Prophage", "EggNOG"))
+  unsupported <- setdiff(db, c("dbCAN", "MEROPS", "CLEAN", "PAZy", "GapMindAA", "GapMindCarbon", "DefenseFinder", "PADLOC", "DefensePredictor", "REBASEfinder", "ISelement", "PhiSpy", "VirSorter2", "PIDE", "EggNOG"))
   if (length(unsupported)) {
     stop(
-      "Live module execution is currently implemented only for dbCAN, MEROPS, CLEAN, PAZy, GapMind, DefenseFinder, PADLOC, DefensePredictor, ISelement, Prophage, and EggNOG. Unsupported module(s): ",
+      "Live module execution is currently implemented only for dbCAN, MEROPS, CLEAN, PAZy, GapMind, DefenseFinder, PADLOC, DefensePredictor, ISelement, PhiSpy, VirSorter2, PIDE, and EggNOG. Unsupported module(s): ",
       paste(unsupported, collapse = ", "),
       call. = FALSE
     )
@@ -468,7 +517,9 @@ run_module_set <- function(db = NULL,
       dbCAN = list(module = "dbcan", version = module_version %||% "current"),
       PAZy = list(module = "pazy", version = module_version %||% "current"),
       ISelement = list(module = "iselement", version = module_version %||% "current"),
-      Prophage = list(module = "prophage", version = module_Prophage_backend %||% "phispy")
+      PhiSpy = list(module = "prophage", version = "phispy"),
+      VirSorter2 = list(module = "prophage", version = "virsorter2"),
+      PIDE = list(module = "prophage", version = "pide")
     )
     for (mod_name in intersect(db, names(db_version_map))) {
       info <- db_version_map[[mod_name]]
@@ -889,17 +940,23 @@ run_module_set <- function(db = NULL,
     }
   }
 
-  ## --- 9. Prophage ---
-  if ("Prophage" %in% db) {
+  ## --- 9. Prophage backends (PhiSpy / VirSorter2 / PIDE) ---
+  prophage_backend_specs <- list(
+    PhiSpy     = list(backend = "phispy",     label = "PhiSpy"),
+    VirSorter2 = list(backend = "virsorter2", label = "VirSorter2"),
+    PIDE       = list(backend = "pide",       label = "PIDE")
+  )
+  for (prophage_db in intersect(names(prophage_backend_specs), db)) {
+    spec <- prophage_backend_specs[[prophage_db]]
     if (isTRUE(verbose)) {
-      message("[DNMB] ── Prophage ──")
+      message("[DNMB] ── ", spec$label, " ──")
     }
-    prophage_result <- .dnmb_module_try_run("Prophage", function() {
+    prophage_result <- .dnmb_module_try_run(spec$label, function() {
       dnmb_run_prophage_module(
         genes = genes,
-        output_dir = .dnmb_module_output_dir("Prophage", output_dir = output_dir),
+        output_dir = .dnmb_module_output_dir(prophage_db, output_dir = output_dir),
         genbank = genbank,
-        backend = module_Prophage_backend,
+        backend = spec$backend,
         cache_root = module_cache_root,
         install = isTRUE(module_install),
         cpu = as.integer(module_cpu)[1]
@@ -907,20 +964,20 @@ run_module_set <- function(db = NULL,
     })
     if (!isTRUE(prophage_result$ok)) {
       warning(
-        "Prophage module execution failed: ",
+        spec$label, " module execution failed: ",
         .dnmb_module_status_detail(prophage_result$status) %||% "unknown error",
         call. = FALSE
       )
     } else {
-    runs$Prophage <- structure(
-      list(
-        database = "Prophage",
-        output_table = prophage_result$output_table %||% .dnmb_prophage_output_table(genes = genes, hits = prophage_result$hits),
-        hits = prophage_result$hits,
-        module_result = prophage_result
-      ),
-      class = "dnmb_module_run"
-    )
+      runs[[prophage_db]] <- structure(
+        list(
+          database = spec$label,
+          output_table = prophage_result$output_table %||% .dnmb_prophage_output_table(genes = genes, hits = prophage_result$hits),
+          hits = prophage_result$hits,
+          module_result = prophage_result
+        ),
+        class = "dnmb_module_run"
+      )
     }
   }
 

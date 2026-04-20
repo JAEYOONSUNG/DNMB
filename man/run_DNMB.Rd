@@ -15,7 +15,10 @@ run_DNMB(
   module_DefensePredictor = TRUE,
   module_REBASEfinder = TRUE,
   module_ISelement = TRUE,
-  module_Prophage = TRUE,
+  module_Prophage = FALSE,
+  module_PhiSpy = TRUE,
+  module_VirSorter2 = FALSE,
+  module_PIDE = FALSE,
   module_EggNOG = TRUE,
   module_InterProScan = TRUE,
   module_Prophage_backend = .dnmb_run_default_prophage_backend(),
@@ -57,7 +60,20 @@ run_DNMB(
 
 \item{module_ISelement}{Logical, whether to run and append IS element module results.}
 
-\item{module_Prophage}{Logical, whether to run and append prophage module results.}
+\item{module_Prophage}{Deprecated. Legacy single-backend flag kept for
+backward compatibility; when \code{TRUE} it is routed to the appropriate
+per-backend flag (\code{module_PhiSpy}, \code{module_VirSorter2}, or
+\code{module_PIDE}) based on \code{module_Prophage_backend}. Prefer the
+per-backend flags in new code.}
+
+\item{module_PhiSpy}{Logical, whether to run and append PhiSpy prophage
+detection results.}
+
+\item{module_VirSorter2}{Logical, whether to run and append VirSorter2
+prophage detection results.}
+
+\item{module_PIDE}{Logical, whether to run and append PIDE prophage
+detection results.}
 
 \item{module_EggNOG}{Logical, whether to run and append eggnog-mapper module results.}
 

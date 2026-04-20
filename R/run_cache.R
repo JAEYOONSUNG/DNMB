@@ -176,8 +176,14 @@
   if ("PAZy" %in% module_aliases) {
     signatures$PAZy <- .dnmb_db_manifest_identity("pazy", current_version, cache_root = module_cache_root)
   }
-  if ("Prophage" %in% module_aliases) {
-    signatures$Prophage <- .dnmb_db_manifest_identity("prophage", module_Prophage_backend %||% "phispy", cache_root = module_cache_root)
+  if ("PhiSpy" %in% module_aliases) {
+    signatures$PhiSpy <- .dnmb_db_manifest_identity("prophage", "phispy", cache_root = module_cache_root)
+  }
+  if ("VirSorter2" %in% module_aliases) {
+    signatures$VirSorter2 <- .dnmb_db_manifest_identity("prophage", "virsorter2", cache_root = module_cache_root)
+  }
+  if ("PIDE" %in% module_aliases) {
+    signatures$PIDE <- .dnmb_db_manifest_identity("prophage", "pide", cache_root = module_cache_root)
   }
   if ("ISelement" %in% module_aliases) {
     signatures$ISelement <- list(installed = TRUE, module = "iselement", version = current_version)
@@ -292,11 +298,25 @@
       mode = "all",
       paths = c(file.path(wd, "dnmb_module_iselement", "iselement_elements.tsv"))
     ),
-    Prophage = list(
+    PhiSpy = list(
       mode = "all",
       paths = c(
-        file.path(wd, "dnmb_module_prophage", "prophage_coordinates.tsv"),
-        file.path(wd, "dnmb_module_prophage", "prophage_information.tsv")
+        file.path(wd, "dnmb_module_phispy", "prophage_coordinates.tsv"),
+        file.path(wd, "dnmb_module_phispy", "prophage_information.tsv")
+      )
+    ),
+    VirSorter2 = list(
+      mode = "any",
+      paths = c(
+        file.path(wd, "dnmb_module_virsorter2", "virsorter2_boundary.tsv"),
+        file.path(wd, "dnmb_module_virsorter2", "virsorter2_score.tsv")
+      )
+    ),
+    PIDE = list(
+      mode = "any",
+      paths = c(
+        file.path(wd, "dnmb_module_pide", "pide_cluster.csv"),
+        file.path(wd, "dnmb_module_pide", "pide_virus_contig.txt")
       )
     ),
     list(mode = "none", paths = character())

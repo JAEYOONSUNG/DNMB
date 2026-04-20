@@ -1295,9 +1295,13 @@ dnmb_prophage_normalize_hits <- function(gene_hits, backend = "phispy") {
   stage_out <- base::file.path(stage_dir, "out")
   base::dir.create(stage_out, recursive = TRUE, showWarnings = FALSE)
   classify_path <- base::file.path(install_result$files$repo_dir, "classification.py")
+  gpu_flag <- character(0)
+  if (isTRUE(.dnmb_cuda_available())) {
+    gpu_flag <- c("-g", "0")
+  }
   run <- dnmb_run_external(
     install_result$files$env_python,
-    args = c(classify_path, stage_fna, model_path, "-o", stage_out),
+    args = c(classify_path, stage_fna, model_path, "-o", stage_out, gpu_flag),
     env = c(
       PATH = paste(unique(c(dirname(install_result$files$env_python), Sys.getenv("PATH"))), collapse = .Platform$path.sep),
       KMP_DUPLICATE_LIB_OK = "TRUE"

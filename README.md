@@ -150,6 +150,22 @@ library(DNMB)
 run_DNMB()
 ```
 
+### GPU-gated defaults (CLEAN and PIDE)
+
+`run_DNMB()` probes for an NVIDIA GPU via `nvidia-smi -L` at call time.
+`module_CLEAN` and `module_PIDE` default to `TRUE` only when a CUDA
+device is detected; they default to `FALSE` otherwise. This keeps
+CPU-only runs fast (both modules use large neural models — CLEAN's
+LayerNormNet and PIDE's ESM-650M — and are ~50–100× slower without a
+GPU).
+
+- Force enable: `run_DNMB(module_CLEAN = TRUE, module_PIDE = TRUE)` or
+  set `Sys.setenv(DNMB_CUDA = "1")` before the call.
+- Force disable: pass `module_CLEAN = FALSE` / `module_PIDE = FALSE`
+  explicitly, or set `DNMB_CUDA=0`.
+- In the DNMBsuite Docker wrapper, the same probe runs on the host and
+  automatically attaches `--gpus all` when CUDA is present.
+
 ### With comparative heatmaps across sibling genomes
 Passing `comparative = TRUE` runs the single-genome pipeline as usual and,
 at the end, renders the full suite of comparative heatmaps across every

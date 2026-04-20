@@ -7,7 +7,7 @@
 run_DNMB(
   module_dbCAN = TRUE,
   module_MEROPS = TRUE,
-  module_CLEAN = TRUE,
+  module_CLEAN = .dnmb_cuda_default_module(),
   module_PAZy = TRUE,
   module_GapMind = TRUE,
   module_DefenseFinder = TRUE,
@@ -18,7 +18,7 @@ run_DNMB(
   module_Prophage = FALSE,
   module_PhiSpy = TRUE,
   module_VirSorter2 = FALSE,
-  module_PIDE = FALSE,
+  module_PIDE = .dnmb_cuda_default_module(),
   module_EggNOG = TRUE,
   module_InterProScan = TRUE,
   module_Prophage_backend = .dnmb_run_default_prophage_backend(),
@@ -46,7 +46,10 @@ run_DNMB(
 
 \item{module_MEROPS}{Logical, whether to run and append MEROPS module results.}
 
-\item{module_CLEAN}{Logical, whether to run and append CLEAN module results.}
+\item{module_CLEAN}{Logical, whether to run and append CLEAN module results.
+Defaults to \code{TRUE} only when a CUDA-capable GPU is detected via
+\code{nvidia-smi -L} (or when \code{DNMB_CUDA=1} is set); \code{FALSE}
+otherwise. Pass \code{TRUE} explicitly to force CPU execution.}
 
 \item{module_PAZy}{Logical, whether to run and append PAZy module results.}
 
@@ -73,7 +76,10 @@ detection results.}
 prophage detection results.}
 
 \item{module_PIDE}{Logical, whether to run and append PIDE prophage
-detection results.}
+detection results. Defaults to \code{TRUE} only when a CUDA-capable GPU is
+detected via \code{nvidia-smi -L} (or when \code{DNMB_CUDA=1} is set);
+\code{FALSE} otherwise. PIDE runs an ESM-650M protein language model and
+is ~50-100x slower on CPU than on GPU.}
 
 \item{module_EggNOG}{Logical, whether to run and append eggnog-mapper module results.}
 

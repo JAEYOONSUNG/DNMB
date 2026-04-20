@@ -60,6 +60,37 @@
   as.integer(cores)
 }
 
+.dnmb_cuda_cache <- new.env(parent = emptyenv())
+
+.dnmb_cuda_available <- function(refresh = FALSE) {
+  if (!isTRUE(refresh) && !is.null(.dnmb_cuda_cache$value)) {
+    return(.dnmb_cuda_cache$value)
+  }
+  env_override <- Sys.getenv("DNMB_CUDA", unset = NA_character_)
+  if (!is.na(env_override) && nzchar(env_override)) {
+    val <- tolower(env_override) %in% c("1", "true", "yes", "on")
+    .dnmb_cuda_cache$value <- val
+    .dnmb_cuda_cache$source <- paste0("DNMB_CUDA=", env_override)
+    return(val)
+  }
+  nvsmi <- Sys.which("nvidia-smi")
+  if (!nzchar(nvsmi)) {
+    .dnmb_cuda_cache$value <- FALSE
+    .dnmb_cuda_cache$source <- "nvidia-smi not on PATH"
+    return(FALSE)
+  }
+  out <- tryCatch(
+    suppressWarnings(system2(nvsmi, args = "-L", stdout = TRUE, stderr = FALSE)),
+    error = function(e) character(0)
+  )
+  val <- length(out) > 0L && any(nzchar(out))
+  .dnmb_cuda_cache$value <- val
+  .dnmb_cuda_cache$source <- if (val) paste(out, collapse = "; ") else "nvidia-smi returned no GPUs"
+  val
+}
+
+.dnmb_cuda_default_module <- function() isTRUE(.dnmb_cuda_available())
+
 .dnmb_run_default_prophage_backend <- function() {
   backend_fn <- get0(".dnmb_prophage_default_backend", mode = "function", inherits = TRUE)
   if (is.function(backend_fn)) {
@@ -108,7 +139,7 @@
 run_DNMB <- function(
     module_dbCAN = TRUE,
     module_MEROPS = TRUE,
-    module_CLEAN = TRUE,
+    module_CLEAN = .dnmb_cuda_default_module(),
     module_PAZy = TRUE,
     module_GapMind = TRUE,
     module_DefenseFinder = TRUE,
@@ -119,7 +150,7 @@ run_DNMB <- function(
     module_Prophage = FALSE,
     module_PhiSpy = TRUE,
     module_VirSorter2 = FALSE,
-    module_PIDE = FALSE,
+    module_PIDE = .dnmb_cuda_default_module(),
     module_EggNOG = TRUE,
     module_InterProScan = TRUE,
     module_Prophage_backend = .dnmb_run_default_prophage_backend(),
@@ -142,6 +173,17 @@ run_DNMB <- function(
     comparative_data_root = NULL
 ) {
   .dnmb_attach_runtime_packages()
+
+  cuda_available <- .dnmb_cuda_available()
+  cuda_src <- .dnmb_cuda_cache$source %||% ""
+  if (isTRUE(cuda_available)) {
+    message("[DNMB] CUDA detected (", cuda_src, "); CLEAN/PIDE enabled by default.")
+  } else {
+    message(
+      "[DNMB] CUDA not detected (", cuda_src,
+      "); CLEAN/PIDE skipped by default. Override with `module_CLEAN = TRUE`/`module_PIDE = TRUE` or set env `DNMB_CUDA=1`."
+    )
+  }
 
   if (isTRUE(module_Prophage)) {
     legacy_backend <- tryCatch(

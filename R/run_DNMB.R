@@ -32,6 +32,15 @@
 #' @param clean_previous Logical. If \code{TRUE}, remove prior run artifacts
 #'   before starting. Cached module results and InterProScan outputs are kept
 #'   when their saved input/database signatures still match the current run.
+#' @param comparative Logical. If \code{TRUE}, render the full suite of
+#'   comparative heatmaps (DefenseFinder, PADLOC, DefensePredictor,
+#'   REBASEfinder, MEROPS family/catalytic, dbCAN class/family, CGC
+#'   signature/substrate, PAZy) across sibling genome folders after the
+#'   per-genome run completes. The plotters walk \code{comparative_data_root}
+#'   — or \code{dirname(getwd())} when it is \code{NULL} — and expect one
+#'   GenBank-containing subfolder per genome.
+#' @param comparative_data_root Optional parent directory used for the
+#'   comparative stage. Defaults to \code{dirname(getwd())}.
 #' @return Invisibly returns the final `genbank_table`.
 #' @export
 
@@ -115,7 +124,9 @@ run_DNMB <- function(
     iselement_max_related = 5L,
     interproscan_applications = NULL,
     interproscan_path = NULL,
-    clean_previous = TRUE
+    clean_previous = TRUE,
+    comparative = FALSE,
+    comparative_data_root = NULL
 ) {
   .dnmb_attach_runtime_packages()
 
@@ -406,7 +417,66 @@ run_DNMB <- function(
   DNMB_table(genbank_table = get("genbank_table", envir = .GlobalEnv))
   message("Analysis end: DNMB function executed")
 
+  if (isTRUE(comparative)) {
+    comparative_root <- comparative_data_root
+    if (is.null(comparative_root) || !nzchar(comparative_root)) {
+      comparative_root <- dirname(getwd())
+    }
+    .dnmb_run_comparative_suite(
+      data_root = comparative_root,
+      module_cache_root = module_cache_root,
+      module_install = module_install,
+      module_cpu = module_cpu
+    )
+  }
+
   invisible(get("genbank_table", envir = .GlobalEnv))
+}
+
+.dnmb_run_comparative_suite <- function(data_root,
+                                        module_cache_root = NULL,
+                                        module_install = TRUE,
+                                        module_cpu = NULL) {
+  if (!is.character(data_root) || length(data_root) != 1L || !nzchar(data_root) ||
+      !dir.exists(data_root)) {
+    message("[DNMB] Comparative stage skipped — data_root not found: ", data_root)
+    return(invisible(NULL))
+  }
+
+  plotters <- c(
+    "dnmb_plot_comparative_defensefinder",
+    "dnmb_plot_comparative_padloc",
+    "dnmb_plot_comparative_defensepredictor",
+    "dnmb_plot_comparative_rebasefinder",
+    "dnmb_plot_comparative_merops",
+    "dnmb_plot_comparative_merops_catalytic",
+    "dnmb_plot_comparative_dbcan",
+    "dnmb_plot_comparative_dbcan_family",
+    "dnmb_plot_comparative_cgc",
+    "dnmb_plot_comparative_cgc_substrate",
+    "dnmb_plot_comparative_pazy"
+  )
+
+  message("[DNMB] Rendering comparative heatmaps under ", data_root)
+  for (fn_name in plotters) {
+    fn <- get0(fn_name, mode = "function", inherits = TRUE)
+    if (is.null(fn)) {
+      message("  - ", fn_name, " not available — skipped")
+      next
+    }
+    message("  > ", fn_name)
+    tryCatch(
+      fn(
+        data_root = data_root,
+        module_cache_root = module_cache_root,
+        module_install = module_install,
+        module_cpu = module_cpu,
+        verbose = TRUE
+      ),
+      error = function(e) message("    failed: ", conditionMessage(e))
+    )
+  }
+  invisible(TRUE)
 }
 
 dnmb_enabled_module_aliases <- function(module_dbCAN = FALSE,

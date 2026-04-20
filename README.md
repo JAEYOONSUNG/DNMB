@@ -149,6 +149,39 @@ setwd([GenBank directory]) # Set the working directory to the location where you
 library(DNMB)
 run_DNMB()
 ```
+
+### With comparative heatmaps across sibling genomes
+Passing `comparative = TRUE` runs the single-genome pipeline as usual and,
+at the end, renders the full suite of comparative heatmaps across every
+sibling folder that holds a GenBank file. By default the parent directory
+of `getwd()` is scanned; pass `comparative_data_root` to point elsewhere.
+
+```r
+setwd([per-genome directory])
+library(DNMB)
+run_DNMB(comparative = TRUE)
+# or: run_DNMB(comparative = TRUE, comparative_data_root = "/path/to/parent")
+```
+
+Comparative stage renders 11 heatmaps into `<data_root>/comparative/`:
+
+| Module | Plotter | Subtype axis |
+|---|---|---|
+| DefenseFinder | `dnmb_plot_comparative_defensefinder` | system |
+| PADLOC | `dnmb_plot_comparative_padloc` | system |
+| DefensePredictor | `dnmb_plot_comparative_defensepredictor` | system |
+| REBASEfinder | `dnmb_plot_comparative_rebasefinder` | enzyme type |
+| MEROPS | `dnmb_plot_comparative_merops` | family (C26, S8, …) |
+| MEROPS | `dnmb_plot_comparative_merops_catalytic` | catalytic type (Cysteine, Serine, …) |
+| dbCAN | `dnmb_plot_comparative_dbcan` | class (GH, GT, PL, …) |
+| dbCAN | `dnmb_plot_comparative_dbcan_family` | family (GH13, GT2, …) |
+| CGC | `dnmb_plot_comparative_cgc` | signature mix (CAZyme+TC+TF, …) |
+| CGC | `dnmb_plot_comparative_cgc_substrate` | predicted substrate |
+| PAZy | `dnmb_plot_comparative_pazy` | family |
+
+Each plotter auto-runs its own module on any genome that has not been
+analyzed yet, so a fresh sibling folder just needs a GenBank file.
+
 ---
 **DefenseFinderViz** (Optional)
 
@@ -161,6 +194,12 @@ DefenseFinder_Heatmap()
 
 ---
 **Comparative per-module heatmaps across genomes** (Optional)
+
+The easiest entry point is `run_DNMB(comparative = TRUE)` from any
+per-genome folder — the per-genome analysis runs as usual and the full
+comparative suite renders against the parent directory at the end. The
+individual plotters below are useful when you want to render only a
+subset, override colors, or point at a non-sibling parent directory.
 
 Point each plotter at a parent directory containing one subfolder per genome.
 Every subfolder that holds a GenBank file (`*.gbff` / `*.gbk` / `*.gb`) is

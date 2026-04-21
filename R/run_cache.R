@@ -155,6 +155,12 @@
   if ("DefenseFinder" %in% module_aliases) {
     signatures$DefenseFinder <- .dnmb_db_manifest_identity("defensefinder", current_version, cache_root = module_cache_root)
   }
+  if ("dbAPIS" %in% module_aliases) {
+    signatures$dbAPIS <- .dnmb_db_manifest_identity("dbapis", current_version, cache_root = module_cache_root)
+  }
+  if ("AcrFinder" %in% module_aliases) {
+    signatures$AcrFinder <- .dnmb_db_manifest_identity("acrfinder", current_version, cache_root = module_cache_root)
+  }
   if ("PADLOC" %in% module_aliases) {
     signatures$PADLOC <- .dnmb_db_manifest_identity("padloc", current_version, cache_root = module_cache_root)
   }
@@ -264,6 +270,14 @@
     DefenseFinder = list(
       mode = "all",
       paths = c(file.path(wd, "dnmb_module_defensefinder", "defensefinder_systems.tsv"))
+    ),
+    dbAPIS = list(
+      mode = "any",
+      paths = c(file.path(wd, "dnmb_module_dbapis", "dbapis_hits.tsv"))
+    ),
+    AcrFinder = list(
+      mode = "any",
+      paths = c(file.path(wd, "dnmb_module_acrfinder", "acrfinder_homology.tsv"))
     ),
     PADLOC = list(
       mode = "all",

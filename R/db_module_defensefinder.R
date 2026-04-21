@@ -890,15 +890,25 @@ dnmb_run_defensefinder_module <- function(genes,
   raw_root <- base::file.path(stage_out, "defense-finder-tmp")
   genes_tbl_raw <- dnmb_defensefinder_collect_raw_genes(raw_root)
   systems_tbl_raw <- dnmb_defensefinder_build_systems(genes_tbl_raw)
+  genes_export <- base::list.files(stage_out, pattern = "_defense_finder_genes\\.tsv$", full.names = TRUE)
+  systems_export <- base::list.files(stage_out, pattern = "_defense_finder_systems\\.tsv$", full.names = TRUE)
+  hmmer_export <- base::list.files(stage_out, pattern = "_defense_finder_hmmer\\.tsv$", full.names = TRUE)
 
   genes_path <- base::file.path(output_dir, "defensefinder_best_solution_genes.tsv")
   systems_path <- base::file.path(output_dir, "defensefinder_systems.tsv")
   hmmer_path <- base::file.path(output_dir, "defensefinder_hmmer.tsv")
   if (nrow(genes_tbl_raw)) {
     utils::write.table(genes_tbl_raw, file = genes_path, sep = "\t", row.names = FALSE, quote = FALSE)
+  } else if (base::length(genes_export) && base::file.exists(genes_export[[1]])) {
+    base::file.copy(genes_export[[1]], genes_path, overwrite = TRUE)
   }
   if (nrow(systems_tbl_raw)) {
     utils::write.table(systems_tbl_raw, file = systems_path, sep = "\t", row.names = FALSE, quote = FALSE)
+  } else if (base::length(systems_export) && base::file.exists(systems_export[[1]])) {
+    base::file.copy(systems_export[[1]], systems_path, overwrite = TRUE)
+  }
+  if (base::length(hmmer_export) && base::file.exists(hmmer_export[[1]])) {
+    base::file.copy(hmmer_export[[1]], hmmer_path, overwrite = TRUE)
   }
   for (path in c(input$map_path)) {
     if (base::file.exists(path)) {
@@ -906,23 +916,38 @@ dnmb_run_defensefinder_module <- function(genes,
     }
   }
 
-  systems_tbl <- systems_tbl_raw
+  systems_tbl <- if (nrow(systems_tbl_raw)) systems_tbl_raw else dnmb_defensefinder_parse_systems(systems_path)
   genes_tbl <- dnmb_defensefinder_parse_genes(genes_path, id_map = input$map, systems_tbl = systems_tbl)
-  hmmer_tbl <- data.frame()
+  hmmer_tbl <- if (.dnmb_nonempty_file(hmmer_path)) {
+    tryCatch(
+      utils::read.delim(hmmer_path, sep = "\t", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE),
+      error = function(e) data.frame()
+    )
+  } else {
+    data.frame()
+  }
   hits <- dnmb_defensefinder_normalize_hits(genes_tbl)
   output_table <- .dnmb_defensefinder_output_table(genes = genes, hits = hits)
+  exports_present <- base::length(genes_export) > 0L || base::length(systems_export) > 0L || base::length(hmmer_export) > 0L
+  effective_ok <- base::isTRUE(run$ok) || nrow(genes_tbl_raw) > 0L || nrow(genes_tbl) > 0L || exports_present
 
   status <- dplyr::bind_rows(
     status,
     .dnmb_defensefinder_status_row(
       "defensefinder_run",
-      if (nrow(genes_tbl_raw)) "ok" else if (base::isTRUE(run$ok)) "partial" else "failed",
-      if (nrow(genes_tbl_raw)) genes_path else (run$error %||% stage_out)
+      if (nrow(genes_tbl_raw) || nrow(genes_tbl)) {
+        "ok"
+      } else if (effective_ok) {
+        "empty"
+      } else {
+        "failed"
+      },
+      if (effective_ok) genes_path else (run$error %||% stage_out)
     )
   )
 
   list(
-    ok = nrow(genes_tbl_raw) > 0L,
+    ok = effective_ok,
     status = status,
     files = list(
       trace_log = trace_log,

@@ -118,7 +118,10 @@
     DefenseFinder = c(0.00, 1.00),
     REBASE = c(1.00, 0.35),
     PADLOC = c(-1.00, -0.05),
-    DefensePredictor = c(-0.75, -0.95)
+    DefensePredictor = c(-0.75, -0.95),
+    AntiDefenseFinder = c(0.00, 1.00),
+    dbAPIS = c(1.00, -0.20),
+    AcrFinder = c(-1.00, -0.20)
   )
 
   if (!is.null(ve$centers) && !is.null(ve$diameters)) {
@@ -145,9 +148,9 @@
   miss <- is.na(label_tbl$x) | is.na(label_tbl$y)
   if (any(miss)) {
     fallback <- data.frame(
-      tool = c("DefenseFinder", "REBASE", "PADLOC", "DefensePredictor"),
-      x = c(0.12, 0.23, 0.09, 0.21),
-      y = c(0.79, 0.79, 0.50, 0.49),
+      tool = c("DefenseFinder", "REBASE", "PADLOC", "DefensePredictor", "AntiDefenseFinder", "dbAPIS", "AcrFinder"),
+      x = c(0.12, 0.23, 0.09, 0.21, 0.12, 0.23, 0.08),
+      y = c(0.79, 0.79, 0.50, 0.49, 0.79, 0.52, 0.52),
       stringsAsFactors = FALSE
     )
     idx <- match(label_tbl$tool[miss], fallback$tool)
@@ -513,6 +516,16 @@
   } else {
     rep(FALSE, nrow(gt))
   }
+  gt$in_dbapis <- if ("dbAPIS_family_id" %in% names(gt)) {
+    !is.na(gt$dbAPIS_family_id) & nzchar(as.character(gt$dbAPIS_family_id))
+  } else {
+    rep(FALSE, nrow(gt))
+  }
+  gt$in_acrfinder <- if ("AcrFinder_family_id" %in% names(gt)) {
+    !is.na(gt$AcrFinder_family_id) & nzchar(as.character(gt$AcrFinder_family_id))
+  } else {
+    rep(FALSE, nrow(gt))
+  }
   if (!is.null(defensefinder_activity) && identical(as.character(defensefinder_activity)[1], "Anti-defense")) {
     gt$in_defensepredictor <- rep(FALSE, nrow(gt))
     gt$in_padloc <- rep(FALSE, nrow(gt))
@@ -527,12 +540,21 @@
   gt$accession[missing_acc] <- as.character(gt$locus_tag[missing_acc])
   gt <- gt[!is.na(gt$accession) & nzchar(gt$accession), , drop = FALSE]
 
-  tool_map <- c(
-    in_defensepredictor = "DefensePredictor",
-    in_padloc = "PADLOC",
-    in_defensefinder = "DefenseFinder",
-    in_rebase = "REBASE"
-  )
+  anti_mode <- !is.null(defensefinder_activity) && identical(as.character(defensefinder_activity)[1], "Anti-defense")
+  tool_map <- if (anti_mode) {
+    c(
+      in_defensefinder = "AntiDefenseFinder",
+      in_dbapis = "dbAPIS",
+      in_acrfinder = "AcrFinder"
+    )
+  } else {
+    c(
+      in_defensepredictor = "DefensePredictor",
+      in_padloc = "PADLOC",
+      in_defensefinder = "DefenseFinder",
+      in_rebase = "REBASE"
+    )
+  }
   long_parts <- lapply(names(tool_map), function(col) {
     keep <- gt[[col]] %in% TRUE
     if (!any(keep)) {
@@ -559,8 +581,13 @@
     defensefinder_activity = defensefinder_activity
   )
   gt <- overlap$genbank
+  anti_mode <- !is.null(defensefinder_activity) && identical(as.character(defensefinder_activity)[1], "Anti-defense")
   hit_rows <- gt[
-    gt$in_defensepredictor | gt$in_padloc | gt$in_defensefinder | gt$in_rebase,
+    if (anti_mode) {
+      gt$in_defensefinder | gt$in_dbapis | gt$in_acrfinder
+    } else {
+      gt$in_defensepredictor | gt$in_padloc | gt$in_defensefinder | gt$in_rebase
+    },
     ,
     drop = FALSE
   ]
@@ -573,22 +600,31 @@
   hit_rows$start <- suppressWarnings(as.numeric(hit_rows$start))
   hit_rows$end <- suppressWarnings(as.numeric(hit_rows$end))
   hit_rows$annotation_name <- as.character(hit_rows$product)
+  support_cols <- if (anti_mode) {
+    c("in_defensefinder", "in_dbapis", "in_acrfinder")
+  } else {
+    c("in_defensepredictor", "in_padloc", "in_defensefinder", "in_rebase")
+  }
+  support_tool_names <- if (anti_mode) {
+    c("AntiDefenseFinder", "dbAPIS", "AcrFinder")
+  } else {
+    c("DefensePredictor", "PADLOC", "DefenseFinder", "REBASE")
+  }
   hit_rows$support_tools <- apply(
-    hit_rows[, c("in_defensepredictor", "in_padloc", "in_defensefinder", "in_rebase"), drop = FALSE],
+    hit_rows[, support_cols, drop = FALSE],
     1,
     function(z) {
-      tool_names <- c("DefensePredictor", "PADLOC", "DefenseFinder", "REBASE")
-      paste(tool_names[as.logical(z)], collapse = ";")
+      paste(support_tool_names[as.logical(z)], collapse = ";")
     }
   )
-  hit_rows$support_count <- rowSums(hit_rows[, c("in_defensepredictor", "in_padloc", "in_defensefinder", "in_rebase"), drop = FALSE], na.rm = TRUE)
+  hit_rows$support_count <- rowSums(hit_rows[, support_cols, drop = FALSE], na.rm = TRUE)
   hit_rows$defensepredictor_hit_log_odds <- hit_rows$DefensePredictor_mean_log_odds
   hit_rows$defensepredictor_score_band <- as.character(hit_rows$DefensePredictor_score_band %||% .dnmb_defensepredictor_score_band(hit_rows$DefensePredictor_mean_log_odds))
 
   hit_rows$representative_source <- ifelse(
     hit_rows$in_defensefinder,
-    "DefenseFinder",
-    ifelse(hit_rows$in_padloc, "PADLOC", ifelse(hit_rows$in_rebase, "REBASE", "DefensePredictor"))
+    if (anti_mode) "AntiDefenseFinder" else "DefenseFinder",
+    ifelse(hit_rows$in_dbapis, "dbAPIS", ifelse(hit_rows$in_acrfinder, "AcrFinder", ifelse(hit_rows$in_padloc, "PADLOC", ifelse(hit_rows$in_rebase, "REBASE", "DefensePredictor"))))
   )
   df_subtype <- if ("DefenseFinder_system_subtype" %in% names(hit_rows)) as.character(hit_rows$DefenseFinder_system_subtype) else rep(NA_character_, nrow(hit_rows))
   df_type <- if ("DefenseFinder_system_type" %in% names(hit_rows)) as.character(hit_rows$DefenseFinder_system_type) else rep(NA_character_, nrow(hit_rows))
@@ -596,19 +632,26 @@
   rb_family <- if ("REBASEfinder_family_id" %in% names(hit_rows)) as.character(hit_rows$REBASEfinder_family_id) else rep(NA_character_, nrow(hit_rows))
   rb_hit <- if ("REBASEfinder_hit_label" %in% names(hit_rows)) as.character(hit_rows$REBASEfinder_hit_label) else rep(NA_character_, nrow(hit_rows))
   rb_label <- ifelse(!is.na(rb_family) & nzchar(rb_family), rb_family, rb_hit)
-  hit_rows$representative_system <- ifelse(
-    hit_rows$in_defensefinder,
-    df_label,
-    ifelse(
-      hit_rows$in_padloc,
-      as.character(hit_rows$PADLOC_system),
-      ifelse(
-        hit_rows$in_rebase,
-        rb_label,
-        paste0("DefensePredictor_only:", hit_rows$defensepredictor_score_band)
-      )
+  hit_rows$representative_system <- paste0("DefensePredictor_only:", hit_rows$defensepredictor_score_band)
+  hit_rows$representative_system[hit_rows$in_rebase] <- rb_label[hit_rows$in_rebase]
+  hit_rows$representative_system[hit_rows$in_padloc] <- as.character(hit_rows$PADLOC_system[hit_rows$in_padloc])
+  if ("AcrFinder_hit_label" %in% names(hit_rows)) {
+    acr_lab <- ifelse(
+      !is.na(hit_rows$AcrFinder_hit_label) & nzchar(as.character(hit_rows$AcrFinder_hit_label)),
+      as.character(hit_rows$AcrFinder_hit_label),
+      as.character(hit_rows$AcrFinder_family_id)
     )
-  )
+    hit_rows$representative_system[hit_rows$in_acrfinder] <- acr_lab[hit_rows$in_acrfinder]
+  }
+  if ("dbAPIS_hit_label" %in% names(hit_rows)) {
+    dbapis_lab <- ifelse(
+      !is.na(hit_rows$dbAPIS_hit_label) & nzchar(as.character(hit_rows$dbAPIS_hit_label)),
+      as.character(hit_rows$dbAPIS_hit_label),
+      as.character(hit_rows$dbAPIS_family_id)
+    )
+    hit_rows$representative_system[hit_rows$in_dbapis] <- dbapis_lab[hit_rows$in_dbapis]
+  }
+  hit_rows$representative_system[hit_rows$in_defensefinder] <- df_label[hit_rows$in_defensefinder]
 
   hit_rows$system_group_source <- NA_character_
   hit_rows$system_group_name <- NA_character_
@@ -616,10 +659,30 @@
   hit_rows$system_locus_id <- NA_character_
 
   df_keep <- hit_rows$in_defensefinder & !is.na(hit_rows$DefenseFinder_system_id) & nzchar(as.character(hit_rows$DefenseFinder_system_id))
-  hit_rows$system_group_source[df_keep] <- "DefenseFinder"
+  hit_rows$system_group_source[df_keep] <- if (anti_mode) "AntiDefenseFinder" else "DefenseFinder"
   hit_rows$system_group_name[df_keep] <- df_label[df_keep]
   hit_rows$system_group_seed[df_keep] <- as.character(hit_rows$DefenseFinder_system_id[df_keep])
   hit_rows$system_locus_id[df_keep] <- paste0("DF::", hit_rows$DefenseFinder_system_id[df_keep])
+
+  dbapis_keep <- is.na(hit_rows$system_locus_id) & hit_rows$in_dbapis
+  hit_rows$system_group_source[dbapis_keep] <- "dbAPIS"
+  hit_rows$system_group_name[dbapis_keep] <- ifelse(
+    "dbAPIS_hit_label" %in% names(hit_rows) & !is.na(hit_rows$dbAPIS_hit_label[dbapis_keep]) & nzchar(as.character(hit_rows$dbAPIS_hit_label[dbapis_keep])),
+    as.character(hit_rows$dbAPIS_hit_label[dbapis_keep]),
+    as.character(hit_rows$dbAPIS_family_id[dbapis_keep])
+  )
+  hit_rows$system_group_seed[dbapis_keep] <- paste(hit_rows$seqid[dbapis_keep], hit_rows$locus_tag[dbapis_keep], hit_rows$dbAPIS_family_id[dbapis_keep], sep = "::")
+  hit_rows$system_locus_id[dbapis_keep] <- paste0("DBA::", hit_rows$locus_tag[dbapis_keep])
+
+  acrfinder_keep <- is.na(hit_rows$system_locus_id) & hit_rows$in_acrfinder
+  hit_rows$system_group_source[acrfinder_keep] <- "AcrFinder"
+  hit_rows$system_group_name[acrfinder_keep] <- ifelse(
+    "AcrFinder_hit_label" %in% names(hit_rows) & !is.na(hit_rows$AcrFinder_hit_label[acrfinder_keep]) & nzchar(as.character(hit_rows$AcrFinder_hit_label[acrfinder_keep])),
+    as.character(hit_rows$AcrFinder_hit_label[acrfinder_keep]),
+    as.character(hit_rows$AcrFinder_family_id[acrfinder_keep])
+  )
+  hit_rows$system_group_seed[acrfinder_keep] <- paste(hit_rows$seqid[acrfinder_keep], hit_rows$locus_tag[acrfinder_keep], hit_rows$AcrFinder_family_id[acrfinder_keep], sep = "::")
+  hit_rows$system_locus_id[acrfinder_keep] <- paste0("ACR::", hit_rows$locus_tag[acrfinder_keep])
 
   pd_keep <- !df_keep & hit_rows$in_padloc & !is.na(hit_rows$PADLOC_system_number)
   hit_rows$system_group_source[pd_keep] <- "PADLOC"
@@ -685,18 +748,25 @@
   if (!requireNamespace("venneuler", quietly = TRUE) || !requireNamespace("ggplotify", quietly = TRUE)) {
     return(NULL)
   }
-  tool_order <- c("DefensePredictor", "PADLOC", "DefenseFinder", "REBASE")
+  preferred_order <- c("DefensePredictor", "PADLOC", "DefenseFinder", "REBASE", "AntiDefenseFinder", "dbAPIS", "AcrFinder")
   set_colors <- c(
     "DefensePredictor" = "#D81B60",
     "PADLOC" = "#F39C12",
     "DefenseFinder" = "#1F77B4",
-    "REBASE" = "#1B9E77"
+    "REBASE" = "#1B9E77",
+    "AntiDefenseFinder" = "#6A5ACD",
+    "dbAPIS" = "#2CA02C",
+    "AcrFinder" = "#B22222"
   )
   if (is.null(tool_membership) || !is.data.frame(tool_membership) || !nrow(tool_membership)) {
     return(ggplot2::ggplot() + ggplot2::theme_void())
   }
 
   tool_membership <- as.data.frame(tool_membership, stringsAsFactors = FALSE)
+  tool_order <- preferred_order[preferred_order %in% unique(as.character(tool_membership$tool))]
+  if (!length(tool_order)) {
+    return(ggplot2::ggplot() + ggplot2::theme_void())
+  }
   membership_split <- split(tool_membership$accession, tool_membership$tool)
   all_tools_sets <- lapply(tool_order, function(tool) unique(as.character(membership_split[[tool]])))
   names(all_tools_sets) <- tool_order
@@ -713,7 +783,10 @@
     "DefensePredictor" = "DP",
     "PADLOC" = "PD",
     "DefenseFinder" = "DF",
-    "REBASE" = "RB"
+    "REBASE" = "RB",
+    "AntiDefenseFinder" = "ADF",
+    "dbAPIS" = "DBA",
+    "AcrFinder" = "ACR"
   )
   ve <- tryCatch(
     venneuler::venneuler(venn_expr),

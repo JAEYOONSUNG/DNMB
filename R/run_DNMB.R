@@ -6,6 +6,8 @@
 #' @param module_PAZy Logical, whether to run and append PAZy module results.
 #' @param module_GapMind Logical, whether to run and append GapMind module results.
 #' @param module_DefenseFinder Logical, whether to run and append DefenseFinder module results.
+#' @param module_dbAPIS Logical, whether to run and append dbAPIS anti-defense module results.
+#' @param module_AcrFinder Logical, whether to run and append AcrFinder anti-CRISPR module results.
 #' @param module_DefenseFinder_antidefense Logical; when \code{TRUE},
 #'   DefenseFinder is run with AntiDefenseFinder enabled so anti-defense hits
 #'   are merged into the DefenseFinder module output.
@@ -146,6 +148,8 @@ run_DNMB <- function(
     module_PAZy = TRUE,
     module_GapMind = TRUE,
     module_DefenseFinder = TRUE,
+    module_dbAPIS = TRUE,
+    module_AcrFinder = TRUE,
     module_DefenseFinder_antidefense = TRUE,
     module_PADLOC = TRUE,
     module_DefensePredictor = TRUE,
@@ -223,6 +227,8 @@ run_DNMB <- function(
     module_PAZy = module_PAZy,
     module_GapMind = module_GapMind,
     module_DefenseFinder = module_DefenseFinder,
+    module_dbAPIS = module_dbAPIS,
+    module_AcrFinder = module_AcrFinder,
     module_PADLOC = module_PADLOC,
     module_DefensePredictor = module_DefensePredictor,
     module_REBASEfinder = module_REBASEfinder,
@@ -379,9 +385,11 @@ run_DNMB <- function(
     module_CLEAN = module_CLEAN,
     module_PAZy = module_PAZy,
     module_GapMind = module_GapMind,
-      module_DefenseFinder = module_DefenseFinder,
-      module_PADLOC = module_PADLOC,
-      module_DefensePredictor = module_DefensePredictor,
+    module_DefenseFinder = module_DefenseFinder,
+    module_dbAPIS = module_dbAPIS,
+    module_AcrFinder = module_AcrFinder,
+    module_PADLOC = module_PADLOC,
+    module_DefensePredictor = module_DefensePredictor,
       module_REBASEfinder = module_REBASEfinder,
       module_ISelement = module_ISelement,
       module_PhiSpy = module_PhiSpy,
@@ -456,6 +464,8 @@ run_DNMB <- function(
               module_install = module_install,
               module_base_url = module_base_url,
               module_asset_urls = module_asset_urls,
+              module_dbAPIS = module_dbAPIS,
+              module_AcrFinder = module_AcrFinder,
               module_DefenseFinder_antidefense = module_DefenseFinder_antidefense,
               module_cpu = module_cpu,
               iselement_analysis_depth = iselement_analysis_depth,
@@ -574,6 +584,8 @@ dnmb_enabled_module_aliases <- function(module_dbCAN = FALSE,
                                         module_PAZy = FALSE,
                                         module_GapMind = FALSE,
                                         module_DefenseFinder = FALSE,
+                                        module_dbAPIS = FALSE,
+                                        module_AcrFinder = FALSE,
                                         module_PADLOC = FALSE,
                                         module_DefensePredictor = FALSE,
                                         module_REBASEfinder = FALSE,
@@ -597,6 +609,8 @@ dnmb_enabled_module_aliases <- function(module_dbCAN = FALSE,
     EggNOG = isTRUE(module_EggNOG),
     CLEAN = isTRUE(module_CLEAN),
     DefenseFinder = isTRUE(module_DefenseFinder),
+    dbAPIS = isTRUE(module_dbAPIS),
+    AcrFinder = isTRUE(module_AcrFinder),
     PADLOC = isTRUE(module_PADLOC),
     DefensePredictor = isTRUE(module_DefensePredictor),
     REBASEfinder = isTRUE(module_REBASEfinder),
@@ -621,6 +635,8 @@ dnmb_resolve_module_results <- function(module_aliases,
                                         module_install = TRUE,
                                         module_base_url = NULL,
                                         module_asset_urls = NULL,
+                                        module_dbAPIS = TRUE,
+                                        module_AcrFinder = TRUE,
                                         module_DefenseFinder_antidefense = TRUE,
                                         module_cpu = .dnmb_default_cpu(),
                                         iselement_analysis_depth = "full",
@@ -652,6 +668,8 @@ dnmb_resolve_module_results <- function(module_aliases,
     "PAZy",
     "GapMind",
     "DefenseFinder",
+    "dbAPIS",
+    "AcrFinder",
     "PADLOC",
     "DefensePredictor",
     "REBASEfinder",
@@ -670,6 +688,8 @@ dnmb_resolve_module_results <- function(module_aliases,
   module_flags$module_install <- module_install
   module_flags$module_base_url <- module_base_url
   module_flags$module_asset_urls <- module_asset_urls
+  module_flags$module_dbAPIS <- module_dbAPIS
+  module_flags$module_AcrFinder <- module_AcrFinder
   module_flags$module_DefenseFinder_antidefense <- module_DefenseFinder_antidefense
   module_flags$module_cpu <- module_cpu
   module_flags$module_Prophage_backend <- module_Prophage_backend

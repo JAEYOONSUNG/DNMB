@@ -348,10 +348,10 @@
 #' supplied gene table and returns per-module results or a merged locus-level
 #' table.
 #'
-#' Live execution is currently implemented for `dbCAN`, `MEROPS`, `CLEAN`, `PAZy`, `GapMind`, `DefenseFinder`, `PADLOC`, `DefensePredictor`, `ISelement`, and `Prophage`.
+#' Live execution is currently implemented for `dbCAN`, `MEROPS`, `CLEAN`, `PAZy`, `GapMind`, `DefenseFinder`, `dbAPIS`, `AcrFinder`, `PADLOC`, `DefensePredictor`, `ISelement`, and `Prophage`.
 #'
 #' @param db Optional character vector of module names to run.
-#' @param module_dbCAN,module_MEROPS,module_CLEAN,module_PAZy,module_GapMind,module_DefenseFinder,module_PADLOC,module_DefensePredictor,module_ISelement,module_Prophage Logical toggles used when
+#' @param module_dbCAN,module_MEROPS,module_CLEAN,module_PAZy,module_GapMind,module_DefenseFinder,module_dbAPIS,module_AcrFinder,module_PADLOC,module_DefensePredictor,module_ISelement,module_Prophage Logical toggles used when
 #'   `db` is not supplied.
 #' @param module_Prophage_backend Character backend for `Prophage`; one of
 #'   `phispy`, `virsorter2`, or `pide`.
@@ -383,6 +383,8 @@ run_module_set <- function(db = NULL,
                            module_PAZy = TRUE,
                            module_GapMind = TRUE,
                            module_DefenseFinder = TRUE,
+                           module_dbAPIS = TRUE,
+                           module_AcrFinder = TRUE,
                            module_DefenseFinder_antidefense = TRUE,
                            module_PADLOC = TRUE,
                            module_DefensePredictor = TRUE,
@@ -438,6 +440,8 @@ run_module_set <- function(db = NULL,
       EggNOG = isTRUE(module_EggNOG),
       CLEAN = isTRUE(module_CLEAN),
       DefenseFinder = isTRUE(module_DefenseFinder),
+      dbAPIS = isTRUE(module_dbAPIS),
+      AcrFinder = isTRUE(module_AcrFinder),
       PADLOC = isTRUE(module_PADLOC),
       DefensePredictor = isTRUE(module_DefensePredictor),
       REBASEfinder = isTRUE(module_REBASEfinder),
@@ -494,10 +498,10 @@ run_module_set <- function(db = NULL,
     return(list())
   }
 
-  unsupported <- setdiff(db, c("dbCAN", "MEROPS", "CLEAN", "PAZy", "GapMindAA", "GapMindCarbon", "DefenseFinder", "PADLOC", "DefensePredictor", "REBASEfinder", "ISelement", "PhiSpy", "VirSorter2", "PIDE", "EggNOG"))
+  unsupported <- setdiff(db, c("dbCAN", "MEROPS", "CLEAN", "PAZy", "GapMindAA", "GapMindCarbon", "DefenseFinder", "dbAPIS", "AcrFinder", "PADLOC", "DefensePredictor", "REBASEfinder", "ISelement", "PhiSpy", "VirSorter2", "PIDE", "EggNOG"))
   if (length(unsupported)) {
     stop(
-      "Live module execution is currently implemented only for dbCAN, MEROPS, CLEAN, PAZy, GapMind, DefenseFinder, PADLOC, DefensePredictor, ISelement, PhiSpy, VirSorter2, PIDE, and EggNOG. Unsupported module(s): ",
+      "Live module execution is currently implemented only for dbCAN, MEROPS, CLEAN, PAZy, GapMind, DefenseFinder, dbAPIS, AcrFinder, PADLOC, DefensePredictor, ISelement, PhiSpy, VirSorter2, PIDE, and EggNOG. Unsupported module(s): ",
       paste(unsupported, collapse = ", "),
       call. = FALSE
     )
@@ -513,6 +517,8 @@ run_module_set <- function(db = NULL,
       EggNOG = list(module = "eggnog", version = "data"),
       CLEAN = list(module = "clean", version = module_version %||% "split100"),
       DefenseFinder = list(module = "defensefinder", version = module_version %||% "current"),
+      dbAPIS = list(module = "dbapis", version = module_version %||% "current"),
+      AcrFinder = list(module = "acrfinder", version = module_version %||% "current"),
       PADLOC = list(module = "padloc", version = module_version %||% "current"),
       DefensePredictor = list(module = "defensepredictor", version = module_version %||% "current"),
       GapMindAA = list(module = "gapmind", version = "aa"),
@@ -638,6 +644,80 @@ run_module_set <- function(db = NULL,
       ),
       class = "dnmb_module_run"
     )
+    }
+  }
+
+  ## --- 3ab. dbAPIS ---
+  if ("dbAPIS" %in% db) {
+    if (isTRUE(verbose)) {
+      message("[DNMB] ── dbAPIS ──")
+    }
+    dbapis_result <- .dnmb_module_try_run("dbAPIS", function() {
+      dnmb_run_dbapis_module(
+        genes = genes,
+        output_dir = .dnmb_module_output_dir("dbAPIS", output_dir = output_dir),
+        version = module_version %||% .dnmb_dbapis_default_version(),
+        cache_root = module_cache_root,
+        install = isTRUE(module_install),
+        repo_url = .dnmb_dbapis_default_repo_url(),
+        asset_urls = if (is.list(module_asset_urls) && "dbAPIS" %in% names(module_asset_urls)) module_asset_urls[["dbAPIS"]] else module_asset_urls,
+        cpu = as.integer(module_cpu)[1],
+        include_acr = FALSE
+      )
+    })
+    if (!isTRUE(dbapis_result$ok)) {
+      warning(
+        "dbAPIS module execution failed: ",
+        .dnmb_module_status_detail(dbapis_result$status) %||% "unknown error",
+        call. = FALSE
+      )
+    } else {
+      runs$dbAPIS <- structure(
+        list(
+          database = "dbAPIS",
+          output_table = dbapis_result$output_table %||% .dnmb_dbapis_output_table(genes = genes, hits = dbapis_result$hits),
+          hits = dbapis_result$hits,
+          module_result = dbapis_result
+        ),
+        class = "dnmb_module_run"
+      )
+    }
+  }
+
+  ## --- 3ac. AcrFinder ---
+  if ("AcrFinder" %in% db) {
+    if (isTRUE(verbose)) {
+      message("[DNMB] ── AcrFinder ──")
+    }
+    acrfinder_result <- .dnmb_module_try_run("AcrFinder", function() {
+      dnmb_run_acrfinder_module(
+        genes = genes,
+        output_dir = .dnmb_module_output_dir("AcrFinder", output_dir = output_dir),
+        version = module_version %||% .dnmb_acrfinder_default_version(),
+        cache_root = module_cache_root,
+        install = isTRUE(module_install),
+        repo_url = .dnmb_acrfinder_default_repo_url(),
+        asset_urls = if (is.list(module_asset_urls) && "AcrFinder" %in% names(module_asset_urls)) module_asset_urls[["AcrFinder"]] else module_asset_urls,
+        cpu = as.integer(module_cpu)[1],
+        genbank = genbank
+      )
+    })
+    if (!isTRUE(acrfinder_result$ok)) {
+      warning(
+        "AcrFinder module execution failed: ",
+        .dnmb_module_status_detail(acrfinder_result$status) %||% "unknown error",
+        call. = FALSE
+      )
+    } else {
+      runs$AcrFinder <- structure(
+        list(
+          database = "AcrFinder",
+          output_table = acrfinder_result$output_table %||% .dnmb_acrfinder_output_table(genes = genes, hits = acrfinder_result$hits),
+          hits = acrfinder_result$hits,
+          module_result = acrfinder_result
+        ),
+        class = "dnmb_module_run"
+      )
     }
   }
 

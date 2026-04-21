@@ -71,6 +71,8 @@ append_module_results <- function(main_table, ..., merged_module_table = NULL) {
     stop("merged_module_table must be a data frame.", call. = FALSE)
   }
 
+  merged_module_table <- dnmb_normalize_prophage_prefix(merged_module_table)
+
   if (!"locus_tag" %in% names(merged_module_table)) {
     stop("merged_module_table must contain a 'locus_tag' column.", call. = FALSE)
   }
@@ -279,4 +281,25 @@ dnmb_coalesce_vectors <- function(primary, secondary) {
 
 dnmb_safe_module_name <- function(module_name) {
   gsub("[^[:alnum:]_]+", "_", module_name)
+}
+
+dnmb_normalize_prophage_prefix <- function(merged_table) {
+  if (!is.data.frame(merged_table) || !ncol(merged_table)) {
+    return(merged_table)
+  }
+  nm <- names(merged_table)
+  phispy_cols <- grep("^PhiSpy_", nm, value = TRUE)
+  if (!length(phispy_cols)) {
+    return(merged_table)
+  }
+  renamed <- sub("^PhiSpy_", "Prophage_", phispy_cols)
+  for (idx in seq_along(phispy_cols)) {
+    old <- phispy_cols[[idx]]
+    new <- renamed[[idx]]
+    if (new %in% names(merged_table)) {
+      merged_table[[new]] <- NULL
+    }
+    names(merged_table)[names(merged_table) == old] <- new
+  }
+  merged_table
 }

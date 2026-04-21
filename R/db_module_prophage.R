@@ -903,7 +903,7 @@ dnmb_prophage_normalize_hits <- function(gene_hits, backend = "phispy") {
 .dnmb_prophage_vs2_step_python_deps <- function(layout) {
   deps_ok <- dnmb_run_external(
     layout$env_python,
-    args = c("-c", "import screed, pandas, numpy, sklearn, Bio, joblib"),
+    args = c("-c", "import screed, pandas, numpy, sklearn, Bio, joblib; import sys; sys.exit(0 if tuple(int(x) for x in sklearn.__version__.split('.')[:2]) <= (1, 2) else 1)"),
     required = FALSE
   )
   if (base::isTRUE(deps_ok$ok)) {
@@ -916,7 +916,7 @@ dnmb_prophage_normalize_hits <- function(gene_hits, backend = "phispy") {
       "install", "-y", "-p", layout$env_dir,
       "-c", "conda-forge",
       "-c", "bioconda",
-      "screed", "pandas", "numpy<1.24", "scikit-learn",
+      "screed", "pandas", "numpy<1.24", "scikit-learn<1.3",
       "imbalanced-learn", "seaborn", "biopython",
       "prodigal", "hmmer", "last",
       "ncbi-genome-download", "ruamel.yaml"
@@ -926,6 +926,14 @@ dnmb_prophage_normalize_hits <- function(gene_hits, backend = "phispy") {
   )
   if (!base::isTRUE(dep_run$ok)) {
     return(list(ok = FALSE, detail = dep_run$error %||% "virsorter dependency install failed"))
+  }
+  pin_run <- dnmb_run_external(
+    layout$env_python,
+    args = c("-m", "pip", "install", "--no-deps", "scikit-learn==1.2.2"),
+    required = FALSE
+  )
+  if (!base::isTRUE(pin_run$ok)) {
+    return(list(ok = FALSE, detail = pin_run$error %||% "failed to pin scikit-learn 1.2.2"))
   }
   list(ok = TRUE, detail = layout$env_dir)
 }

@@ -216,9 +216,34 @@ dnmb_db_read_manifest <- function(module, version, cache_root = NULL, required =
   }
   # Always use the current module_dir (may differ from manifest if cache moved or Docker)
   current_module_dir <- .dnmb_db_module_dir(module, version, cache_root = cache_root, create = FALSE)
+  stored_module_dir <- manifest$module_dir
   manifest$module_dir <- current_module_dir
   manifest$manifest_path <- manifest_path
+  manifest <- .dnmb_db_rebase_manifest_paths(manifest, stored_module_dir, current_module_dir)
   class(manifest) <- unique(c("dnmb_db_manifest", class(manifest)))
+  manifest
+}
+
+.dnmb_db_rebase_manifest_paths <- function(manifest, stored_root, current_root) {
+  if (is.null(stored_root) || !nzchar(stored_root) || identical(stored_root, current_root)) {
+    return(manifest)
+  }
+  stored_prefix <- sub("/+$", "", stored_root)
+  current_prefix <- sub("/+$", "", current_root)
+  rebase_one <- function(value) {
+    if (!is.character(value) || !length(value)) return(value)
+    hit <- startsWith(value, paste0(stored_prefix, "/")) | value == stored_prefix
+    if (!any(hit, na.rm = TRUE)) return(value)
+    value[hit] <- paste0(current_prefix, substring(value[hit], nchar(stored_prefix) + 1L))
+    value
+  }
+  skip <- c("module", "version", "module_dir", "manifest_path", "resource_base_url", "repo_url")
+  for (nm in setdiff(names(manifest), skip)) {
+    val <- manifest[[nm]]
+    if (is.character(val) && length(val)) {
+      manifest[[nm]] <- rebase_one(val)
+    }
+  }
   manifest
 }
 

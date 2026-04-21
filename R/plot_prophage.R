@@ -1910,3 +1910,52 @@
   attr(p, "plot_right_margin_pt") <- style_spec$label_right_margin
   p
 }
+
+# --- PhiSpy x VirSorter2 consensus helper -----------------------------------
+
+# Returns a small data.frame of VS2 calls that overlap the PhiSpy region, or
+# NULL when none match. Used to annotate PhiSpy storyboards with VS2 consensus
+# info (group, score, partial flag, hallmark count) on a single summary line.
+.dnmb_prophage_vs2_overlap <- function(output_dir, contig_id, region_start_bp, region_end_bp) {
+  if (base::is.null(output_dir) || !base::nzchar(output_dir)) return(NULL)
+  vs2_path <- base::file.path(output_dir, "dnmb_module_virsorter2", "virsorter2_boundary.tsv")
+  if (!base::file.exists(vs2_path)) return(NULL)
+  bd <- tryCatch(
+    utils::read.delim(vs2_path, stringsAsFactors = FALSE, check.names = FALSE),
+    error = function(e) NULL
+  )
+  if (base::is.null(bd) || !base::nrow(bd)) return(NULL)
+  norm_contig <- function(x) base::sub("\\.[0-9]+$", "", base::as.character(x))
+  contig <- norm_contig(bd$seqname)
+  query_contig <- norm_contig(contig_id)
+  rstart <- suppressWarnings(base::as.numeric(bd$trim_bp_start))
+  rend   <- suppressWarnings(base::as.numeric(bd$trim_bp_end))
+  keep <- !base::is.na(rstart) & !base::is.na(rend) &
+          contig == query_contig &
+          rend   >= region_start_bp &
+          rstart <= region_end_bp
+  if (!base::any(keep)) return(NULL)
+  bd <- bd[keep, , drop = FALSE]
+  group <- bd$final_max_score_group %||% bd$group
+  score <- suppressWarnings(base::as.numeric(bd$final_max_score %||% bd$pr_full))
+  partial <- suppressWarnings(base::as.integer(bd$partial %||% 0L)) == 1L
+  hallmarks <- suppressWarnings(base::as.integer(bd$hallmark_cnt %||% NA))
+  base::data.frame(
+    group = base::as.character(group),
+    score = score,
+    partial = partial,
+    hallmarks = hallmarks,
+    stringsAsFactors = FALSE
+  )
+}
+
+.dnmb_prophage_vs2_summary_piece <- function(overlap) {
+  if (base::is.null(overlap) || !base::nrow(overlap)) return("")
+  o <- overlap[1, , drop = FALSE]
+  parts <- base::paste0("VS2: ", o$group)
+  if (base::is.finite(o$score)) parts <- base::paste0(parts, base::sprintf(" score=%.2f", o$score))
+  if (base::is.finite(o$hallmarks) && o$hallmarks > 0) parts <- base::paste0(parts, " hm=", o$hallmarks)
+  if (isTRUE(o$partial)) parts <- base::paste0(parts, " (partial)")
+  parts
+}
+

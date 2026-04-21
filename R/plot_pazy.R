@@ -487,16 +487,25 @@
         } else ""
         func_info <- att_row$functional_summary[[1]] %||% ""
 
+        vs2_overlap <- .dnmb_prophage_vs2_overlap(
+          output_dir = output_dir,
+          contig_id = contig_id,
+          region_start_bp = region_start_bp,
+          region_end_bp = region_end_bp
+        )
+        vs2_info <- .dnmb_prophage_vs2_summary_piece(vs2_overlap)
+
         summary_line <- paste(
           c(
             paste0(toupper(compl), " | ", toupper(conf)),
             gc_info,
             att_info,
             int_info,
-            trna_info
+            trna_info,
+            vs2_info
           )[nzchar(c(
             paste0(toupper(compl), " | ", toupper(conf)),
-            gc_info, att_info, int_info, trna_info
+            gc_info, att_info, int_info, trna_info, vs2_info
           ))],
           collapse = "  |  "
         )

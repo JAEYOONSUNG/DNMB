@@ -1,13 +1,38 @@
-.dnmb_plot_defensefinder_module <- function(genbank_table, output_dir) {
+.dnmb_defensefinder_activity_slug <- function(activity) {
+  activity <- trimws(as.character(activity)[1])
+  if (!nzchar(activity) || is.na(activity)) {
+    return("DefenseFinder")
+  }
+  if (identical(activity, "Anti-defense")) {
+    return("AntiDefenseFinder")
+  }
+  "DefenseFinder"
+}
+
+.dnmb_defensefinder_plot_table <- function(genbank_table, activity = NULL) {
   tbl <- .dnmb_contig_ordered_table(genbank_table)
   req <- c("DefenseFinder_system_id", "DefenseFinder_system_subtype")
   if (!base::nrow(tbl) || !base::all(req %in% base::names(tbl))) {
-    return(NULL)
+    return(data.frame())
   }
   tbl <- tbl[!is.na(tbl$DefenseFinder_system_id) & base::nzchar(tbl$DefenseFinder_system_id), , drop = FALSE]
   if (!base::nrow(tbl)) {
+    return(tbl)
+  }
+  if (is.null(activity) || !"DefenseFinder_system_activity" %in% base::names(tbl)) {
+    return(tbl)
+  }
+  keep <- !is.na(tbl$DefenseFinder_system_activity) &
+    base::as.character(tbl$DefenseFinder_system_activity) == base::as.character(activity)[1]
+  tbl[keep, , drop = FALSE]
+}
+
+.dnmb_plot_defensefinder_activity_module <- function(genbank_table, output_dir, activity = NULL) {
+  tbl <- .dnmb_defensefinder_plot_table(genbank_table, activity = activity)
+  if (!base::nrow(tbl)) {
     return(NULL)
   }
+  activity_label <- .dnmb_defensefinder_activity_slug(activity)
   contig_lengths <- .dnmb_contig_lengths_for_plot(tbl, output_dir = output_dir)
   overview_windows <- tbl |>
     dplyr::group_by(.data$contig, .data$DefenseFinder_system_id, .data$DefenseFinder_system_subtype) |>
@@ -24,17 +49,21 @@
     overview_windows,
     defense_palette,
     legend_position = "none"
-  )
+  ) +
+    ggplot2::labs(title = paste0("A   ", activity_label, " inventory"))
   p_context <- .dnmb_plot_defensefinder_context(
     genbank_table,
     output_dir = output_dir,
     defense_palette = defense_palette,
+    system_ids = unique(tbl$DefenseFinder_system_id),
     legend_position = "none"
-  )
+  ) +
+    ggplot2::labs(title = paste0("B   ", activity_label, " genome layout"))
   p_context_legend <- .dnmb_plot_defensefinder_context(
     genbank_table,
     output_dir = output_dir,
     defense_palette = defense_palette,
+    system_ids = unique(tbl$DefenseFinder_system_id),
     legend_position = "bottom"
   )
   legend_context <- cowplot::get_legend(p_context_legend)
@@ -59,7 +88,7 @@
     palette = defense_palette
   )
   plot_dir <- .dnmb_module_plot_dir(output_dir)
-  pdf_path <- file.path(plot_dir, "DefenseFinder_overview.pdf")
+  pdf_path <- file.path(plot_dir, paste0(activity_label, "_overview.pdf"))
   composite <- cowplot::plot_grid(
     p_inventory,
     p_context,
@@ -77,6 +106,30 @@
   )
   .dnmb_module_plot_save(composite, pdf_path, width = 9.5, height = 13)
   list(pdf = pdf_path)
+}
+
+.dnmb_plot_defensefinder_module <- function(genbank_table, output_dir) {
+  plots <- list()
+  defense_plot <- .dnmb_plot_defensefinder_activity_module(
+    genbank_table = genbank_table,
+    output_dir = output_dir,
+    activity = "Defense"
+  )
+  if (is.list(defense_plot)) {
+    plots$defense_pdf <- defense_plot$pdf
+  }
+  antidefense_plot <- .dnmb_plot_defensefinder_activity_module(
+    genbank_table = genbank_table,
+    output_dir = output_dir,
+    activity = "Anti-defense"
+  )
+  if (is.list(antidefense_plot)) {
+    plots$antidefense_pdf <- antidefense_plot$pdf
+  }
+  if (!base::length(plots)) {
+    return(NULL)
+  }
+  plots
 }
 
 .dnmb_defensefinder_palette <- function(values) {
@@ -187,6 +240,7 @@
 .dnmb_plot_defensefinder_context <- function(genbank_table,
                                             output_dir,
                                             defense_palette,
+                                            system_ids = NULL,
                                             legend_position = "none") {
   tbl <- .dnmb_contig_ordered_table(genbank_table)
   if (!nrow(tbl)) {
@@ -194,6 +248,10 @@
   }
 
   defense_tbl <- tbl[!is.na(tbl$DefenseFinder_system_id) & nzchar(tbl$DefenseFinder_system_id), , drop = FALSE]
+  if (!is.null(system_ids)) {
+    system_ids <- unique(as.character(system_ids))
+    defense_tbl <- defense_tbl[base::as.character(defense_tbl$DefenseFinder_system_id) %in% system_ids, , drop = FALSE]
+  }
   defense_windows <- defense_tbl |>
     dplyr::group_by(.data$contig, .data$DefenseFinder_system_id, .data$DefenseFinder_system_subtype) |>
     dplyr::summarise(

@@ -357,7 +357,8 @@ dnmb_render_module_plots <- function(genbank_table, output_dir = getwd(), cache_
   run_plot("MEROPS",           function() .dnmb_plot_merops_module(genbank_table, output_dir = output_dir))
   run_plot("PAZy",             function() .dnmb_plot_pazy_module(genbank_table, output_dir = output_dir, cache_root = cache_root))
   run_plot("REBASEfinder",     function() .dnmb_plot_rebasefinder_module(genbank_table, output_dir = output_dir))
-  run_plot("DefenseOverview",  function() .dnmb_plot_integrated_defense_module(genbank_table, output_dir = output_dir))
+  run_plot("DefenseOverview",      function() .dnmb_plot_integrated_defense_module(genbank_table, output_dir = output_dir, defensefinder_activity = "Defense"))
+  run_plot("AntiDefenseOverview",  function() .dnmb_plot_integrated_defense_module(genbank_table, output_dir = output_dir, defensefinder_activity = "Anti-defense"))
 
   if (length(dropped)) {
     message("[DNMB plots] ", length(dropped), " module plot(s) skipped:")

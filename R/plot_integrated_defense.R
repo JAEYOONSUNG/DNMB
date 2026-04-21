@@ -477,8 +477,15 @@
     )
 }
 
-.dnmb_integrated_defense_overlap_data <- function(tbl, dp_threshold = .dnmb_defensepredictor_default_threshold()) {
+.dnmb_integrated_defense_overlap_data <- function(tbl,
+                                                  dp_threshold = .dnmb_defensepredictor_default_threshold(),
+                                                  defensefinder_activity = NULL) {
   gt <- as.data.frame(tbl, stringsAsFactors = FALSE)
+  gt$DefenseFinder_system_activity <- if ("DefenseFinder_system_activity" %in% names(gt)) {
+    as.character(gt$DefenseFinder_system_activity)
+  } else {
+    rep(NA_character_, nrow(gt))
+  }
   gt$DefensePredictor_mean_log_odds <- if ("DefensePredictor_mean_log_odds" %in% names(gt)) {
     suppressWarnings(as.numeric(gt$DefensePredictor_mean_log_odds))
   } else {
@@ -491,7 +498,13 @@
     rep(FALSE, nrow(gt))
   }
   gt$in_defensefinder <- if ("DefenseFinder_system_id" %in% names(gt)) {
-    !is.na(gt$DefenseFinder_system_id) & nzchar(as.character(gt$DefenseFinder_system_id))
+    keep <- !is.na(gt$DefenseFinder_system_id) & nzchar(as.character(gt$DefenseFinder_system_id))
+    if (!is.null(defensefinder_activity)) {
+      keep <- keep &
+        !is.na(gt$DefenseFinder_system_activity) &
+        gt$DefenseFinder_system_activity == as.character(defensefinder_activity)[1]
+    }
+    keep
   } else {
     rep(FALSE, nrow(gt))
   }
@@ -499,6 +512,11 @@
     !is.na(gt$REBASEfinder_family_id) & nzchar(as.character(gt$REBASEfinder_family_id))
   } else {
     rep(FALSE, nrow(gt))
+  }
+  if (!is.null(defensefinder_activity) && identical(as.character(defensefinder_activity)[1], "Anti-defense")) {
+    gt$in_defensepredictor <- rep(FALSE, nrow(gt))
+    gt$in_padloc <- rep(FALSE, nrow(gt))
+    gt$in_rebase <- rep(FALSE, nrow(gt))
   }
   gt$accession <- as.character(gt$protein_id %||% NA_character_)
   if ("DefensePredictor_product_accession" %in% names(gt)) {
@@ -533,8 +551,13 @@
 
 .dnmb_integrated_defense_build_members <- function(tbl,
                                                    dp_threshold = .dnmb_defensepredictor_default_threshold(),
-                                                   region_gap = 25000L) {
-  overlap <- .dnmb_integrated_defense_overlap_data(tbl, dp_threshold = dp_threshold)
+                                                   region_gap = 25000L,
+                                                   defensefinder_activity = NULL) {
+  overlap <- .dnmb_integrated_defense_overlap_data(
+    tbl,
+    dp_threshold = dp_threshold,
+    defensefinder_activity = defensefinder_activity
+  )
   gt <- overlap$genbank
   hit_rows <- gt[
     gt$in_defensepredictor | gt$in_padloc | gt$in_defensefinder | gt$in_rebase,
@@ -892,15 +915,31 @@
   panel
 }
 
+.dnmb_integrated_defense_plot_slug <- function(defensefinder_activity = NULL) {
+  if (is.null(defensefinder_activity) || identical(as.character(defensefinder_activity)[1], "Defense")) {
+    return("Defense")
+  }
+  if (identical(as.character(defensefinder_activity)[1], "Anti-defense")) {
+    return("AntiDefense")
+  }
+  "Defense"
+}
+
 .dnmb_plot_integrated_defense_module <- function(genbank_table,
                                                  output_dir,
-                                                 dp_threshold = .dnmb_defensepredictor_default_threshold()) {
-  built <- .dnmb_integrated_defense_build_members(genbank_table, dp_threshold = dp_threshold)
+                                                 dp_threshold = .dnmb_defensepredictor_default_threshold(),
+                                                 defensefinder_activity = "Defense") {
+  built <- .dnmb_integrated_defense_build_members(
+    genbank_table,
+    dp_threshold = dp_threshold,
+    defensefinder_activity = defensefinder_activity
+  )
   system_members <- built$members
   tool_membership <- built$membership
   if (!is.data.frame(system_members) || !nrow(system_members)) {
     return(NULL)
   }
+  plot_slug <- .dnmb_integrated_defense_plot_slug(defensefinder_activity)
 
   system_summary <- system_members |>
     dplyr::group_by(.data$system_locus_id, .data$system_group_source, .data$system_group_name, .data$display_name, .data$seqid) |>
@@ -1030,7 +1069,13 @@
   d_context_panel <- cowplot::plot_grid(p_context, ncol = 1, rel_heights = c(1.0), align = "v")
   top_row <- cowplot::plot_grid(
     add_panel_header(p_overlap, "A", "Overlap summary", plot_y = 0.06, plot_h = 0.92),
-    add_panel_header(p_inventory, "B", "Integrated defense inventory", plot_y = 0.06, plot_h = 0.84),
+    add_panel_header(
+      p_inventory,
+      "B",
+      if (identical(plot_slug, "AntiDefense")) "Integrated anti-defense inventory" else "Integrated defense inventory",
+      plot_y = 0.06,
+      plot_h = 0.84
+    ),
     ncol = 2,
     rel_widths = c(1.04, 0.96)
   )
@@ -1057,8 +1102,20 @@
 
   composite <- cowplot::plot_grid(
     top_row,
-    add_panel_header(p_detail_wrapped, "C", "Integrated defense radial detail", plot_y = 0.01, plot_h = 0.90),
-    add_panel_header(d_context_wrapped, "D", "Integrated defense genome layout", plot_y = 0.11, plot_h = 0.82),
+    add_panel_header(
+      p_detail_wrapped,
+      "C",
+      if (identical(plot_slug, "AntiDefense")) "Integrated anti-defense radial detail" else "Integrated defense radial detail",
+      plot_y = 0.01,
+      plot_h = 0.90
+    ),
+    add_panel_header(
+      d_context_wrapped,
+      "D",
+      if (identical(plot_slug, "AntiDefense")) "Integrated anti-defense genome layout" else "Integrated defense genome layout",
+      plot_y = 0.11,
+      plot_h = 0.82
+    ),
     common_legend,
     ncol = 1,
     rel_heights = c(2.05, 4.00, 1.50, 0.22),
@@ -1066,7 +1123,7 @@
   )
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
-  pdf_path <- file.path(plot_dir, "Defense_overview.pdf")
+  pdf_path <- file.path(plot_dir, paste0(plot_slug, "_overview.pdf"))
   .dnmb_module_plot_save(composite, pdf_path, width = 10.5, height = 15.3)
   list(pdf = pdf_path)
 }

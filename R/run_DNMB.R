@@ -6,6 +6,9 @@
 #' @param module_PAZy Logical, whether to run and append PAZy module results.
 #' @param module_GapMind Logical, whether to run and append GapMind module results.
 #' @param module_DefenseFinder Logical, whether to run and append DefenseFinder module results.
+#' @param module_DefenseFinder_antidefense Logical; when \code{TRUE},
+#'   DefenseFinder is run with AntiDefenseFinder enabled so anti-defense hits
+#'   are merged into the DefenseFinder module output.
 #' @param module_PADLOC Logical, whether to run and append PADLOC module results.
 #' @param module_DefensePredictor Logical, whether to run and append DefensePredictor module results.
 #' @param module_ISelement Logical, whether to run and append IS element module results.
@@ -143,6 +146,7 @@ run_DNMB <- function(
     module_PAZy = TRUE,
     module_GapMind = TRUE,
     module_DefenseFinder = TRUE,
+    module_DefenseFinder_antidefense = TRUE,
     module_PADLOC = TRUE,
     module_DefensePredictor = TRUE,
     module_REBASEfinder = TRUE,
@@ -237,6 +241,7 @@ run_DNMB <- function(
     module_install = module_install,
     module_base_url = module_base_url,
     module_asset_urls = module_asset_urls,
+    module_DefenseFinder_antidefense = module_DefenseFinder_antidefense,
     module_Prophage_backend = module_Prophage_backend,
     iselement_analysis_depth = iselement_analysis_depth,
     iselement_related_genbanks = iselement_related_genbanks,
@@ -393,6 +398,7 @@ run_DNMB <- function(
     module_install = module_install,
     module_base_url = module_base_url,
     module_asset_urls = module_asset_urls,
+    module_DefenseFinder_antidefense = module_DefenseFinder_antidefense,
     module_Prophage_backend = module_Prophage_backend,
     iselement_analysis_depth = iselement_analysis_depth,
     iselement_related_genbanks = iselement_related_genbanks,
@@ -450,6 +456,7 @@ run_DNMB <- function(
               module_install = module_install,
               module_base_url = module_base_url,
               module_asset_urls = module_asset_urls,
+              module_DefenseFinder_antidefense = module_DefenseFinder_antidefense,
               module_cpu = module_cpu,
               iselement_analysis_depth = iselement_analysis_depth,
               iselement_related_genbanks = iselement_related_genbanks,
@@ -614,6 +621,7 @@ dnmb_resolve_module_results <- function(module_aliases,
                                         module_install = TRUE,
                                         module_base_url = NULL,
                                         module_asset_urls = NULL,
+                                        module_DefenseFinder_antidefense = TRUE,
                                         module_cpu = .dnmb_default_cpu(),
                                         iselement_analysis_depth = "full",
                                         iselement_related_genbanks = NULL,
@@ -662,6 +670,7 @@ dnmb_resolve_module_results <- function(module_aliases,
   module_flags$module_install <- module_install
   module_flags$module_base_url <- module_base_url
   module_flags$module_asset_urls <- module_asset_urls
+  module_flags$module_DefenseFinder_antidefense <- module_DefenseFinder_antidefense
   module_flags$module_cpu <- module_cpu
   module_flags$module_Prophage_backend <- module_Prophage_backend
   module_flags$iselement_analysis_depth <- iselement_analysis_depth

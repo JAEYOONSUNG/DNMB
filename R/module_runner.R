@@ -365,6 +365,9 @@
 #' @param module_base_url Optional module asset base URL override.
 #' @param module_asset_urls Optional named local paths or URLs for module
 #'   assets.
+#' @param module_DefenseFinder_antidefense Logical; when `TRUE`, run
+#'   DefenseFinder with AntiDefenseFinder enabled so anti-defense systems are
+#'   collected alongside canonical defense systems.
 #' @param module_cpu Integer thread count for external tools.
 #' @param merge Logical; when `TRUE`, return a merged locus-level table instead
 #'   of a list of per-module runs.
@@ -380,6 +383,7 @@ run_module_set <- function(db = NULL,
                            module_PAZy = TRUE,
                            module_GapMind = TRUE,
                            module_DefenseFinder = TRUE,
+                           module_DefenseFinder_antidefense = TRUE,
                            module_PADLOC = TRUE,
                            module_DefensePredictor = TRUE,
                            module_REBASEfinder = TRUE,
@@ -614,7 +618,8 @@ run_module_set <- function(db = NULL,
         repo_url = .dnmb_defensefinder_default_repo_url(),
         asset_urls = if (is.list(module_asset_urls) && "DefenseFinder" %in% names(module_asset_urls)) module_asset_urls[["DefenseFinder"]] else module_asset_urls,
         cpu = as.integer(module_cpu)[1],
-        genbank = genbank
+        genbank = genbank,
+        include_antidefense = isTRUE(module_DefenseFinder_antidefense)
       )
     })
     if (!isTRUE(defensefinder_result$ok)) {

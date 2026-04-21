@@ -10,6 +10,14 @@
   "https://github.com/mdmparis/defense-finder.git"
 }
 
+.dnmb_defensefinder_default_models_version <- function() {
+  "2.0.2"
+}
+
+.dnmb_defensefinder_default_casfinder_version <- function() {
+  "3.1.0"
+}
+
 .dnmb_defensefinder_status_row <- function(component, status, detail = NA_character_) {
   tibble::tibble(
     component = base::as.character(component)[1],
@@ -33,6 +41,7 @@
     env_dir = base::file.path(module_dir, "venv"),
     env_python = base::file.path(module_dir, "venv", "bin", "python"),
     env_pip = base::file.path(module_dir, "venv", "bin", "pip"),
+    macsydata_path = base::file.path(module_dir, "venv", "bin", "macsydata"),
     cli_path = base::file.path(module_dir, "venv", "bin", "defense-finder"),
     models_dir = base::file.path(module_dir, "models"),
     install_trace_log = base::file.path(module_dir, "defensefinder_install_trace.log")
@@ -49,6 +58,10 @@
   asset_urls
 }
 
+.dnmb_defensefinder_casfinder_envvar <- function() {
+  "DNMB_DEFENSEFINDER_CASFINDER_DIR"
+}
+
 .dnmb_defensefinder_copy_dir_contents <- function(src_dir, dest_dir) {
   base::dir.create(dest_dir, recursive = TRUE, showWarnings = FALSE)
   entries <- base::list.files(src_dir, all.files = TRUE, full.names = TRUE, no.. = TRUE)
@@ -60,6 +73,198 @@
     base::stop("Failed to copy DefenseFinder assets from ", src_dir, " to ", dest_dir, call. = FALSE)
   }
   invisible(dest_dir)
+}
+
+.dnmb_defensefinder_path_first <- function(...) {
+  candidates <- unlist(list(...), use.names = FALSE)
+  candidates <- base::trimws(base::as.character(candidates))
+  candidates <- candidates[!base::is.na(candidates) & base::nzchar(candidates)]
+  if (!base::length(candidates)) {
+    return("")
+  }
+  base::path.expand(candidates[[1]])
+}
+
+.dnmb_defensefinder_na_if_empty <- function(x) {
+  x <- base::as.character(x)
+  x[!base::nzchar(base::trimws(x))] <- NA_character_
+  x
+}
+
+.dnmb_defensefinder_model_parts <- function(model_fqn) {
+  path_parts <- base::strsplit(base::as.character(model_fqn), "/", fixed = TRUE)
+  model_root <- vapply(
+    path_parts,
+    function(parts) if (base::length(parts) >= 2L) parts[[2L]] else NA_character_,
+    character(1)
+  )
+  subtype <- vapply(
+    path_parts,
+    function(parts) if (base::length(parts) >= 1L) parts[[base::length(parts)]] else NA_character_,
+    character(1)
+  )
+  type <- vapply(
+    path_parts,
+    function(parts) if (base::length(parts) >= 4L) parts[[base::length(parts) - 1L]] else NA_character_,
+    character(1)
+  )
+  activity <- ifelse(model_root %in% c("AntiDefenseFinder", "ADF"), "Anti-defense", "Defense")
+  data.frame(
+    model_root = .dnmb_defensefinder_na_if_empty(model_root),
+    type = .dnmb_defensefinder_na_if_empty(type),
+    subtype = .dnmb_defensefinder_na_if_empty(subtype),
+    activity = .dnmb_defensefinder_na_if_empty(activity),
+    stringsAsFactors = FALSE
+  )
+}
+
+.dnmb_defensefinder_annotate_models <- function(tbl) {
+  if (base::is.null(tbl) || !base::is.data.frame(tbl) || !base::nrow(tbl) || !"model_fqn" %in% base::names(tbl)) {
+    return(tbl)
+  }
+  annotated <- base::as.data.frame(tbl, stringsAsFactors = FALSE)
+  model_info <- .dnmb_defensefinder_model_parts(annotated$model_fqn)
+  for (column_name in c("type", "subtype", "activity")) {
+    current <- annotated[[column_name]]
+    if (base::is.null(current)) {
+      current <- base::rep(NA_character_, base::nrow(annotated))
+    }
+    annotated[[column_name]] <- dplyr::coalesce(
+      .dnmb_defensefinder_na_if_empty(current),
+      .dnmb_defensefinder_na_if_empty(model_info[[column_name]])
+    )
+  }
+  annotated
+}
+
+.dnmb_defensefinder_model_definition_version <- function(model_xml) {
+  if (!base::file.exists(model_xml)) {
+    return(NA_character_)
+  }
+  lines <- tryCatch(base::readLines(model_xml, warn = FALSE), error = function(e) character())
+  model_line <- lines[grep("<model ", lines, fixed = TRUE)][1]
+  if (base::is.na(model_line) || !base::nzchar(model_line)) {
+    return(NA_character_)
+  }
+  version_value <- sub('.*vers="([^"]+)".*', "\\1", model_line)
+  if (identical(version_value, model_line)) {
+    return(NA_character_)
+  }
+  version_value
+}
+
+.dnmb_defensefinder_casfinder_model_version <- function(casfinder_dir) {
+  casfinder_dir <- .dnmb_defensefinder_path_first(casfinder_dir)
+  if (!base::dir.exists(casfinder_dir)) {
+    return(NA_character_)
+  }
+  preferred_xml <- base::file.path(casfinder_dir, "definitions", "CAS_Class2-Subtype-VI-X.xml")
+  xml_path <- if (base::file.exists(preferred_xml)) {
+    preferred_xml
+  } else {
+    xml_files <- base::list.files(base::file.path(casfinder_dir, "definitions"), pattern = "\\.xml$", full.names = TRUE)
+    xml_files <- xml_files[base::length(xml_files) > 0L]
+    if (!base::length(xml_files)) {
+      return(NA_character_)
+    }
+    xml_files[[1]]
+  }
+  .dnmb_defensefinder_model_definition_version(xml_path)
+}
+
+.dnmb_defensefinder_casfinder_release_version <- function(casfinder_dir) {
+  casfinder_dir <- .dnmb_defensefinder_path_first(casfinder_dir)
+  metadata_path <- base::file.path(casfinder_dir, "metadata.yml")
+  if (!base::file.exists(metadata_path)) {
+    return(NA_character_)
+  }
+  lines <- tryCatch(base::readLines(metadata_path, warn = FALSE), error = function(e) character())
+  vers_line <- lines[grep("^vers:", lines)][1]
+  if (base::is.na(vers_line) || !base::nzchar(vers_line)) {
+    return(NA_character_)
+  }
+  sub("^vers:\\s*", "", vers_line)
+}
+
+.dnmb_defensefinder_casfinder_is_compatible <- function(casfinder_dir) {
+  model_version <- .dnmb_defensefinder_casfinder_model_version(casfinder_dir)
+  base::identical(base::as.character(model_version), "2.0")
+}
+
+.dnmb_defensefinder_find_compatible_casfinder <- function(asset_urls = list()) {
+  env_source <- base::Sys.getenv(.dnmb_defensefinder_casfinder_envvar(), unset = "")
+  candidates <- c(
+    asset_urls$casfinder_dir %||% "",
+    env_source,
+    "~/.macsyfinder/models/CasFinder"
+  )
+  candidates <- unique(base::path.expand(base::trimws(base::as.character(candidates))))
+  candidates <- candidates[base::nzchar(candidates)]
+  for (candidate in candidates) {
+    if (.dnmb_defensefinder_casfinder_is_compatible(candidate)) {
+      return(candidate)
+    }
+  }
+  ""
+}
+
+.dnmb_defensefinder_ensure_compatible_casfinder <- function(layout, asset_urls = list()) {
+  target_dir <- base::file.path(layout$models_dir, "CasFinder")
+  if (.dnmb_defensefinder_casfinder_is_compatible(target_dir)) {
+    return(.dnmb_defensefinder_status_row(
+      "defensefinder_casfinder",
+      "ok",
+      base::paste0(
+        target_dir,
+        " (release ",
+        .dnmb_defensefinder_casfinder_release_version(target_dir) %||% "unknown",
+        ", model vers ",
+        .dnmb_defensefinder_casfinder_model_version(target_dir) %||% "unknown",
+        ")"
+      )
+    ))
+  }
+
+  source_dir <- .dnmb_defensefinder_find_compatible_casfinder(asset_urls = asset_urls)
+  if (!base::nzchar(source_dir)) {
+    return(.dnmb_defensefinder_status_row(
+      "defensefinder_casfinder",
+      "failed",
+      base::paste0(
+        "No compatible CasFinder source found. Set ",
+        .dnmb_defensefinder_casfinder_envvar(),
+        " or provide asset_urls$casfinder_dir with a CasFinder bundle using model vers 2.0."
+      )
+    ))
+  }
+
+  if (base::dir.exists(target_dir)) {
+    unlink(target_dir, recursive = TRUE, force = TRUE)
+  }
+  .dnmb_defensefinder_copy_dir_contents(source_dir, target_dir)
+
+  .dnmb_defensefinder_status_row(
+    "defensefinder_casfinder",
+    if (.dnmb_defensefinder_casfinder_is_compatible(target_dir)) "ok" else "failed",
+    base::paste0(
+      target_dir,
+      " <= ",
+      source_dir,
+      " (release ",
+      .dnmb_defensefinder_casfinder_release_version(target_dir) %||% "unknown",
+      ", model vers ",
+      .dnmb_defensefinder_casfinder_model_version(target_dir) %||% "unknown",
+      ")"
+    )
+  )
+}
+
+.dnmb_defensefinder_install_ready <- function(layout, manifest = NULL) {
+  !base::is.null(manifest) &&
+    base::isTRUE(manifest$install_ok) &&
+    base::file.exists(layout$cli_path) &&
+    base::file.exists(layout$macsydata_path) &&
+    base::dir.exists(layout$models_dir)
 }
 
 .dnmb_defensefinder_candidate_python <- function() {
@@ -161,28 +366,60 @@
   stage_models <- base::tempfile("dnmb-defensefinder-models-")
   base::dir.create(stage_models, recursive = TRUE, showWarnings = FALSE)
   on.exit(unlink(stage_models, recursive = TRUE, force = TRUE), add = TRUE)
-  run <- dnmb_run_external(
-    layout$cli_path,
-    args = c("update", "--models-dir", stage_models),
-    env = c(
-      PATH = base::paste(
-        c(base::dirname(dnmb_detect_binary("hmmsearch", required = TRUE)$path), strsplit(base::Sys.getenv("PATH"), .Platform$path.sep, fixed = TRUE)[[1]]),
-        collapse = .Platform$path.sep
-      )
-    ),
-    required = FALSE
+  macsydata_bin <- if (base::file.exists(layout$macsydata_path)) layout$macsydata_path else ""
+  if (!base::nzchar(macsydata_bin)) {
+    return(.dnmb_defensefinder_status_row(
+      "defensefinder_models",
+      "failed",
+      "macsydata is missing from the DefenseFinder virtualenv."
+    ))
+  }
+
+  env_path <- base::paste(
+    c(base::dirname(dnmb_detect_binary("hmmsearch", required = TRUE)$path), strsplit(base::Sys.getenv("PATH"), .Platform$path.sep, fixed = TRUE)[[1]]),
+    collapse = .Platform$path.sep
   )
-  if (base::isTRUE(run$ok)) {
+  defense_models_pkg <- base::paste0("defense-finder-models==", .dnmb_defensefinder_default_models_version())
+  casfinder_pkg <- base::paste0("CasFinder==", .dnmb_defensefinder_default_casfinder_version())
+  commands <- list(
+    dnmb_run_external(
+      macsydata_bin,
+      args = c("install", "--force", "--target", stage_models, "--org", "mdmparis", defense_models_pkg),
+      env = c(PATH = env_path),
+      required = FALSE
+    ),
+    dnmb_run_external(
+      macsydata_bin,
+      args = c("install", "--force", "--target", stage_models, casfinder_pkg),
+      env = c(PATH = env_path),
+      required = FALSE
+    )
+  )
+  run_ok <- base::all(vapply(commands, function(x) base::isTRUE(x$ok), logical(1)))
+  if (run_ok) {
     if (base::dir.exists(layout$models_dir)) {
       unlink(layout$models_dir, recursive = TRUE, force = TRUE)
     }
     base::dir.create(layout$models_dir, recursive = TRUE, showWarnings = FALSE)
     .dnmb_defensefinder_copy_dir_contents(stage_models, layout$models_dir)
   }
+  detail <- if (run_ok) {
+    base::paste0(
+      layout$models_dir,
+      " (defense-finder-models ",
+      .dnmb_defensefinder_default_models_version(),
+      "; CasFinder ",
+      .dnmb_defensefinder_default_casfinder_version(),
+      ")"
+    )
+  } else {
+    failures <- vapply(commands, function(x) x$error %||% "macsydata install failed", character(1))
+    base::paste(failures, collapse = " || ")
+  }
   .dnmb_defensefinder_status_row(
     "defensefinder_models",
-    if (base::isTRUE(run$ok) && base::length(base::list.files(layout$models_dir))) "ok" else "failed",
-    if (base::isTRUE(run$ok)) layout$models_dir else (run$error %||% layout$models_dir)
+    if (run_ok && base::length(base::list.files(layout$models_dir))) "ok" else "failed",
+    detail
   )
 }
 
@@ -197,32 +434,34 @@ dnmb_defensefinder_install_module <- function(version = .dnmb_defensefinder_defa
   layout <- .dnmb_defensefinder_asset_layout(module_dir)
   asset_urls <- .dnmb_defensefinder_normalize_asset_urls(asset_urls)
   status <- .dnmb_defensefinder_empty_status()
+  manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
+  ready <- .dnmb_defensefinder_install_ready(layout, manifest = manifest)
+
+  if (ready && !base::isTRUE(force)) {
+    casfinder_status <- .dnmb_defensefinder_ensure_compatible_casfinder(layout, asset_urls = asset_urls)
+    status <- dplyr::bind_rows(status, casfinder_status)
+    if (casfinder_status$status == "ok") {
+      return(list(
+        ok = TRUE,
+        status = dplyr::bind_rows(status, .dnmb_defensefinder_status_row("defensefinder_install", "cached", module_dir)),
+        files = list(repo_dir = layout$repo_dir, cli = layout$cli_path, models_dir = layout$models_dir),
+        manifest = manifest
+      ))
+    }
+  }
 
   if (!base::isTRUE(install)) {
-    manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
-    ready <- !base::is.null(manifest) && base::isTRUE(manifest$install_ok) &&
-      base::file.exists(layout$cli_path) && base::dir.exists(layout$models_dir)
     if (ready) {
-      # Check if models need updating
-      remote <- tryCatch({
-        con <- url("https://api.github.com/repos/mdmparis/defense-finder-models/releases/latest")
-        on.exit(close(con))
-        j <- jsonlite::fromJSON(readLines(con, warn = FALSE))
-        j$tag_name %||% ""
-      }, error = function(e) "")
-      if (nzchar(remote) && !identical(manifest$models_version %||% "", remote)) {
-        base::message("[DefenseFinder] Model update available: ", remote, ". Updating...")
-        .dnmb_defensefinder_update_models(layout)
-        manifest$models_version <- remote
-        dnmb_db_write_manifest(module, version, manifest = manifest, cache_root = cache_root, overwrite = TRUE)
-        .dnmb_db_autoprune_default_versions(
-          module = module,
-          version = version,
-          default_version = .dnmb_defensefinder_default_version(),
-          cache_root = cache_root
-        )
-      }
-      return(list(ok = TRUE, status = .dnmb_defensefinder_status_row("defensefinder_install", "cached", module_dir), files = list(cli = layout$cli_path, models_dir = layout$models_dir), manifest = manifest))
+      return(list(
+        ok = FALSE,
+        status = dplyr::bind_rows(status, .dnmb_defensefinder_status_row(
+          "defensefinder_install",
+          "invalid",
+          "DefenseFinder assets exist but CasFinder is incompatible and module_install is FALSE."
+        )),
+        files = list(repo_dir = layout$repo_dir, cli = layout$cli_path, models_dir = layout$models_dir),
+        manifest = manifest
+      ))
     }
     return(list(ok = FALSE, status = .dnmb_defensefinder_status_row("defensefinder_install", "missing", "DefenseFinder is missing and module_install is FALSE."), files = list(), manifest = NULL))
   }
@@ -258,12 +497,21 @@ dnmb_defensefinder_install_module <- function(version = .dnmb_defensefinder_defa
     return(list(ok = FALSE, status = status, files = list(), manifest = NULL))
   }
 
+  casfinder_status <- .dnmb_defensefinder_ensure_compatible_casfinder(layout, asset_urls = asset_urls)
+  status <- dplyr::bind_rows(status, casfinder_status)
+  if (casfinder_status$status != "ok") {
+    return(list(ok = FALSE, status = status, files = list(), manifest = NULL))
+  }
+
   manifest <- list(
     install_ok = TRUE,
     repo_dir = layout$repo_dir,
     env_python = layout$env_python,
     cli_path = layout$cli_path,
-    models_dir = layout$models_dir
+    models_dir = layout$models_dir,
+    models_version = .dnmb_defensefinder_default_models_version(),
+    casfinder_version = .dnmb_defensefinder_casfinder_release_version(base::file.path(layout$models_dir, "CasFinder")),
+    casfinder_model_version = .dnmb_defensefinder_casfinder_model_version(base::file.path(layout$models_dir, "CasFinder"))
   )
   dnmb_db_write_manifest(module, version, manifest = manifest, cache_root = cache_root, overwrite = TRUE)
   .dnmb_db_autoprune_default_versions(
@@ -376,12 +624,7 @@ dnmb_defensefinder_parse_genes <- function(path, id_map, systems_tbl = NULL) {
     return(data.frame())
   }
   genes <- dplyr::left_join(genes, id_map, by = c("hit_id" = "defensefinder_id"))
-  if ("model_fqn" %in% names(genes)) {
-    path_parts <- strsplit(as.character(genes$model_fqn), "/", fixed = TRUE)
-    genes$type <- vapply(path_parts, function(parts) if (length(parts) >= 3L) parts[[length(parts) - 1L]] else NA_character_, character(1))
-    genes$subtype <- vapply(path_parts, function(parts) if (length(parts) >= 4L) parts[[length(parts)]] else NA_character_, character(1))
-    genes$activity <- "Defense"
-  }
+  genes <- .dnmb_defensefinder_annotate_models(genes)
   if (!base::is.null(systems_tbl) && base::is.data.frame(systems_tbl) && base::nrow(systems_tbl)) {
     genes <- dplyr::left_join(genes, systems_tbl, by = "sys_id")
     for (column_name in c("type", "subtype", "activity")) {
@@ -426,7 +669,7 @@ dnmb_defensefinder_collect_raw_genes <- function(raw_root) {
   if (!length(tables)) {
     return(data.frame())
   }
-  dplyr::bind_rows(tables)
+  .dnmb_defensefinder_annotate_models(dplyr::bind_rows(tables))
 }
 
 dnmb_defensefinder_build_systems <- function(defensefinder_genes) {
@@ -590,7 +833,8 @@ dnmb_run_defensefinder_module <- function(genes,
                                           repo_url = .dnmb_defensefinder_default_repo_url(),
                                           asset_urls = NULL,
                                           cpu = 1L,
-                                          genbank = NULL) {
+                                          genbank = NULL,
+                                          include_antidefense = TRUE) {
   base::dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   trace_log <- base::file.path(output_dir, "defensefinder_module_trace.log")
   status <- .dnmb_defensefinder_empty_status()
@@ -627,6 +871,9 @@ dnmb_run_defensefinder_module <- function(genes,
     "--models-dir", stage_models,
     "--preserve-raw"
   )
+  if (base::isTRUE(include_antidefense)) {
+    cmd_args <- c(cmd_args, "--antidefensefinder")
+  }
   .dnmb_defensefinder_trace(trace_log, base::sprintf("[%s] %s", base::Sys.time(), .dnmb_format_command(module$files$cli, cmd_args)))
   run <- dnmb_run_external(
     module$files$cli,

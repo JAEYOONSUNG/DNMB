@@ -1,0 +1,13 @@
+.git
+.Rproj.user
+.claude
+.ntm
+.DS_Store
+Rplots.pdf
+docs
+data
+*.tar.gz
+*.zip
+*.rds
+*.Rhistory
+*.RData

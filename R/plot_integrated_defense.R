@@ -479,7 +479,11 @@
 
 .dnmb_integrated_defense_overlap_data <- function(tbl, dp_threshold = .dnmb_defensepredictor_default_threshold()) {
   gt <- as.data.frame(tbl, stringsAsFactors = FALSE)
-  gt$DefensePredictor_mean_log_odds <- suppressWarnings(as.numeric(gt$DefensePredictor_mean_log_odds))
+  gt$DefensePredictor_mean_log_odds <- if ("DefensePredictor_mean_log_odds" %in% names(gt)) {
+    suppressWarnings(as.numeric(gt$DefensePredictor_mean_log_odds))
+  } else {
+    rep(NA_real_, nrow(gt))
+  }
   gt$in_defensepredictor <- !is.na(gt$DefensePredictor_mean_log_odds) & gt$DefensePredictor_mean_log_odds >= as.numeric(dp_threshold)[1]
   gt$in_padloc <- if ("PADLOC_system" %in% names(gt)) {
     !is.na(gt$PADLOC_system) & nzchar(as.character(gt$PADLOC_system))
@@ -688,7 +692,13 @@
     "DefenseFinder" = "DF",
     "REBASE" = "RB"
   )
-  ve <- venneuler::venneuler(venn_expr)
+  ve <- tryCatch(
+    venneuler::venneuler(venn_expr),
+    error = function(e) NULL
+  )
+  if (is.null(ve)) {
+    return(ggplot2::ggplot() + ggplot2::theme_void())
+  }
   ve$labels <- rep("", length(set_sizes))
   ve_local <- ve
   venn_names <- rownames(ve$centers)

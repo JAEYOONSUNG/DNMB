@@ -9,6 +9,51 @@
 #' @return A data frame containing the extracted RBS regions.
 #' @export
 
+.dnmb_empty_rbs_table <- function() {
+  data.frame(
+    group = integer(),
+    start = integer(),
+    end = integer(),
+    width = integer(),
+    strand = character(),
+    RBS = character(),
+    TR = character(),
+    RBS_hit = character(),
+    spacer = integer(),
+    ORFstart = integer(),
+    ORFmatch = character(),
+    stringsAsFactors = FALSE
+  )
+}
+
+.dnmb_empty_rbs_plot <- function(title, subtitle) {
+  ggplot2::ggplot() +
+    ggplot2::theme_void() +
+    ggplot2::labs(title = title, subtitle = subtitle) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(size = 18, face = "bold", hjust = 0.5),
+      plot.subtitle = ggplot2::element_text(size = 12, hjust = 0.5)
+    )
+}
+
+.dnmb_assign_empty_rbs_outputs <- function(plot_RBS = FALSE, reason = "No 16S ribosomal RNA annotation detected.") {
+  empty_rbs <- .dnmb_empty_rbs_table()
+  assign("RBS_table", empty_rbs, envir = .GlobalEnv)
+  assign("matched_RBS_table", empty_rbs, envir = .GlobalEnv)
+  message(reason)
+  message("The result has been saved to the R environment variable 'RBS_table'.")
+
+  if (isTRUE(plot_RBS)) {
+    seqlogo_plot <- .dnmb_empty_rbs_plot("RBS motif", reason)
+    spacer_histogram <- .dnmb_empty_rbs_plot("RBS to AUG", reason)
+    assign("RBS_seqlogo", seqlogo_plot, envir = .GlobalEnv)
+    assign("spacer_histogram", spacer_histogram, envir = .GlobalEnv)
+    message("Placeholder RBS plots have been saved to the global environment.")
+  }
+
+  invisible(empty_rbs)
+}
+
 RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, plot_path = NULL) {
   library(dplyr)
   library(Biostrings)
@@ -29,20 +74,42 @@ RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, pl
   # Extract RBS sequences based on 16S ribosomal RNA
   contig_names <- ls(envir = .GlobalEnv, pattern = "^contig_[0-9]{1,}_seq$")
 
+  if (!length(contig_names)) {
+    return(.dnmb_assign_empty_rbs_outputs(
+      plot_RBS = plot_RBS,
+      reason = "No contig sequences found in the global environment for RBS extraction."
+    ))
+  }
+
   # 리스트의 모든 데이터를 rbind로 결합
   contig_list <- lapply(contig_names, function(x) get(x, envir = .GlobalEnv))
   contig_list_rc <- lapply(contig_names, function(x) as.character(Biostrings::reverseComplement(Biostrings::DNAString(get(x, envir = .GlobalEnv)))))
 
-  RBS <- genbank_table %>%
+  RBS <- target %>%
     filter(product == "16S ribosomal RNA") %>%
     select(rearranged_nt_seq) %>%
     mutate(RBS = str_sub(rearranged_nt_seq, start = -9))
 
+  if (!nrow(RBS)) {
+    return(.dnmb_assign_empty_rbs_outputs(
+      plot_RBS = plot_RBS,
+      reason = "No 16S ribosomal RNA annotation detected; skipping RBS extraction."
+    ))
+  }
+
   # Reverse complement for RBS sequences
   RBS$RBS <- sapply(RBS$RBS, function(x) as.character(Biostrings::reverseComplement(Biostrings::DNAString(x))))
+  RBS <- RBS[!is.na(RBS$RBS) & nzchar(RBS$RBS), , drop = FALSE]
+
+  if (!nrow(RBS)) {
+    return(.dnmb_assign_empty_rbs_outputs(
+      plot_RBS = plot_RBS,
+      reason = "No valid 16S-derived RBS seed sequence detected; skipping RBS extraction."
+    ))
+  }
 
   # Find the most frequent RBS sequence
-  most_frequent_RBS <- toupper(max(RBS$RBS))
+  most_frequent_RBS <- names(sort(table(toupper(RBS$RBS)), decreasing = TRUE))[1]
 
   # Search for RBS on the top strand
   strand_plus_RBS <- vmatchPattern(
@@ -72,7 +139,7 @@ RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, pl
     mutate(RBS_hit = stringr::str_extract(TR, paste0(RBS, ".", range, "ATG"))) %>%
     mutate(spacer = nchar(RBS_hit) - nchar("ATG") - nchar(RBS)) %>%
     mutate(ORFstart = start + nchar(RBS) + spacer) %>%
-    mutate(ORFmatch = ifelse(ORFstart %in% genbank_table$start, "match", "unmatch"))
+    mutate(ORFmatch = ifelse(ORFstart %in% target$start, "match", "unmatch"))
 
   # Search for RBS on the bottom strand
   strand_minus_RBS <- vmatchPattern(
@@ -114,7 +181,7 @@ RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, pl
 
   # Match ORFs for the reverse strand
   strand_minus_RBS <- strand_minus_RBS %>%
-    mutate(ORFmatch = ifelse(ORFstart %in% (genbank_table %>% filter(direction == "-") %>% select(end) %>% pull), "match", "unmatch"))
+    mutate(ORFmatch = ifelse(ORFstart %in% (target %>% filter(direction == "-") %>% select(end) %>% pull), "match", "unmatch"))
 
   # Combine both strands
   putative_RBS <- plyr::rbind.fill(strand_plus_RBS, strand_minus_RBS)
@@ -128,6 +195,15 @@ RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, pl
 
   # Plot RBS sequence logo and spacer length histogram if requested
   if (plot_RBS) {
+    if (!nrow(putative_matched_RBS)) {
+      seqlogo_plot <- .dnmb_empty_rbs_plot("RBS motif", "No 16S-linked RBS matches were detected.")
+      spacer_histogram <- .dnmb_empty_rbs_plot("RBS to AUG", "No 16S-linked RBS matches were detected.")
+      assign("RBS_seqlogo", seqlogo_plot, envir = .GlobalEnv)
+      assign("spacer_histogram", spacer_histogram, envir = .GlobalEnv)
+      message("Placeholder RBS plots have been saved to the global environment.")
+      return(invisible(putative_RBS))
+    }
+
     # Sequence logo plot
     cs1 <- make_col_scheme(chars = c('A', 'T', 'C', 'G'), groups = c('A', 'T', 'G', 'C'),
                            cols = c('#76B56A', '#D06461', '#3B81A1', '#EFCA70'))

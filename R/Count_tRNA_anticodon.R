@@ -6,6 +6,48 @@
 #' @export
 #'
 
+.dnmb_trna_default_codon_table <- function() {
+  codon_table <- as.data.frame(
+    matrix(
+      c(seqinr::words(), seqinr::translate(sapply(seqinr::words(), seqinr::s2c))),
+      ncol = 2,
+      byrow = FALSE
+    ),
+    stringsAsFactors = FALSE
+  )
+  colnames(codon_table) <- c("codon", "AA")
+  codon_table
+}
+
+.dnmb_trna_empty_anticodon_table <- function() {
+  data.frame(
+    locus_tag = character(),
+    start = numeric(),
+    end = numeric(),
+    direction = character(),
+    product = character(),
+    anticodon = character(),
+    tRNA_codon = character(),
+    nt_seq = character(),
+    anticodon_location = character(),
+    anticodon_position = numeric(),
+    AA = character(),
+    stringsAsFactors = FALSE
+  )
+}
+
+.dnmb_trna_empty_distribution <- function() {
+  codon_table <- .dnmb_trna_default_codon_table()
+  codon_table$codon_count <- 0L
+  codon_table
+}
+
+.dnmb_trna_assign_outputs <- function(tRNA_anticodon, tRNA_distribution) {
+  assign("tRNA_anticodon", tRNA_anticodon, envir = .GlobalEnv)
+  assign("tRNA_distribution", tRNA_distribution, envir = .GlobalEnv)
+  invisible(list(tRNA_anticodon = tRNA_anticodon, tRNA_distribution = tRNA_distribution))
+}
+
 tRNA_anticodon_counter <- function(target = NULL, save_output = NULL) {
   library(dplyr)
   library(stringr)
@@ -22,8 +64,24 @@ tRNA_anticodon_counter <- function(target = NULL, save_output = NULL) {
     }
   }
 
+  if (!"anticodon" %in% names(target)) {
+    message("No anticodon column found in target; returning empty tRNA tables.")
+    return(.dnmb_trna_assign_outputs(
+      tRNA_anticodon = .dnmb_trna_empty_anticodon_table(),
+      tRNA_distribution = .dnmb_trna_empty_distribution()
+    ))
+  }
+
   # Filter for rows with anticodon information
   tRNA_anticodon <- target %>% dplyr::filter(anticodon != "")
+
+  if (!nrow(tRNA_anticodon)) {
+    message("No tRNA anticodon annotations detected; returning zero-count tRNA distribution.")
+    return(.dnmb_trna_assign_outputs(
+      tRNA_anticodon = .dnmb_trna_empty_anticodon_table(),
+      tRNA_distribution = .dnmb_trna_empty_distribution()
+    ))
+  }
 
   # Extract anticodon location and clean up the column
   tRNA_anticodon <- tRNA_anticodon %>%
@@ -63,6 +121,14 @@ tRNA_anticodon_counter <- function(target = NULL, save_output = NULL) {
     dplyr::filter(!is.na(anticodon) & anticodon != "") %>%  # Filter out NAs or empty anticodon values
     dplyr::mutate(anticodon = as.character(anticodon))  # Ensure anticodon is treated as a character
 
+  if (!nrow(tRNA_anticodon)) {
+    message("No valid tRNA anticodon sequences could be extracted; returning zero-count tRNA distribution.")
+    return(.dnmb_trna_assign_outputs(
+      tRNA_anticodon = .dnmb_trna_empty_anticodon_table(),
+      tRNA_distribution = .dnmb_trna_empty_distribution()
+    ))
+  }
+
   tRNA_anticodon <- tRNA_anticodon %>%
     mutate(
       tRNA_codon = dplyr::case_when(
@@ -97,9 +163,7 @@ tRNA_anticodon_counter <- function(target = NULL, save_output = NULL) {
     dplyr::summarise(codon_count = n(), .groups = 'drop')  # Calculate the count of each tRNA codon
 
   # Load the standard codon table provided by the seqinr package
-  codon_table <- as.data.frame(matrix(c(seqinr::words(), seqinr::translate(sapply(seqinr::words(), s2c))),
-                                      ncol = 2, byrow = FALSE))
-  colnames(codon_table) <- c("codon", "AA")
+  codon_table <- .dnmb_trna_default_codon_table()
   codon_table %>% group_by(AA) %>% dplyr::arrange(codon_table, .by_group = FALSE)
   codon_order <- codon_table %>% group_by(AA) %>% top_n(1) %>% dplyr::select(AA) %>% pull() %>% as.vector()
 
@@ -116,6 +180,5 @@ tRNA_anticodon_counter <- function(target = NULL, save_output = NULL) {
   }
 
   # Assign the final result to the environment (optional)
-  assign("tRNA_anticodon", tRNA_anticodon, envir = .GlobalEnv)
-  assign("tRNA_distribution", tRNA_distribution, envir = .GlobalEnv)
+  .dnmb_trna_assign_outputs(tRNA_anticodon = tRNA_anticodon, tRNA_distribution = tRNA_distribution)
 }

@@ -168,7 +168,7 @@
       if (spacer < 0L || spacer > 20L) {
         next
       }
-      score <- (k * 3) - (mismatches * 4) - (abs(spacer - 6) * 0.35)
+      score <- (k * 3) - (mismatches * 4)
       candidate <- list(
         motif = motif,
         hit = hit,
@@ -187,6 +187,44 @@
     }
   }
   best
+}
+
+.dnmb_archaea_plot_window9 <- function(upstream_seq, best_hit) {
+  upstream_seq <- toupper(trimws(as.character(upstream_seq)[1]))
+  if (is.null(best_hit) || is.na(upstream_seq) || !nzchar(upstream_seq)) {
+    return(NA_character_)
+  }
+  up_len <- nchar(upstream_seq)
+  hit_end <- best_hit$pos + best_hit$len - 1L
+  plot_start <- max(1L, hit_end - 8L)
+  plot_end <- min(up_len, plot_start + 8L)
+  if ((plot_end - plot_start + 1L) < 9L) {
+    plot_start <- max(1L, plot_end - 8L)
+  }
+  out <- substr(upstream_seq, plot_start, plot_start + 8L)
+  if (nchar(out) != 9L) {
+    return(NA_character_)
+  }
+  out
+}
+
+.dnmb_archaea_estimate_spacer_peak <- function(tbl) {
+  if (is.null(tbl) || !is.data.frame(tbl) || !nrow(tbl)) {
+    return(NA_integer_)
+  }
+  work <- tbl
+  work$score <- suppressWarnings(as.numeric(work$score))
+  work$spacer <- suppressWarnings(as.integer(work$spacer))
+  work <- work[!is.na(work$score) & !is.na(work$spacer), , drop = FALSE]
+  if (!nrow(work)) {
+    return(NA_integer_)
+  }
+  work$weight <- pmax(0.5, work$score - min(work$score, na.rm = TRUE) + 1)
+  spacer_tbl <- work |>
+    dplyr::group_by(.data$spacer) |>
+    dplyr::summarise(weight = sum(.data$weight, na.rm = TRUE), n = dplyr::n(), .groups = "drop") |>
+    dplyr::arrange(dplyr::desc(.data$weight), dplyr::desc(.data$n), .data$spacer)
+  suppressWarnings(as.integer(spacer_tbl$spacer[[1]]))
 }
 
 .dnmb_archaea_status_plots <- function(status_text) {
@@ -268,6 +306,7 @@
       score = best$score,
       mismatches = best$mismatches,
       motif_seed = best$motif,
+      RBS_plot9 = .dnmb_archaea_plot_window9(win$upstream, best),
       stringsAsFactors = FALSE
     )
   }
@@ -289,19 +328,19 @@
     }
 
     score_cutoff <- max(stats::quantile(matched_RBS_table$score, probs = 0.85, na.rm = TRUE, names = FALSE), 13)
-    strong <- matched_RBS_table[
+    strong_pool <- matched_RBS_table[
       matched_RBS_table$score >= score_cutoff &
-        matched_RBS_table$len >= 6L &
+        matched_RBS_table$width >= 6L &
         matched_RBS_table$mismatches <= 1L,
       , drop = FALSE
     ]
-    if (!nrow(strong) && nrow(matched_RBS_table)) {
-      strong <- matched_RBS_table[order(-matched_RBS_table$score, matched_RBS_table$mismatches), , drop = FALSE]
-      strong <- utils::head(strong, min(12L, nrow(strong)))
-      strong <- strong[strong$score >= 10, , drop = FALSE]
+    if (!nrow(strong_pool) && nrow(matched_RBS_table)) {
+      strong_pool <- matched_RBS_table[order(-matched_RBS_table$score, matched_RBS_table$mismatches), , drop = FALSE]
+      strong_pool <- utils::head(strong_pool, min(20L, nrow(strong_pool)))
+      strong_pool <- strong_pool[strong_pool$score >= 10, , drop = FALSE]
     }
 
-    if (nrow(strong) < 4L) {
+    if (nrow(strong_pool) < 4L) {
       plots <- .dnmb_archaea_status_plots("No strong archaeal SD-like subset was detected; this genome may be weak-SD or leaderless-rich.")
       assign("RBS_seqlogo", plots$seqlogo_plot, envir = .GlobalEnv)
       assign("spacer_histogram", plots$spacer_histogram, envir = .GlobalEnv)
@@ -309,8 +348,20 @@
       return(invisible(putative_RBS))
     }
 
-    dominant_len <- suppressWarnings(as.integer(names(sort(table(strong$width), decreasing = TRUE))[1]))
-    strong_logo <- strong[strong$width == dominant_len, , drop = FALSE]
+    spacer_peak <- .dnmb_archaea_estimate_spacer_peak(strong_pool)
+    if (is.na(spacer_peak)) {
+      spacer_peak <- 6L
+    }
+    strong <- strong_pool[abs(strong_pool$spacer - spacer_peak) <= 2L, , drop = FALSE]
+    if (nrow(strong) < 4L) {
+      strong <- strong_pool[abs(strong_pool$spacer - spacer_peak) <= 3L, , drop = FALSE]
+    }
+    if (nrow(strong) < 4L) {
+      strong <- strong_pool
+    }
+
+    strong$RBS_plot9 <- as.character(strong$RBS_plot9)
+    strong_logo <- strong[!is.na(strong$RBS_plot9) & nchar(strong$RBS_plot9) == 9L, , drop = FALSE]
     if (nrow(strong_logo) < 4L) {
       plots <- .dnmb_archaea_status_plots("Strong archaeal SD-like candidates were found, but motif lengths were too heterogeneous for a stable sequence logo.")
       assign("RBS_seqlogo", plots$seqlogo_plot, envir = .GlobalEnv)
@@ -324,16 +375,18 @@
       groups = c("A", "T", "G", "C"),
       cols = c("#76B56A", "#D06461", "#3B81A1", "#EFCA70")
     )
-    seqlogo_plot <- ggseqlogo::ggseqlogo(strong_logo$RBS, col_scheme = cs1) +
+    seqlogo_plot <- ggseqlogo::ggseqlogo(strong_logo$RBS_plot9, col_scheme = cs1) +
       ggplot2::theme_bw() +
-      ggplot2::labs(title = paste0("SD-like motif (", dominant_len, "-nt core)")) +
+      ggplot2::labs(title = "RBS motif") +
       ggplot2::theme(
         panel.background = ggplot2::element_blank(),
-        axis.title.x = ggplot2::element_text(size = 20),
-        axis.title.y = ggplot2::element_text(angle = 90, size = 20),
-        axis.text.x = ggplot2::element_text(color = "grey20", size = 18),
-        axis.text.y = ggplot2::element_text(color = "grey20", size = 18),
-        plot.title = ggplot2::element_text(size = 24)
+        legend.position = "bottom",
+        legend.text = ggplot2::element_text(size = 30),
+        axis.title.x = ggplot2::element_text(size = 30),
+        axis.title.y = ggplot2::element_text(angle = 90, size = 30),
+        axis.text.x = ggplot2::element_text(color = "grey20", size = 30),
+        axis.text.y = ggplot2::element_text(color = "grey20", size = 30),
+        plot.title = ggplot2::element_text(size = 30)
       )
 
     spacer_histogram <- ggplot2::ggplot(strong, ggplot2::aes(x = .data$spacer)) +
@@ -341,19 +394,19 @@
         ggplot2::aes(y = after_stat(density)),
         color = "black", fill = "#EBE5DE", binwidth = 1, alpha = 1
       ) +
-      ggplot2::scale_x_continuous(breaks = seq(0, 20, by = 2)) +
+      ggplot2::scale_x_continuous(breaks = seq(1, 10, by = 1), limits = c(1, 10)) +
       ggplot2::theme_bw() +
       ggplot2::theme(
         panel.background = ggplot2::element_blank(),
-        axis.title.x = ggplot2::element_text(size = 20),
-        axis.title.y = ggplot2::element_text(angle = 90, size = 20),
-        axis.text.x = ggplot2::element_text(color = "grey20", size = 18),
-        axis.text.y = ggplot2::element_text(color = "grey20", size = 18),
-        plot.title = ggplot2::element_text(size = 24)
+        axis.title.x = ggplot2::element_text(size = 30),
+        axis.title.y = ggplot2::element_text(angle = 90, size = 30),
+        axis.text.x = ggplot2::element_text(color = "grey20", size = 30),
+        axis.text.y = ggplot2::element_text(color = "grey20", size = 30),
+        plot.title = ggplot2::element_text(size = 30)
       ) +
       ggplot2::xlab("Spacer") +
       ggplot2::ylab("Density") +
-      ggplot2::ggtitle("SD-like spacer to start codon")
+      ggplot2::ggtitle("RBS to AUG")
 
     assign("RBS_seqlogo", seqlogo_plot, envir = .GlobalEnv)
     assign("spacer_histogram", spacer_histogram, envir = .GlobalEnv)

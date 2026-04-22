@@ -49,7 +49,10 @@ Figure_generator <- function(output_pdf = NULL,
   on.exit(dev.off(), add = TRUE)
 
   # Adjust padding in ComplexHeatmap (grabExpr renders into current device)
-  heatmap_grob <- grid.grabExpr(draw(Codon_usage_tRNA_plot, padding = unit(c(1, 0, 1, 0), "cm")))
+  heatmap_grob <- grid.grabExpr({
+    draw(Codon_usage_tRNA_plot, padding = unit(c(1, 0, 1, 0), "cm"))
+    .dnmb_draw_aa_block_labels(fontsize = 8)
+  })
 
   # Create the layout with grid.arrange directly into PDF device
   grid.arrange(

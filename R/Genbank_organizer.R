@@ -284,46 +284,30 @@ for (genbank_file in gb_files) {
   }
   for(j in (1:nrow(contig_length))){
     if(!is.na(get(paste0("contig_start_",j)))){
-      sink(paste("genenumber",j,sep="_"));for(i in 1:nrow(get(paste("gene",j,sep="_")))){
-        cat(assign(paste("genenumber",j,sep="_"),
-                   paste(rep((get(paste("number",j,sep="_"))[i]),
-                             length(as.integer(get(paste("gene","start",j,sep = "_"))[i]):as.integer(get(paste("gene","finish",j,sep="_"))[i])))))
-            ,"\n")}
-      sink()}
+      gene_idx <- get(paste("number",j,sep="_"))
+      gene_span <- get(paste("gene","finish",j,sep="_")) - get(paste("gene","start",j,sep="_")) + 1L
+      d <- data.frame(gene_number = rep(gene_idx, times = gene_span), stringsAsFactors = FALSE)
+      assign(paste("genenumber",j,sep="_"), d)
+      rm(d, gene_idx, gene_span)
+    }
     else{}
   }
 
 
   #delete processing---------------------------------------------------------------------------
 
-  rm(list=ls(pattern="genenumber|number_[0-9]{1,}"))
-  rm(list=ls(pattern="gene_start_[0-9]{1,}"))
+  rm(list=ls(pattern="number_[0-9]{1,}"))
   rm(gene_finish,i,j)
-
-  #for assign gene number read.csv-----------------------------
-  for(i in (1:nrow(contig_length))){
-    if(!is.na(get(paste0("contig_start_",i)))){
-      assign(paste("genenumber",i,sep="_"), utils::read.csv(paste("genenumber",i,sep="_"),header=FALSE, stringsAsFactors = FALSE))
-      assign(paste("a",i,sep="_"), as.data.frame(paste0("",(get(paste("genenumber",i,sep="_"))[,1])[1:nrow(get(paste("genenumber",i,sep="_")))],collapse="")))
-      d=get(paste("a",i,sep="_"))
-      colnames(d)="a"
-      assign(paste("a",i,sep="_"),d)
-      assign(paste("genenumber",i,sep="_"), tidyr::separate_rows(get(paste("a",i,sep="_")), a, sep=" "))
-      assign(paste("genenumber",i,sep="_"), as.data.frame((get(paste("genenumber",i,sep="_")))[-(nrow(get(paste("contig","gbff",i,sep="_")))+1),])) #[Largest+1]
-      d=get(paste("genenumber",i,sep="_"))
-      colnames(d)="gene_number"
-      assign(paste("genenumber",i,sep="_"),d)
-    }
-    else{}
-  }
-
-  rm(list=ls(pattern="a_[0-9]{1,}"))
-  rm(d)
 
   #assign gene start to end---------------------------------------------------------------------------------
   {
     for(i in (1:nrow(contig_length))){
       if(!is.na(get(paste0("contig_start_",i)))){
+        if(!exists(paste("genenumber",i,sep="_"), inherits = FALSE)){
+          gene_idx <- seq_len(nrow(get(paste("gene",i,sep="_"))))
+          gene_span <- get(paste("gene","finish",i,sep="_")) - get(paste("gene","start",i,sep="_")) + 1L
+          assign(paste("genenumber",i,sep="_"), data.frame(gene_number = rep(gene_idx, times = gene_span), stringsAsFactors = FALSE))
+        }
         assign(paste("separated",i,sep="_"), tidyr::separate(get(paste("contig_gbff",i,sep="_")), col="V1", into=c("name","value"), sep="=", fill = "right"))
         assign(paste("phase1",i,sep="_"), cbind(get(paste("genenumber",i,sep="_")),get(paste("separated",i,sep="_"))))
         assign(paste("phase2",i,sep="_"), stats::na.omit(get(paste("phase1",i,sep="_"))))
@@ -405,33 +389,26 @@ for (genbank_file in gb_files) {
   #sink nt_seq
   for(j in (1:nrow(contig_length))){
     if(!is.na(get(paste0("contig_start_",j)))){
-      sink(paste("gene","nt",j,sep="_"));
-      for(i in 1:nrow(get(paste("trimmed",j,sep="_")))){
-        w=substr(get(paste("contig",j,"seq","final",sep="_")),as.integer(get(paste("trimmed",j,sep="_"))$start[i]),as.integer(get(paste("trimmed",j,sep="_"))$end[i]))
-        cat(w,"\n")}
-      sink()
+      seq_top <- get(paste("contig",j,"seq","final",sep="_"))
+      trimmed_tbl <- get(paste("trimmed",j,sep="_"))
+      nt_tbl <- data.frame(
+        nt_seq = vapply(
+          seq_len(nrow(trimmed_tbl)),
+          function(i) substr(seq_top,
+                             as.integer(trimmed_tbl$start[i]),
+                             as.integer(trimmed_tbl$end[i])),
+          character(1)
+        ),
+        stringsAsFactors = FALSE
+      )
+      assign(paste("gene","nt",j,sep="_"), nt_tbl)
+      rm(seq_top, trimmed_tbl, nt_tbl)
     }
     else{}
   }
 
   # check---------------------
   {
-    for(i in (1:nrow(contig_length))){
-      if(!is.na(get(paste0("contig_start_",i)))){
-        assign(paste("gene","nt",i,sep="_"), utils::read.csv(paste("gene","nt",i,sep="_"),header=FALSE, stringsAsFactors = FALSE))
-      }
-      else{}
-    }
-    for(i in (1:nrow(contig_length))){
-      if(!is.na(get(paste0("contig_start_",i)))){
-        d=get(paste("gene","nt",i,sep="_"))
-        colnames(d)="nt_seq"
-        assign(paste("gene","nt",i,sep="_"),d)
-      }
-      else{}
-    }
-    rm(d)
-
     for(i in (1:nrow(contig_length))){
       if(!is.na(get(paste0("contig_start_",i)))){
         assign(paste("contig_trim",i,sep="_"), cbind(get(paste("trimmed",i,sep="_")), get(paste("gene","nt",i,sep="_"))))
@@ -465,7 +442,7 @@ for (genbank_file in gb_files) {
       contig_final <- plyr::rbind.fill(get(paste("contig","final",sep="_")), get(paste("contig","final",i,sep="_")))
     }
   }
-  rm(list=ls(pattern="contig_trim|gene_finish|gene_direction_[0-9]{1,}"))
+  rm(list=ls(pattern="contig_trim|gene_finish|gene_direction_[0-9]{1,}|gene_start_[0-9]{1,}"))
   rm(list=ls(pattern="contig_start|finish_[0-9]{1,}"))
 
 
@@ -536,7 +513,9 @@ for (genbank_file in gb_files) {
   contig_final %>% dplyr::select(locus_tag, translation) %>% dplyr::mutate(translation = stringr::str_replace_all(translation, "[[:space:]\n\t\r]", "")) %>% dplyr::filter(!is.na(translation) & stringr::str_trim(translation) != "") %>% dplyr::mutate("locus_tag"=paste0(">",.$locus_tag)) %>% utils::write.table(., faa_output_file, row.names = FALSE, col.names = FALSE, sep = "\n", quote = FALSE)
 
   delfiles <- dir(path=getwd(), pattern="genenumber_[0-9]{1,}|gene_nt_[0-9]{1,}")
-  file.remove(file.path(getwd(), delfiles))
+  if (length(delfiles)) {
+    file.remove(file.path(getwd(), delfiles))
+  }
 
 
   # Save the output as 'genbank_table.xlsx' if save_output is TRUE

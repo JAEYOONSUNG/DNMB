@@ -30,7 +30,20 @@
 .dnmb_plot_defensefinder_activity_module <- function(genbank_table, output_dir, activity = NULL) {
   tbl <- .dnmb_defensefinder_plot_table(genbank_table, activity = activity)
   if (!base::nrow(tbl)) {
-    return(NULL)
+    defensefinder_present <- ("DefenseFinder_SECTION" %in% names(genbank_table)) ||
+      dir.exists(file.path(output_dir, "dnmb_module_defensefinder"))
+    if (!isTRUE(defensefinder_present)) {
+      return(NULL)
+    }
+    plot_dir <- .dnmb_module_plot_dir(output_dir)
+    pdf_path <- file.path(plot_dir, paste0(.dnmb_defensefinder_activity_slug(activity), "_overview.pdf"))
+    p <- ggplot2::ggplot() +
+      ggplot2::theme_void() +
+      ggplot2::annotate("text", x = 0.5, y = 0.68, label = paste0(.dnmb_defensefinder_activity_slug(activity), " overview"), fontface = "bold", size = 6) +
+      ggplot2::annotate("text", x = 0.5, y = 0.42, label = "DefenseFinder completed, but no systems were detected for this activity.", size = 4.6, color = "grey30") +
+      ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), clip = "off")
+    .dnmb_module_plot_save(p, pdf_path, width = 10, height = 4.8)
+    return(list(pdf = pdf_path))
   }
   activity_label <- .dnmb_defensefinder_activity_slug(activity)
   contig_lengths <- .dnmb_contig_lengths_for_plot(tbl, output_dir = output_dir)

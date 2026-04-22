@@ -36,6 +36,18 @@
     )
 }
 
+.dnmb_rrna_product_mask <- function(product) {
+  product <- tolower(trimws(as.character(product)))
+  grepl("16s ribosomal rna|small subunit ribosomal rna|ssu rrna", product, perl = TRUE)
+}
+
+.dnmb_rbs_start_codons <- function(translation_domain = "bacteria") {
+  if (identical(translation_domain, "archaea")) {
+    return(c("ATG", "GTG", "TTG"))
+  }
+  "ATG"
+}
+
 .dnmb_assign_empty_rbs_outputs <- function(plot_RBS = FALSE, reason = "No 16S ribosomal RNA annotation detected.") {
   empty_rbs <- .dnmb_empty_rbs_table()
   assign("RBS_table", empty_rbs, envir = .GlobalEnv)
@@ -54,7 +66,309 @@
   invisible(empty_rbs)
 }
 
-RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, plot_path = NULL) {
+.dnmb_archaea_upstream_window <- function(row, contig_list, flank = 25L) {
+  contig_idx <- suppressWarnings(as.integer(row[["contig_number"]]))
+  if (is.na(contig_idx) || contig_idx < 1L || contig_idx > length(contig_list)) {
+    return(NULL)
+  }
+  seq_top <- as.character(contig_list[[contig_idx]])
+  seq_len <- nchar(seq_top)
+  start <- suppressWarnings(as.integer(row[["start"]]))
+  end <- suppressWarnings(as.integer(row[["end"]]))
+  strand <- as.character(row[["direction"]])
+  rearranged <- as.character(row[["rearranged_nt_seq"]] %||% "")
+  start_codon <- toupper(substr(rearranged, 1, 3))
+
+  if (!nzchar(start_codon) || !(start_codon %in% .dnmb_rbs_start_codons("archaea"))) {
+    return(NULL)
+  }
+
+  if (identical(strand, "+")) {
+    left <- max(1L, start - flank)
+    right <- start - 1L
+    if (right < left) {
+      return(NULL)
+    }
+    upstream <- substr(seq_top, left, right)
+    return(list(
+      upstream = toupper(upstream),
+      start_codon = start_codon,
+      gene_anchor = start,
+      strand = strand,
+      contig_idx = contig_idx,
+      flank = nchar(upstream),
+      genomic_left = left,
+      genomic_right = right
+    ))
+  }
+
+  if (identical(strand, "-")) {
+    left <- end + 1L
+    right <- min(seq_len, end + flank)
+    if (right < left) {
+      return(NULL)
+    }
+    genomic <- substr(seq_top, left, right)
+    upstream <- as.character(Biostrings::reverseComplement(Biostrings::DNAString(genomic)))
+    return(list(
+      upstream = toupper(upstream),
+      start_codon = start_codon,
+      gene_anchor = end,
+      strand = strand,
+      contig_idx = contig_idx,
+      flank = nchar(upstream),
+      genomic_left = left,
+      genomic_right = right
+    ))
+  }
+
+  NULL
+}
+
+.dnmb_archaea_candidate_kmers <- function(rrna_seed, min_len = 5L, max_len = 9L) {
+  rrna_seed <- toupper(trimws(as.character(rrna_seed)[1]))
+  if (is.na(rrna_seed) || !nzchar(rrna_seed)) {
+    return(character())
+  }
+  n <- nchar(rrna_seed)
+  kmers <- character()
+  for (k in seq.int(min_len, min(max_len, n))) {
+    if (k > n) {
+      next
+    }
+    for (i in seq_len(n - k + 1L)) {
+      kmers <- c(kmers, substr(rrna_seed, i, i + k - 1L))
+    }
+  }
+  unique(kmers[nzchar(kmers)])
+}
+
+.dnmb_archaea_hamming <- function(a, b) {
+  aa <- strsplit(a, "", fixed = TRUE)[[1]]
+  bb <- strsplit(b, "", fixed = TRUE)[[1]]
+  sum(aa != bb)
+}
+
+.dnmb_archaea_best_sd_hit <- function(upstream_seq, kmers) {
+  upstream_seq <- toupper(trimws(as.character(upstream_seq)[1]))
+  if (is.na(upstream_seq) || !nzchar(upstream_seq) || !length(kmers)) {
+    return(NULL)
+  }
+  best <- NULL
+  up_len <- nchar(upstream_seq)
+  for (motif in kmers) {
+    k <- nchar(motif)
+    if (k > up_len) {
+      next
+    }
+    for (pos in seq_len(up_len - k + 1L)) {
+      hit <- substr(upstream_seq, pos, pos + k - 1L)
+      mismatches <- .dnmb_archaea_hamming(hit, motif)
+      spacer <- up_len - (pos + k - 1L)
+      if (spacer < 0L || spacer > 20L) {
+        next
+      }
+      score <- (k * 3) - (mismatches * 4) - (abs(spacer - 6) * 0.35)
+      candidate <- list(
+        motif = motif,
+        hit = hit,
+        pos = pos,
+        len = k,
+        mismatches = mismatches,
+        spacer = spacer,
+        score = score
+      )
+      if (is.null(best) ||
+          candidate$score > best$score ||
+          (identical(candidate$score, best$score) && candidate$len > best$len) ||
+          (identical(candidate$score, best$score) && identical(candidate$len, best$len) && candidate$mismatches < best$mismatches)) {
+        best <- candidate
+      }
+    }
+  }
+  best
+}
+
+.dnmb_archaea_status_plots <- function(status_text) {
+  list(
+    seqlogo_plot = .dnmb_empty_rbs_plot("SD-like motif", status_text),
+    spacer_histogram = .dnmb_empty_rbs_plot("Initiation architecture", status_text)
+  )
+}
+
+.dnmb_archaea_rbs_extractor <- function(target, contig_list, plot_RBS = FALSE) {
+  rrna_tbl <- target[.dnmb_rrna_product_mask(target$product), , drop = FALSE]
+  rrna_tbl <- rrna_tbl[!is.na(rrna_tbl$rearranged_nt_seq) & nzchar(as.character(rrna_tbl$rearranged_nt_seq)), , drop = FALSE]
+  if (!nrow(rrna_tbl)) {
+    empty <- .dnmb_empty_rbs_table()
+    assign("RBS_table", empty, envir = .GlobalEnv)
+    assign("matched_RBS_table", empty, envir = .GlobalEnv)
+    if (isTRUE(plot_RBS)) {
+      plots <- .dnmb_archaea_status_plots("No 16S/SSU ribosomal RNA annotation detected; skipping archaeal SD-like analysis.")
+      assign("RBS_seqlogo", plots$seqlogo_plot, envir = .GlobalEnv)
+      assign("spacer_histogram", plots$spacer_histogram, envir = .GlobalEnv)
+    }
+    message("No 16S/SSU ribosomal RNA annotation detected; skipping archaeal SD-like analysis.")
+    message("The result has been saved to the R environment variable 'RBS_table'.")
+    return(invisible(empty))
+  }
+
+  rrna_tail <- unique(vapply(rrna_tbl$rearranged_nt_seq, function(x) {
+    seq <- toupper(as.character(x))
+    tail <- substr(seq, max(1L, nchar(seq) - 11L), nchar(seq))
+    as.character(Biostrings::reverseComplement(Biostrings::DNAString(tail)))
+  }, character(1)))
+  kmers <- unique(unlist(lapply(rrna_tail, .dnmb_archaea_candidate_kmers), use.names = FALSE))
+  kmers <- kmers[nchar(kmers) >= 5L]
+
+  gene_tbl <- target[
+    !is.na(target$start) &
+      !is.na(target$end) &
+      !is.na(target$direction) &
+      !is.na(target$rearranged_nt_seq) &
+      nzchar(as.character(target$rearranged_nt_seq)),
+    , drop = FALSE
+  ]
+  gene_tbl <- gene_tbl[!grepl("ribosomal RNA", gene_tbl$product %||% "", ignore.case = TRUE), , drop = FALSE]
+
+  rows <- list()
+  for (i in seq_len(nrow(gene_tbl))) {
+    row <- gene_tbl[i, , drop = FALSE]
+    win <- .dnmb_archaea_upstream_window(row, contig_list = contig_list, flank = 25L)
+    if (is.null(win) || !nzchar(win$upstream)) {
+      next
+    }
+    best <- .dnmb_archaea_best_sd_hit(win$upstream, kmers)
+    if (is.null(best) || best$len < 5L) {
+      next
+    }
+
+    if (identical(win$strand, "+")) {
+      motif_start <- win$genomic_left + best$pos - 1L
+      motif_end <- motif_start + best$len - 1L
+    } else {
+      motif_end <- win$genomic_right - best$pos + 1L
+      motif_start <- motif_end - best$len + 1L
+    }
+
+    rows[[length(rows) + 1L]] <- data.frame(
+      group = suppressWarnings(as.integer(row$contig_number)),
+      start = motif_start,
+      end = motif_end,
+      width = best$len,
+      strand = as.character(row$direction),
+      RBS = best$hit,
+      TR = paste0(win$upstream, win$start_codon),
+      RBS_hit = paste0(best$hit, strrep("N", best$spacer), win$start_codon),
+      spacer = best$spacer,
+      ORFstart = if (identical(win$strand, "+")) suppressWarnings(as.integer(row$start)) else suppressWarnings(as.integer(row$end)),
+      ORFmatch = "match",
+      locus_tag = as.character(row$locus_tag),
+      start_codon = win$start_codon,
+      score = best$score,
+      mismatches = best$mismatches,
+      motif_seed = best$motif,
+      stringsAsFactors = FALSE
+    )
+  }
+
+  putative_RBS <- if (length(rows)) dplyr::bind_rows(rows) else .dnmb_empty_rbs_table()
+  matched_RBS_table <- putative_RBS
+
+  assign("RBS_table", putative_RBS, envir = .GlobalEnv)
+  assign("matched_RBS_table", matched_RBS_table, envir = .GlobalEnv)
+  message("The result has been saved to the R environment variable 'RBS_table'.")
+
+  if (isTRUE(plot_RBS)) {
+    if (!nrow(matched_RBS_table)) {
+      plots <- .dnmb_archaea_status_plots("No archaeal SD-like candidates were detected.")
+      assign("RBS_seqlogo", plots$seqlogo_plot, envir = .GlobalEnv)
+      assign("spacer_histogram", plots$spacer_histogram, envir = .GlobalEnv)
+      message("Placeholder archaeal initiation plots have been saved to the global environment.")
+      return(invisible(putative_RBS))
+    }
+
+    score_cutoff <- max(stats::quantile(matched_RBS_table$score, probs = 0.85, na.rm = TRUE, names = FALSE), 13)
+    strong <- matched_RBS_table[
+      matched_RBS_table$score >= score_cutoff &
+        matched_RBS_table$len >= 6L &
+        matched_RBS_table$mismatches <= 1L,
+      , drop = FALSE
+    ]
+    if (!nrow(strong) && nrow(matched_RBS_table)) {
+      strong <- matched_RBS_table[order(-matched_RBS_table$score, matched_RBS_table$mismatches), , drop = FALSE]
+      strong <- utils::head(strong, min(12L, nrow(strong)))
+      strong <- strong[strong$score >= 10, , drop = FALSE]
+    }
+
+    if (nrow(strong) < 4L) {
+      plots <- .dnmb_archaea_status_plots("No strong archaeal SD-like subset was detected; this genome may be weak-SD or leaderless-rich.")
+      assign("RBS_seqlogo", plots$seqlogo_plot, envir = .GlobalEnv)
+      assign("spacer_histogram", plots$spacer_histogram, envir = .GlobalEnv)
+      message("Strong archaeal SD-like subset was not detected; status plots were saved instead.")
+      return(invisible(putative_RBS))
+    }
+
+    dominant_len <- suppressWarnings(as.integer(names(sort(table(strong$width), decreasing = TRUE))[1]))
+    strong_logo <- strong[strong$width == dominant_len, , drop = FALSE]
+    if (nrow(strong_logo) < 4L) {
+      plots <- .dnmb_archaea_status_plots("Strong archaeal SD-like candidates were found, but motif lengths were too heterogeneous for a stable sequence logo.")
+      assign("RBS_seqlogo", plots$seqlogo_plot, envir = .GlobalEnv)
+      assign("spacer_histogram", plots$spacer_histogram, envir = .GlobalEnv)
+      message("Archaeal SD-like candidates were heterogeneous; status plots were saved instead.")
+      return(invisible(putative_RBS))
+    }
+
+    cs1 <- ggseqlogo::make_col_scheme(
+      chars = c("A", "T", "C", "G"),
+      groups = c("A", "T", "G", "C"),
+      cols = c("#76B56A", "#D06461", "#3B81A1", "#EFCA70")
+    )
+    seqlogo_plot <- ggseqlogo::ggseqlogo(strong_logo$RBS, col_scheme = cs1) +
+      ggplot2::theme_bw() +
+      ggplot2::labs(title = paste0("SD-like motif (", dominant_len, "-nt core)")) +
+      ggplot2::theme(
+        panel.background = ggplot2::element_blank(),
+        axis.title.x = ggplot2::element_text(size = 20),
+        axis.title.y = ggplot2::element_text(angle = 90, size = 20),
+        axis.text.x = ggplot2::element_text(color = "grey20", size = 18),
+        axis.text.y = ggplot2::element_text(color = "grey20", size = 18),
+        plot.title = ggplot2::element_text(size = 24)
+      )
+
+    spacer_histogram <- ggplot2::ggplot(strong, ggplot2::aes(x = .data$spacer)) +
+      ggplot2::geom_histogram(
+        ggplot2::aes(y = after_stat(density)),
+        color = "black", fill = "#EBE5DE", binwidth = 1, alpha = 1
+      ) +
+      ggplot2::scale_x_continuous(breaks = seq(0, 20, by = 2)) +
+      ggplot2::theme_bw() +
+      ggplot2::theme(
+        panel.background = ggplot2::element_blank(),
+        axis.title.x = ggplot2::element_text(size = 20),
+        axis.title.y = ggplot2::element_text(angle = 90, size = 20),
+        axis.text.x = ggplot2::element_text(color = "grey20", size = 18),
+        axis.text.y = ggplot2::element_text(color = "grey20", size = 18),
+        plot.title = ggplot2::element_text(size = 24)
+      ) +
+      ggplot2::xlab("Spacer") +
+      ggplot2::ylab("Density") +
+      ggplot2::ggtitle("SD-like spacer to start codon")
+
+    assign("RBS_seqlogo", seqlogo_plot, envir = .GlobalEnv)
+    assign("spacer_histogram", spacer_histogram, envir = .GlobalEnv)
+    message("Archaeal SD-like plots have been saved to the global environment.")
+  }
+
+  invisible(putative_RBS)
+}
+
+RBS_extractor <- function(target = NULL,
+                          plot_RBS = FALSE,
+                          save_plot = FALSE,
+                          plot_path = NULL,
+                          translation_domain = NULL,
+                          gb_path = NULL) {
   library(dplyr)
   library(Biostrings)
   library(ggplot2)
@@ -69,6 +383,19 @@ RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, pl
     } else {
       stop("You need to provide a 'target' or ensure 'genbank_table' exists in the global environment.")
     }
+  }
+
+  translation_domain <- translation_domain %||% .dnmb_detect_translation_domain(target = target, gb_path = gb_path)
+  if (identical(translation_domain, "archaea")) {
+    contig_names <- ls(envir = .GlobalEnv, pattern = "^contig_[0-9]{1,}_seq$")
+    if (!length(contig_names)) {
+      return(.dnmb_assign_empty_rbs_outputs(
+        plot_RBS = plot_RBS,
+        reason = "No contig sequences found in the global environment for archaeal initiation analysis."
+      ))
+    }
+    contig_list <- lapply(contig_names, function(x) get(x, envir = .GlobalEnv))
+    return(.dnmb_archaea_rbs_extractor(target = target, contig_list = contig_list, plot_RBS = plot_RBS))
   }
 
   # Extract RBS sequences based on 16S ribosomal RNA
@@ -86,9 +413,9 @@ RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, pl
   contig_list_rc <- lapply(contig_names, function(x) as.character(Biostrings::reverseComplement(Biostrings::DNAString(get(x, envir = .GlobalEnv)))))
 
   RBS <- target %>%
-    filter(product == "16S ribosomal RNA") %>%
+    filter(.dnmb_rrna_product_mask(product)) %>%
     select(rearranged_nt_seq) %>%
-    mutate(RBS = str_sub(rearranged_nt_seq, start = -9))
+    mutate(RBS = stringr::str_sub(rearranged_nt_seq, start = -9))
 
   if (!nrow(RBS)) {
     return(.dnmb_assign_empty_rbs_outputs(
@@ -127,8 +454,8 @@ RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, pl
   for (i in 1:length(contig_list)) {
     temp_RBS_df <- strand_plus_RBS %>%
       filter(group == i) %>%
-      mutate(RBS = str_sub(contig_list[i], start, end),
-             TR = str_sub(contig_list[i], start, end + 100))
+      mutate(RBS = stringr::str_sub(contig_list[i], start, end),
+             TR = stringr::str_sub(contig_list[i], start, end + 100))
     temp_df <- plyr::rbind.fill(temp_df, temp_RBS_df)
   }
   strand_plus_RBS <- temp_df
@@ -157,8 +484,8 @@ RBS_extractor <- function(target = NULL, plot_RBS = FALSE, save_plot = FALSE, pl
   for (i in 1:length(contig_list_rc)) {
     temp_RBS_df <- strand_minus_RBS %>%
       filter(group == i) %>%
-      mutate(RBS = str_sub(contig_list_rc[i], start, end),
-             TR = str_sub(contig_list_rc[i], start, end + 100))
+      mutate(RBS = stringr::str_sub(contig_list_rc[i], start, end),
+             TR = stringr::str_sub(contig_list_rc[i], start, end + 100))
     temp_df <- plyr::rbind.fill(temp_df, temp_RBS_df)
   }
   strand_minus_RBS <- temp_df

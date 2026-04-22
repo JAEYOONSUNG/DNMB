@@ -6,10 +6,16 @@
 #' @export
 #'
 
-.dnmb_trna_default_codon_table <- function() {
+.dnmb_trna_default_codon_table <- function(transl_table = 11L) {
   codon_table <- as.data.frame(
     matrix(
-      c(seqinr::words(), seqinr::translate(sapply(seqinr::words(), seqinr::s2c))),
+      c(
+        seqinr::words(),
+        seqinr::translate(
+          sapply(seqinr::words(), seqinr::s2c),
+          numcode = suppressWarnings(as.integer(transl_table)[1])
+        )
+      ),
       ncol = 2,
       byrow = FALSE
     ),
@@ -36,8 +42,8 @@
   )
 }
 
-.dnmb_trna_empty_distribution <- function() {
-  codon_table <- .dnmb_trna_default_codon_table()
+.dnmb_trna_empty_distribution <- function(transl_table = 11L) {
+  codon_table <- .dnmb_trna_default_codon_table(transl_table = transl_table)
   codon_table$codon_count <- 0L
   codon_table
 }
@@ -48,7 +54,11 @@
   invisible(list(tRNA_anticodon = tRNA_anticodon, tRNA_distribution = tRNA_distribution))
 }
 
-tRNA_anticodon_counter <- function(target = NULL, save_output = NULL) {
+tRNA_anticodon_counter <- function(target = NULL,
+                                   save_output = NULL,
+                                   transl_table = NULL,
+                                   translation_domain = NULL,
+                                   gb_path = NULL) {
   library(dplyr)
   library(stringr)
   library(seqinr)
@@ -66,9 +76,10 @@ tRNA_anticodon_counter <- function(target = NULL, save_output = NULL) {
 
   if (!"anticodon" %in% names(target)) {
     message("No anticodon column found in target; returning empty tRNA tables.")
+    transl_table <- transl_table %||% .dnmb_detect_transl_table(target = target, gb_path = gb_path, translation_domain = translation_domain)
     return(.dnmb_trna_assign_outputs(
       tRNA_anticodon = .dnmb_trna_empty_anticodon_table(),
-      tRNA_distribution = .dnmb_trna_empty_distribution()
+      tRNA_distribution = .dnmb_trna_empty_distribution(transl_table = transl_table)
     ))
   }
 
@@ -77,9 +88,10 @@ tRNA_anticodon_counter <- function(target = NULL, save_output = NULL) {
 
   if (!nrow(tRNA_anticodon)) {
     message("No tRNA anticodon annotations detected; returning zero-count tRNA distribution.")
+    transl_table <- transl_table %||% .dnmb_detect_transl_table(target = target, gb_path = gb_path, translation_domain = translation_domain)
     return(.dnmb_trna_assign_outputs(
       tRNA_anticodon = .dnmb_trna_empty_anticodon_table(),
-      tRNA_distribution = .dnmb_trna_empty_distribution()
+      tRNA_distribution = .dnmb_trna_empty_distribution(transl_table = transl_table)
     ))
   }
 
@@ -123,11 +135,14 @@ tRNA_anticodon_counter <- function(target = NULL, save_output = NULL) {
 
   if (!nrow(tRNA_anticodon)) {
     message("No valid tRNA anticodon sequences could be extracted; returning zero-count tRNA distribution.")
+    transl_table <- transl_table %||% .dnmb_detect_transl_table(target = target, gb_path = gb_path, translation_domain = translation_domain)
     return(.dnmb_trna_assign_outputs(
       tRNA_anticodon = .dnmb_trna_empty_anticodon_table(),
-      tRNA_distribution = .dnmb_trna_empty_distribution()
+      tRNA_distribution = .dnmb_trna_empty_distribution(transl_table = transl_table)
     ))
   }
+
+  transl_table <- transl_table %||% .dnmb_detect_transl_table(target = target, gb_path = gb_path, translation_domain = translation_domain)
 
   tRNA_anticodon <- tRNA_anticodon %>%
     mutate(
@@ -149,7 +164,7 @@ tRNA_anticodon_counter <- function(target = NULL, save_output = NULL) {
       anticodon = tolower(anticodon),
       tRNA_codon = tolower(tRNA_codon),
       AA = sapply(tRNA_codon, function(codon) {
-        amino_acid <- seqinr::translate(s2c(codon))
+        amino_acid <- seqinr::translate(s2c(codon), numcode = suppressWarnings(as.integer(transl_table)[1]))
         return(amino_acid)
       })
     )
@@ -163,7 +178,7 @@ tRNA_anticodon_counter <- function(target = NULL, save_output = NULL) {
     dplyr::summarise(codon_count = n(), .groups = 'drop')  # Calculate the count of each tRNA codon
 
   # Load the standard codon table provided by the seqinr package
-  codon_table <- .dnmb_trna_default_codon_table()
+  codon_table <- .dnmb_trna_default_codon_table(transl_table = transl_table)
   codon_table %>% group_by(AA) %>% dplyr::arrange(codon_table, .by_group = FALSE)
   codon_order <- codon_table %>% group_by(AA) %>% top_n(1) %>% dplyr::select(AA) %>% pull() %>% as.vector()
 

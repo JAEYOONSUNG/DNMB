@@ -267,16 +267,32 @@ run_DNMB <- function(
   Genbank_organizer()
   message("Step1. genbank_organizer function executed")
 
+  active_genbank <- get0("genbank_table", envir = .GlobalEnv, inherits = FALSE)
+  gb_path <- .dnmb_detect_genbank_path(getwd())
+  translation_domain <- .dnmb_detect_translation_domain(target = active_genbank, gb_path = gb_path)
+  transl_table <- .dnmb_detect_transl_table(target = active_genbank, gb_path = gb_path, translation_domain = translation_domain)
+  assign("translation_domain", translation_domain, envir = .GlobalEnv)
+  assign("translation_table", transl_table, envir = .GlobalEnv)
+  message("[DNMB] Translation initiation branch: ", translation_domain, " (translation table ", transl_table, ")")
+
   Codon_usage_calculator()
   message("Step2. Codon usage caculator function executed")
 
-  tRNA_anticodon_counter()
+  tRNA_anticodon_counter(
+    translation_domain = translation_domain,
+    transl_table = transl_table,
+    gb_path = gb_path
+  )
   message("Step3. tRNA anticodon count function executed")
 
   genbank_fna_extractor()
   message("Step4. Genbank fna extractor function executed")
 
-  RBS_extractor(plot_RBS = TRUE)
+  RBS_extractor(
+    plot_RBS = TRUE,
+    translation_domain = translation_domain,
+    gb_path = gb_path
+  )
   message("Step5. RBS extractor function executed")
 
   CRISPR_array_extractor()

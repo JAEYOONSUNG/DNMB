@@ -1,4 +1,6 @@
 # DNMB
+[![R](https://img.shields.io/badge/R-%3E%3D%204.0-blue)](https://cran.r-project.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Fig  1](https://github.com/user-attachments/assets/ef35c8cc-5e75-40ea-a13e-42022ccbc0ca)
 
 The domestication of non-model bacteria (DNMB) presents a unique set of challenges and opportunities. To address these, we introduce a novel approach—the DNMB pipeline—a comprehensive genomics analysis tool tailored specifically for non-model bacterial species. Unlike traditional model organisms, non-model bacteria often lack well-defined genetic resources and established analytical pipelines. Consequently, researchers face hurdles in elucidating the genetic basis underlying phenotypic traits relevant to domestication efforts. Our pipeline integrates multiple scripts and computational tools to streamline various stages of genomic analysis, from making comprehensive functional annotation in user-friendly table format to genomic features including codon usage and ribosomal binding site preference and distance. 

@@ -100,6 +100,49 @@
   asset_urls
 }
 
+.dnmb_acrfinder_normalize_genome_type <- function(genome_type) {
+  value <- base::toupper(base::trimws(base::as.character(genome_type)[1]))
+  if (base::is.na(value) || !base::nzchar(value) || identical(value, "AUTO")) {
+    return(NA_character_)
+  }
+  if (!value %in% c("A", "B", "V")) {
+    base::stop("`genome_type` for AcrFinder must be one of: A, B, V, or AUTO.", call. = FALSE)
+  }
+  value
+}
+
+.dnmb_acrfinder_guess_genome_type <- function(genbank = NULL) {
+  genbank_path <- base::trimws(base::as.character(genbank)[1])
+  if (base::is.na(genbank_path) || !base::nzchar(genbank_path) || !base::file.exists(genbank_path)) {
+    return("B")
+  }
+
+  header_lines <- tryCatch(
+    base::readLines(genbank_path, warn = FALSE, n = 160L),
+    error = function(e) character()
+  )
+  header_text <- base::paste(header_lines, collapse = "\n")
+  if (!base::nzchar(header_text)) {
+    return("B")
+  }
+
+  if (grepl("\\bArchaea\\b", header_text, ignore.case = TRUE, perl = TRUE)) {
+    return("A")
+  }
+  if (grepl("\\bViruses\\b|\\bvirus\\b|\\bphage\\b", header_text, ignore.case = TRUE, perl = TRUE)) {
+    return("V")
+  }
+  "B"
+}
+
+.dnmb_acrfinder_resolve_genome_type <- function(genome_type = NULL, genbank = NULL) {
+  explicit_type <- .dnmb_acrfinder_normalize_genome_type(genome_type)
+  if (!base::is.na(explicit_type) && base::nzchar(explicit_type)) {
+    return(explicit_type)
+  }
+  .dnmb_acrfinder_guess_genome_type(genbank = genbank)
+}
+
 .dnmb_acrfinder_cached_install_state <- function(layout, manifest = NULL) {
   if (base::is.null(manifest) || !base::isTRUE(manifest$install_ok)) {
     return(list(ok = FALSE, detail = "AcrFinder manifest is missing or marked incomplete."))
@@ -572,13 +615,18 @@ dnmb_run_acrfinder_module <- function(genes,
                                       evalue_threshold = 1e-5,
                                       identity_threshold = 30,
                                       coverage_threshold = 0.8,
-                                      genome_type = "B",
+                                      genome_type = "AUTO",
                                       min_cdd_proteins = 2L,
                                       use_prophage_db = TRUE,
                                       use_gi_db = TRUE) {
   base::dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   status <- .dnmb_acrfinder_empty_status()
   trace_log <- base::file.path(output_dir, "acrfinder_module_trace.log")
+  resolved_genome_type <- .dnmb_acrfinder_resolve_genome_type(genome_type = genome_type, genbank = genbank)
+  status <- dplyr::bind_rows(
+    status,
+    .dnmb_acrfinder_status_row("acrfinder_genome_type", "ok", resolved_genome_type)
+  )
 
   install_result <- dnmb_acrfinder_install_module(
     version = version,
@@ -610,7 +658,7 @@ dnmb_run_acrfinder_module <- function(genes,
     "-f", full_input$gff,
     "-a", full_input$faa,
     "-o", final_dir,
-    "-z", base::as.character(genome_type)[1],
+    "-z", resolved_genome_type,
     "-c", base::as.character(base::as.integer(min_cdd_proteins)[1]),
     "-p", if (base::isTRUE(use_prophage_db)) "true" else "false",
     "-g", if (base::isTRUE(use_gi_db)) "true" else "false",
@@ -639,7 +687,12 @@ dnmb_run_acrfinder_module <- function(genes,
   )
 
   homology_path <- base::file.path(final_dir, paste0(full_input$prefix, "_homology_based.out"))
-  gba_path <- base::file.path(final_dir, paste0(full_input$prefix, "_guilt-by-association.out"))
+  gba_candidates <- c(
+    base::file.path(final_dir, paste0(full_input$prefix, "_guilt_by_association.out")),
+    base::file.path(final_dir, paste0(full_input$prefix, "_guilt-by-association.out"))
+  )
+  gba_existing <- gba_candidates[base::file.exists(gba_candidates)]
+  gba_path <- if (base::length(gba_existing)) gba_existing[[1]] else gba_candidates[[1]]
   parsed_outputs <- .dnmb_acrfinder_parse_outputs(
     homology_path = homology_path,
     gba_path = gba_path,

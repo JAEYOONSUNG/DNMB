@@ -384,7 +384,7 @@ dnmb_order_genbank_table_for_output <- function(genbank_table) {
 }
 
 dnmb_supported_module_prefixes <- function() {
-  c("CLEAN", "GapMindAA", "GapMindCarbon", "GapMind", "DefenseFinder", "PADLOC", "DefensePredictor", "ISelement", "Prophage", "dbCAN", "MEROPS", "PAZy")
+  c("CLEAN", "GapMindAA", "GapMindCarbon", "GapMind", "DefenseFinder", "dbAPIS", "AcrFinder", "PADLOC", "DefensePredictor", "ISelement", "Prophage", "dbCAN", "MEROPS", "PAZy")
 }
 
 dnmb_module_prefix_order <- function(genbank_table) {
@@ -528,6 +528,38 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "hit_seq_cov",
       "support"
     ),
+    dbAPIS = c(
+      "family_id",
+      "hit_label",
+      "defense_type",
+      "clan_id",
+      "clan_defense_type",
+      "representative_protein",
+      "description",
+      "i_evalue",
+      "hit_score",
+      "hmm_coverage",
+      "query_coverage",
+      "support",
+      "evidence_mode",
+      "substrate_label",
+      "profile_length",
+      "gene_length",
+      "hmm_from",
+      "hmm_to",
+      "ali_from",
+      "ali_to"
+    ),
+    AcrFinder = c(
+      "family_id",
+      "hit_label",
+      "enzyme_role",
+      "evidence_mode",
+      "substrate_label",
+      "classification",
+      "pident",
+      "support"
+    ),
     PADLOC = c(
       "system",
       "system_number",
@@ -608,6 +640,8 @@ dnmb_build_module_details_table <- function(genbank_table) {
     dnmb_module_details_gapmind_full(out, base_cols, version = "carbon", label = "GapMindCarbon"),
     dnmb_module_details_gapmind(out, base_cols, prefix = "GapMind", label = "GapMind"),
     dnmb_module_details_defensefinder(out, base_cols),
+    dnmb_module_details_dbapis(out, base_cols),
+    dnmb_module_details_acrfinder(out, base_cols),
     dnmb_module_details_padloc(out, base_cols),
     dnmb_module_details_defensepredictor(out, base_cols),
     dnmb_module_details_iselement(out, base_cols),
@@ -624,6 +658,9 @@ dnmb_build_module_details_table <- function(genbank_table) {
 
   detail <- dplyr::bind_rows(detail_parts)
   dynamic_levels <- dnmb_module_detail_order(out)
+  detail_levels <- unique(as.character(detail$module_category))
+  detail_levels <- detail_levels[!is.na(detail_levels) & nzchar(detail_levels)]
+  dynamic_levels <- c(dynamic_levels, setdiff(detail_levels, dynamic_levels))
   detail$module_category <- factor(detail$module_category, levels = dynamic_levels)
   locus_rank <- suppressWarnings(as.numeric(sub("^.*?(\\d+)$", "\\1", detail$locus_tag)))
   detail <- detail[order(detail$module_category, locus_rank, detail$locus_tag), , drop = FALSE]
@@ -657,6 +694,8 @@ dnmb_module_detail_order <- function(genbank_table) {
     GapMindCarbon = "GapMindCarbon",
     GapMind = "GapMind",
     DefenseFinder = "DefenseFinder",
+    dbAPIS = "dbAPIS",
+    AcrFinder = "AcrFinder",
     PADLOC = "PADLOC",
     DefensePredictor = "DefensePredictor",
     REBASEfinder = "REBASE",
@@ -716,6 +755,82 @@ dnmb_module_details_clean <- function(genbank_table, base_cols) {
   out$resource_links <- dnmb_detail_links(
     if ("CLEAN_expasy_link" %in% names(genbank_table)) as.character(genbank_table$CLEAN_expasy_link[keep]) else NA_character_,
     if ("CLEAN_brenda_link" %in% names(genbank_table)) as.character(genbank_table$CLEAN_brenda_link[keep]) else NA_character_
+  )
+  out
+}
+
+dnmb_module_details_dbapis <- function(genbank_table, base_cols) {
+  label_col <- if ("dbAPIS_family_id" %in% names(genbank_table)) genbank_table$dbAPIS_family_id else NULL
+  if (is.null(label_col)) {
+    return(data.frame())
+  }
+  keep <- !is.na(label_col) & nzchar(label_col)
+  if (!any(keep)) {
+    return(data.frame())
+  }
+  base <- dnmb_module_detail_base(genbank_table, base_cols, keep)
+  out <- dnmb_module_detail_template(base)
+  out$module_category <- "dbAPIS"
+  out$primary_call <- if ("dbAPIS_hit_label" %in% names(genbank_table)) {
+    label <- as.character(genbank_table$dbAPIS_hit_label[keep])
+    fallback <- as.character(genbank_table$dbAPIS_family_id[keep])
+    ifelse(!is.na(label) & nzchar(label), label, fallback)
+  } else {
+    as.character(genbank_table$dbAPIS_family_id[keep])
+  }
+  out$reference_id <- dnmb_detail_join(
+    if ("dbAPIS_family_id" %in% names(genbank_table)) paste0("family=", as.character(genbank_table$dbAPIS_family_id[keep])) else NA_character_,
+    if ("dbAPIS_clan_id" %in% names(genbank_table)) paste0("clan=", as.character(genbank_table$dbAPIS_clan_id[keep])) else NA_character_,
+    if ("dbAPIS_representative_protein" %in% names(genbank_table)) paste0("rep=", as.character(genbank_table$dbAPIS_representative_protein[keep])) else NA_character_
+  )
+  out$significance <- dnmb_detail_key_value("evalue", if ("dbAPIS_i_evalue" %in% names(genbank_table)) genbank_table$dbAPIS_i_evalue[keep] else NA, digits = 3)
+  out$score_summary <- dnmb_detail_join(
+    dnmb_detail_key_value("score", if ("dbAPIS_hit_score" %in% names(genbank_table)) genbank_table$dbAPIS_hit_score[keep] else NA, digits = 2),
+    dnmb_detail_key_value("hmm_cov", if ("dbAPIS_hmm_coverage" %in% names(genbank_table)) genbank_table$dbAPIS_hmm_coverage[keep] else NA, digits = 3),
+    dnmb_detail_key_value("query_cov", if ("dbAPIS_query_coverage" %in% names(genbank_table)) genbank_table$dbAPIS_query_coverage[keep] else NA, digits = 3)
+  )
+  out$alignment_summary <- dnmb_detail_join(
+    dnmb_detail_span("hmm", if ("dbAPIS_hmm_from" %in% names(genbank_table)) genbank_table$dbAPIS_hmm_from[keep] else NA, if ("dbAPIS_hmm_to" %in% names(genbank_table)) genbank_table$dbAPIS_hmm_to[keep] else NA, if ("dbAPIS_profile_length" %in% names(genbank_table)) genbank_table$dbAPIS_profile_length[keep] else NA),
+    dnmb_detail_span("gene", if ("dbAPIS_ali_from" %in% names(genbank_table)) genbank_table$dbAPIS_ali_from[keep] else NA, if ("dbAPIS_ali_to" %in% names(genbank_table)) genbank_table$dbAPIS_ali_to[keep] else NA, if ("dbAPIS_gene_length" %in% names(genbank_table)) genbank_table$dbAPIS_gene_length[keep] else NA)
+  )
+  out$context_summary <- dnmb_detail_join(
+    if ("dbAPIS_clan_defense_type" %in% names(genbank_table)) paste0("target=", as.character(genbank_table$dbAPIS_clan_defense_type[keep])) else NA_character_,
+    if ("dbAPIS_defense_type" %in% names(genbank_table)) paste0("type=", as.character(genbank_table$dbAPIS_defense_type[keep])) else NA_character_,
+    if ("dbAPIS_description" %in% names(genbank_table)) as.character(genbank_table$dbAPIS_description[keep]) else NA_character_,
+    if ("dbAPIS_support" %in% names(genbank_table)) as.character(genbank_table$dbAPIS_support[keep]) else NA_character_
+  )
+  out
+}
+
+dnmb_module_details_acrfinder <- function(genbank_table, base_cols) {
+  label_col <- if ("AcrFinder_family_id" %in% names(genbank_table)) genbank_table$AcrFinder_family_id else NULL
+  if (is.null(label_col)) {
+    return(data.frame())
+  }
+  keep <- !is.na(label_col) & nzchar(label_col)
+  if (!any(keep)) {
+    return(data.frame())
+  }
+  base <- dnmb_module_detail_base(genbank_table, base_cols, keep)
+  out <- dnmb_module_detail_template(base)
+  out$module_category <- "AcrFinder"
+  out$primary_call <- if ("AcrFinder_hit_label" %in% names(genbank_table)) {
+    label <- as.character(genbank_table$AcrFinder_hit_label[keep])
+    fallback <- as.character(genbank_table$AcrFinder_family_id[keep])
+    ifelse(!is.na(label) & nzchar(label), label, fallback)
+  } else {
+    as.character(genbank_table$AcrFinder_family_id[keep])
+  }
+  out$reference_id <- if ("AcrFinder_family_id" %in% names(genbank_table)) paste0("acr=", as.character(genbank_table$AcrFinder_family_id[keep])) else NA_character_
+  out$significance <- dnmb_detail_key_value("pident", if ("AcrFinder_pident" %in% names(genbank_table)) genbank_table$AcrFinder_pident[keep] else NA, digits = 2)
+  out$score_summary <- dnmb_detail_join(
+    if ("AcrFinder_evidence_mode" %in% names(genbank_table)) paste0("evidence=", as.character(genbank_table$AcrFinder_evidence_mode[keep])) else NA_character_,
+    if ("AcrFinder_classification" %in% names(genbank_table)) paste0("classification=", as.character(genbank_table$AcrFinder_classification[keep])) else NA_character_
+  )
+  out$context_summary <- dnmb_detail_join(
+    if ("AcrFinder_enzyme_role" %in% names(genbank_table)) paste0("target=", as.character(genbank_table$AcrFinder_enzyme_role[keep])) else NA_character_,
+    if ("AcrFinder_substrate_label" %in% names(genbank_table)) paste0("label=", as.character(genbank_table$AcrFinder_substrate_label[keep])) else NA_character_,
+    if ("AcrFinder_support" %in% names(genbank_table)) as.character(genbank_table$AcrFinder_support[keep]) else NA_character_
   )
   out
 }
@@ -1329,6 +1444,12 @@ dnmb_header_group_for_column <- function(column_name) {
   if (grepl("^DefenseFinder_", column_name)) {
     return("DefenseFinder")
   }
+  if (grepl("^dbAPIS_", column_name)) {
+    return("dbAPIS")
+  }
+  if (grepl("^AcrFinder_", column_name)) {
+    return("AcrFinder")
+  }
   if (grepl("^PADLOC_", column_name)) {
     return("PADLOC")
   }
@@ -1401,6 +1522,22 @@ dnmb_header_group_styles <- function() {
       valign = "center",
       border = "Bottom",
       borderColour = "#7A67AF"
+    ),
+    dbAPIS = openxlsx::createStyle(
+      fgFill = "#DDF6D2",
+      textDecoration = "bold",
+      halign = "center",
+      valign = "center",
+      border = "Bottom",
+      borderColour = "#52B846"
+    ),
+    AcrFinder = openxlsx::createStyle(
+      fgFill = "#D7F0E6",
+      textDecoration = "bold",
+      halign = "center",
+      valign = "center",
+      border = "Bottom",
+      borderColour = "#3B8F72"
     ),
     PADLOC = openxlsx::createStyle(
       fgFill = "#FDE9D9",

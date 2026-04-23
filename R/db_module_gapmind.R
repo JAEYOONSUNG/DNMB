@@ -133,6 +133,49 @@ dnmb_gapmind_carbohydrate_pathways <- function() {
   invisible(dest_dir)
 }
 
+.dnmb_gapmind_perl_candidates <- function() {
+  candidates <- c(
+    "/opt/biotools/bin/perl",
+    dnmb_detect_binary("perl", required = FALSE)$path,
+    base::Sys.which("perl"),
+    "/usr/bin/perl"
+  )
+  candidates <- unique(base::path.expand(base::trimws(base::as.character(candidates))))
+  candidates[base::nzchar(candidates) & base::file.exists(candidates)]
+}
+
+.dnmb_gapmind_find_perl <- function(required_modules = c("DBI", "DBD::SQLite")) {
+  required_modules <- base::as.character(required_modules)
+  required_modules <- required_modules[!base::is.na(required_modules) & base::nzchar(required_modules)]
+  perl_candidates <- .dnmb_gapmind_perl_candidates()
+  if (!base::length(perl_candidates)) {
+    return("")
+  }
+
+  args <- c(
+    if (base::length(required_modules)) base::paste0("-M", required_modules) else character(),
+    "-e",
+    "print qq{ok\\n}"
+  )
+  for (perl_path in perl_candidates) {
+    run <- dnmb_run_external(perl_path, args = args, required = FALSE)
+    if (base::isTRUE(run$ok)) {
+      return(perl_path)
+    }
+  }
+  ""
+}
+
+.dnmb_gapmind_runtime_env <- function(perl_path = "", stage_root = "") {
+  path_entries <- c(
+    if (base::nzchar(stage_root)) base::file.path(stage_root, "bin") else character(),
+    if (base::nzchar(perl_path)) base::dirname(perl_path) else character(),
+    strsplit(base::Sys.getenv("PATH"), .Platform$path.sep, fixed = TRUE)[[1]]
+  )
+  path_entries <- unique(path_entries[base::nzchar(path_entries) & base::file.exists(path_entries)])
+  c(PATH = base::paste(path_entries, collapse = .Platform$path.sep))
+}
+
 .dnmb_gapmind_prepare_repo <- function(layout,
                                        repo_source = .dnmb_gapmind_default_repo_url(),
                                        force = FALSE) {
@@ -180,10 +223,19 @@ dnmb_gapmind_carbohydrate_pathways <- function() {
     return(.dnmb_gapmind_status_row("gapmind_hmms", "cached", base::paste0("count=", base::length(existing))))
   }
 
+  perl_path <- .dnmb_gapmind_find_perl(required_modules = c("DBI", "DBD::SQLite"))
+  if (!base::nzchar(perl_path)) {
+    return(.dnmb_gapmind_status_row(
+      "gapmind_hmms",
+      "missing",
+      "No perl executable with DBI and DBD::SQLite was found for GapMind."
+    ))
+  }
   script_path <- base::file.path(layout$repo_dir, "bin", "extractHmms.pl")
   run <- dnmb_run_external(
-    "perl",
+    perl_path,
     args = c(script_path, layout$steps_db, layout$path_dir),
+    env = .dnmb_gapmind_runtime_env(perl_path = perl_path),
     required = FALSE
   )
   existing <- base::list.files(layout$path_dir, pattern = "[.]hmm$", full.names = TRUE)
@@ -775,7 +827,7 @@ dnmb_gapmind_normalize_hits <- function(candidates, version = .dnmb_gapmind_defa
   invisible(dest)
 }
 
-.dnmb_gapmind_stage_runtime <- function(module, output_dir) {
+.dnmb_gapmind_stage_runtime <- function(module, output_dir, perl_path = "") {
   stage_root <- base::tempfile("dnmb-gapmind-run-")
   base::dir.create(stage_root, recursive = TRUE, showWarnings = FALSE)
   base::dir.create(base::file.path(stage_root, "bin"), recursive = TRUE, showWarnings = FALSE)
@@ -795,6 +847,9 @@ dnmb_gapmind_normalize_hits <- function(candidates, version = .dnmb_gapmind_defa
   for (binary_name in c("diamond", "hmmsearch", "hmmfetch")) {
     binary_path <- dnmb_detect_binary(binary_name, required = TRUE)$path
     .dnmb_gapmind_link_or_copy(binary_path, base::file.path(stage_root, "bin", binary_name))
+  }
+  if (base::nzchar(perl_path) && base::file.exists(perl_path)) {
+    .dnmb_gapmind_link_or_copy(perl_path, base::file.path(stage_root, "bin", "perl"))
   }
 
   for (file_name in base::list.files(module$files$path_dir, full.names = FALSE)) {
@@ -840,8 +895,22 @@ dnmb_run_gapmind_module <- function(genes,
   }
 
   module <- dnmb_gapmind_get_module(version = version, cache_root = cache_root, required = TRUE)
-  stage <- .dnmb_gapmind_stage_runtime(module, output_dir = output_dir)
+  perl_path <- .dnmb_gapmind_find_perl(required_modules = c("DBI", "DBD::SQLite"))
+  status <- dplyr::bind_rows(
+    status,
+    .dnmb_gapmind_status_row(
+      "gapmind_perl",
+      if (base::nzchar(perl_path)) "ok" else "missing",
+      if (base::nzchar(perl_path)) perl_path else "No perl executable with DBI and DBD::SQLite was found for GapMind."
+    )
+  )
+  if (!base::nzchar(perl_path)) {
+    return(list(ok = FALSE, status = status, files = list(trace_log = trace_log), hits = .dnmb_module_empty_optional_long_table(), candidates = data.frame(), steps = data.frame(), rules = data.frame(), output_table = data.frame()))
+  }
+
+  stage <- .dnmb_gapmind_stage_runtime(module, output_dir = output_dir, perl_path = perl_path)
   on.exit(stage$cleanup(), add = TRUE)
+  gapmind_env <- .dnmb_gapmind_runtime_env(perl_path = perl_path, stage_root = stage$stage_root)
 
   org_prefix <- .dnmb_gapmind_org_prefix(stage$stage_root, genes = genes, genbank = genbank)
   genome_name <- if (!base::is.null(genbank) && base::nzchar(base::as.character(genbank)[1])) base::basename(base::as.character(genbank)[1]) else "DNMB query genome"
@@ -868,8 +937,8 @@ dnmb_run_gapmind_module <- function(genes,
     "-out", base::paste0(hits_prefix, ".hits"),
     "-nCPU", base::as.character(base::as.integer(cpu)[1])
   )
-  .dnmb_gapmind_trace(trace_log, base::sprintf("[%s] %s", base::Sys.time(), .dnmb_format_command("perl", gapsearch_args)))
-  gapsearch_run <- dnmb_run_external("perl", args = gapsearch_args, wd = stage$stage_root, required = FALSE)
+  .dnmb_gapmind_trace(trace_log, base::sprintf("[%s] %s", base::Sys.time(), .dnmb_format_command(perl_path, gapsearch_args)))
+  gapsearch_run <- dnmb_run_external(perl_path, args = gapsearch_args, wd = stage$stage_root, env = gapmind_env, required = FALSE)
   status <- dplyr::bind_rows(status, .dnmb_gapmind_status_row("gapmind_search", if (base::isTRUE(gapsearch_run$ok)) "ok" else "failed", gapsearch_run$error %||% base::paste0(hits_prefix, ".hits")))
   if (!base::isTRUE(gapsearch_run$ok)) {
     return(list(ok = FALSE, status = status, files = list(trace_log = trace_log), hits = .dnmb_module_empty_optional_long_table(), candidates = data.frame(), steps = data.frame(), rules = data.frame(), output_table = data.frame()))
@@ -885,8 +954,8 @@ dnmb_run_gapmind_module <- function(genes,
     "-out", revhits_path,
     "-nCPU", base::as.character(base::as.integer(cpu)[1])
   )
-  .dnmb_gapmind_trace(trace_log, base::sprintf("[%s] %s", base::Sys.time(), .dnmb_format_command("perl", gaprev_args)))
-  gaprev_run <- dnmb_run_external("perl", args = gaprev_args, wd = stage$stage_root, required = FALSE)
+  .dnmb_gapmind_trace(trace_log, base::sprintf("[%s] %s", base::Sys.time(), .dnmb_format_command(perl_path, gaprev_args)))
+  gaprev_run <- dnmb_run_external(perl_path, args = gaprev_args, wd = stage$stage_root, env = gapmind_env, required = FALSE)
   status <- dplyr::bind_rows(status, .dnmb_gapmind_status_row("gapmind_revsearch", if (base::isTRUE(gaprev_run$ok)) "ok" else "failed", gaprev_run$error %||% revhits_path))
   if (!base::isTRUE(gaprev_run$ok)) {
     return(list(ok = FALSE, status = status, files = list(trace_log = trace_log), hits = .dnmb_module_empty_optional_long_table(), candidates = data.frame(), steps = data.frame(), rules = data.frame(), output_table = data.frame()))
@@ -903,8 +972,8 @@ dnmb_run_gapmind_module <- function(genes,
     "-revhits", revhits_path,
     "-out", summary_prefix
   )
-  .dnmb_gapmind_trace(trace_log, base::sprintf("[%s] %s", base::Sys.time(), .dnmb_format_command("perl", gapsummary_args)))
-  gapsummary_run <- dnmb_run_external("perl", args = gapsummary_args, wd = stage$stage_root, required = FALSE)
+  .dnmb_gapmind_trace(trace_log, base::sprintf("[%s] %s", base::Sys.time(), .dnmb_format_command(perl_path, gapsummary_args)))
+  gapsummary_run <- dnmb_run_external(perl_path, args = gapsummary_args, wd = stage$stage_root, env = gapmind_env, required = FALSE)
   status <- dplyr::bind_rows(status, .dnmb_gapmind_status_row("gapmind_summary", if (base::isTRUE(gapsummary_run$ok)) "ok" else "failed", gapsummary_run$error %||% summary_prefix))
 
   cand_path <- base::paste0(summary_prefix, ".cand")

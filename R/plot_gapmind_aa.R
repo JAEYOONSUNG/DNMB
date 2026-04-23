@@ -463,21 +463,30 @@
   path_col <- "GapMindAA_pathway_id"; step_col <- "GapMindAA_step_id"
   conf_col <- "GapMindAA_confidence"; bp_col <- "GapMindAA_on_best_path"
   lt_col <- "locus_tag"
-  if (!path_col %in% base::names(tbl)) return(NULL)
-  tbl <- tbl[!is.na(tbl[[path_col]]) & base::nzchar(tbl[[path_col]]), , drop = FALSE]
-  if (!base::nrow(tbl)) return(NULL)
-  has_bp <- bp_col %in% names(tbl)
-  bp_tbl <- if (has_bp) tbl[!is.na(tbl[[bp_col]]) & tbl[[bp_col]] == TRUE, , drop = FALSE] else tbl
-  has_lt <- lt_col %in% names(bp_tbl)
-  found <- bp_tbl |>
-    dplyr::group_by(pathway_id = .data[[path_col]], step_id = .data[[step_col]]) |>
-    dplyr::summarise(
-      confidence = dplyr::case_when(
-        any(.data[[conf_col]] == "high") ~ "high",
-        any(.data[[conf_col]] == "medium") ~ "medium", TRUE ~ "low"),
-      locus_tag = if (has_lt) paste(unique(stats::na.omit(.data[[lt_col]])), collapse = "\n") else NA_character_,
-      .groups = "drop") |>
-    as.data.frame(stringsAsFactors = FALSE)
+  found <- data.frame(
+    pathway_id = character(),
+    step_id = character(),
+    confidence = character(),
+    locus_tag = character(),
+    stringsAsFactors = FALSE
+  )
+  if (path_col %in% base::names(tbl)) {
+    tbl <- tbl[!is.na(tbl[[path_col]]) & base::nzchar(tbl[[path_col]]), , drop = FALSE]
+    if (base::nrow(tbl)) {
+      has_bp <- bp_col %in% names(tbl)
+      bp_tbl <- if (has_bp) tbl[!is.na(tbl[[bp_col]]) & tbl[[bp_col]] == TRUE, , drop = FALSE] else tbl
+      has_lt <- lt_col %in% names(bp_tbl)
+      found <- bp_tbl |>
+        dplyr::group_by(pathway_id = .data[[path_col]], step_id = .data[[step_col]]) |>
+        dplyr::summarise(
+          confidence = dplyr::case_when(
+            any(.data[[conf_col]] == "high") ~ "high",
+            any(.data[[conf_col]] == "medium") ~ "medium", TRUE ~ "low"),
+          locus_tag = if (has_lt) paste(unique(stats::na.omit(.data[[lt_col]])), collapse = "\n") else NA_character_,
+          .groups = "drop") |>
+        as.data.frame(stringsAsFactors = FALSE)
+    }
+  }
   # Supplement from aa.sum.steps
   steps_file <- NULL
   if (!is.null(output_dir)) {
@@ -506,6 +515,7 @@
       found <- rbind(found, extra[!ekey %in% fkey, , drop = FALSE])
     }
   }
+  if (!base::nrow(found)) return(NULL)
   found
 }
 

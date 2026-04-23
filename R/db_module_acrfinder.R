@@ -100,12 +100,35 @@
   asset_urls
 }
 
+.dnmb_acrfinder_cached_install_state <- function(layout, manifest = NULL) {
+  if (base::is.null(manifest) || !base::isTRUE(manifest$install_ok)) {
+    return(list(ok = FALSE, detail = "AcrFinder manifest is missing or marked incomplete."))
+  }
+
+  if (!base::dir.exists(layout$repo_dir)) {
+    return(list(ok = FALSE, detail = base::paste0("AcrFinder repo is missing: ", layout$repo_dir)))
+  }
+
+  required_paths <- c(layout$env_python, layout$acr_fasta, layout$aca_fasta)
+  missing <- required_paths[!base::file.exists(required_paths)]
+  if (base::length(missing)) {
+    return(list(ok = FALSE, detail = base::paste0("AcrFinder runtime is missing: ", missing[[1]])))
+  }
+
+  py_run <- dnmb_run_external(
+    layout$env_python,
+    args = c("-c", "import sys, Bio; print(sys.executable)"),
+    required = FALSE
+  )
+  if (!base::isTRUE(py_run$ok)) {
+    return(list(ok = FALSE, detail = py_run$error %||% layout$env_python))
+  }
+
+  list(ok = TRUE, detail = layout$env_python)
+}
+
 .dnmb_acrfinder_install_ready <- function(layout, manifest = NULL) {
-  !base::is.null(manifest) &&
-    base::isTRUE(manifest$install_ok) &&
-    base::file.exists(layout$env_python) &&
-    base::file.exists(layout$acr_fasta) &&
-    base::file.exists(layout$aca_fasta)
+  base::isTRUE(.dnmb_acrfinder_cached_install_state(layout, manifest = manifest)$ok)
 }
 
 .dnmb_acrfinder_prepare_env <- function(layout, force = FALSE) {
@@ -116,8 +139,15 @@
   if (base::dir.exists(layout$env_dir) && base::isTRUE(force)) {
     unlink(layout$env_dir, recursive = TRUE, force = TRUE)
   }
-  if (base::dir.exists(layout$env_dir) && !base::file.exists(layout$env_python)) {
-    unlink(layout$env_dir, recursive = TRUE, force = TRUE)
+  if (base::dir.exists(layout$env_dir)) {
+    if (!base::file.exists(layout$env_python)) {
+      unlink(layout$env_dir, recursive = TRUE, force = TRUE)
+    } else {
+      test <- dnmb_run_external(layout$env_python, args = c("-c", "print('ok')"), required = FALSE)
+      if (!base::isTRUE(test$ok)) {
+        unlink(layout$env_dir, recursive = TRUE, force = TRUE)
+      }
+    }
   }
   if (!base::file.exists(layout$env_python)) {
     create_run <- dnmb_run_external(py, args = c("-m", "venv", layout$env_dir), required = FALSE)
@@ -126,9 +156,9 @@
     }
   }
   pip_run <- dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "--upgrade", "pip"), required = FALSE)
-  bio_run <- dnmb_run_external(layout$env_pip, args = c("install", "biopython"), required = FALSE)
+  bio_run <- dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "biopython"), required = FALSE)
   if (!base::isTRUE(bio_run$ok)) {
-    return(.dnmb_acrfinder_status_row("acrfinder_python", "failed", bio_run$error %||% layout$env_pip))
+    return(.dnmb_acrfinder_status_row("acrfinder_python", "failed", bio_run$error %||% layout$env_python))
   }
   .dnmb_acrfinder_status_row(
     "acrfinder_python",
@@ -178,8 +208,20 @@ dnmb_acrfinder_install_module <- function(version = .dnmb_acrfinder_default_vers
   asset_urls <- .dnmb_acrfinder_normalize_asset_urls(asset_urls)
   status <- .dnmb_acrfinder_empty_status()
   manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
+  cache_state <- .dnmb_acrfinder_cached_install_state(layout, manifest = manifest)
 
-  if (.dnmb_acrfinder_install_ready(layout, manifest = manifest) && !base::isTRUE(force)) {
+  if (!base::isTRUE(cache_state$ok) && !base::isTRUE(force) && !base::is.null(manifest) && base::isTRUE(manifest$install_ok)) {
+    status <- dplyr::bind_rows(
+      status,
+      .dnmb_acrfinder_status_row(
+        "acrfinder_install",
+        "stale",
+        cache_state$detail %||% "Cached AcrFinder runtime is not executable in the current environment."
+      )
+    )
+  }
+
+  if (base::isTRUE(cache_state$ok) && !base::isTRUE(force)) {
     return(list(
       ok = TRUE,
       status = dplyr::bind_rows(status, .dnmb_acrfinder_status_row("acrfinder_install", "cached", module_dir)),

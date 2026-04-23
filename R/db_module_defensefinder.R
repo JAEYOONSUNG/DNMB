@@ -259,12 +259,43 @@
   )
 }
 
+.dnmb_defensefinder_cached_install_state <- function(layout, manifest = NULL) {
+  if (base::is.null(manifest) || !base::isTRUE(manifest$install_ok)) {
+    return(list(ok = FALSE, detail = "DefenseFinder manifest is missing or marked incomplete."))
+  }
+
+  if (!base::dir.exists(layout$repo_dir)) {
+    return(list(ok = FALSE, detail = base::paste0("DefenseFinder repo is missing: ", layout$repo_dir)))
+  }
+  if (!base::dir.exists(layout$models_dir)) {
+    return(list(ok = FALSE, detail = base::paste0("DefenseFinder models directory is missing: ", layout$models_dir)))
+  }
+
+  required_paths <- c(layout$env_python, layout$env_pip, layout$macsydata_path, layout$cli_path)
+  missing <- required_paths[!base::file.exists(required_paths)]
+  if (base::length(missing)) {
+    return(list(ok = FALSE, detail = base::paste0("DefenseFinder runtime is missing: ", missing[[1]])))
+  }
+
+  py_run <- dnmb_run_external(
+    layout$env_python,
+    args = c("-c", "import sys; print(sys.executable)"),
+    required = FALSE
+  )
+  if (!base::isTRUE(py_run$ok)) {
+    return(list(ok = FALSE, detail = py_run$error %||% layout$env_python))
+  }
+
+  cli_run <- dnmb_run_external(layout$cli_path, args = "-h", required = FALSE)
+  if (!base::isTRUE(cli_run$ok)) {
+    return(list(ok = FALSE, detail = cli_run$error %||% layout$cli_path))
+  }
+
+  list(ok = TRUE, detail = layout$cli_path)
+}
+
 .dnmb_defensefinder_install_ready <- function(layout, manifest = NULL) {
-  !base::is.null(manifest) &&
-    base::isTRUE(manifest$install_ok) &&
-    base::file.exists(layout$cli_path) &&
-    base::file.exists(layout$macsydata_path) &&
-    base::dir.exists(layout$models_dir)
+  base::isTRUE(.dnmb_defensefinder_cached_install_state(layout, manifest = manifest)$ok)
 }
 
 .dnmb_defensefinder_candidate_python <- function() {
@@ -351,9 +382,9 @@
   # pip upgrade is optional — don't fail if it doesn't work
   dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "--upgrade", "pip"), required = FALSE)
   # Install defense-finder from cloned repo
-  run <- dnmb_run_external(layout$env_pip, args = c("install", "-U", layout$repo_dir), required = FALSE)
+  run <- dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "-U", layout$repo_dir), required = FALSE)
   if (!base::isTRUE(run$ok)) {
-    return(.dnmb_defensefinder_status_row("defensefinder_cli", "failed", run$error %||% layout$env_pip))
+    return(.dnmb_defensefinder_status_row("defensefinder_cli", "failed", run$error %||% layout$env_python))
   }
   .dnmb_defensefinder_status_row(
     "defensefinder_cli",
@@ -435,7 +466,19 @@ dnmb_defensefinder_install_module <- function(version = .dnmb_defensefinder_defa
   asset_urls <- .dnmb_defensefinder_normalize_asset_urls(asset_urls)
   status <- .dnmb_defensefinder_empty_status()
   manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
-  ready <- .dnmb_defensefinder_install_ready(layout, manifest = manifest)
+  cache_state <- .dnmb_defensefinder_cached_install_state(layout, manifest = manifest)
+  ready <- base::isTRUE(cache_state$ok)
+
+  if (!ready && !base::isTRUE(force) && !base::is.null(manifest) && base::isTRUE(manifest$install_ok)) {
+    status <- dplyr::bind_rows(
+      status,
+      .dnmb_defensefinder_status_row(
+        "defensefinder_install",
+        "stale",
+        cache_state$detail %||% "Cached DefenseFinder runtime is not executable in the current environment."
+      )
+    )
+  }
 
   if (ready && !base::isTRUE(force)) {
     casfinder_status <- .dnmb_defensefinder_ensure_compatible_casfinder(layout, asset_urls = asset_urls)

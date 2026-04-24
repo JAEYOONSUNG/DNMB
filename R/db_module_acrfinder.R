@@ -45,32 +45,59 @@
   runner_path <- base::file.path(repo_dir, "acr_aca_cri_runner.py")
   if (base::file.exists(runner_path)) {
     lines <- base::readLines(runner_path, warn = FALSE)
-    if (!base::any(grepl("skip_cdd_filter", lines, fixed = TRUE))) {
-      block_idx <- grep("fasta_file, rpsblast_file = generate_filter_file\\(ACR_ACA_FILE, CDD_DBFILE, INTERMEDIATES\\)", lines)
-      filter_idx <- grep("is_cddfilter = \\(GENOME_TYPE != 'V'\\)", lines)
-      if (base::length(block_idx) == 1L && base::length(filter_idx) == 1L) {
-        replacement <- c(
-          "\tskip_cdd_filter = (GENOME_TYPE == 'V') or (not os_path.exists(ESCAPE_DBFILE)) or (not (os_path.exists(CDD_DBFILE) or os_path.exists(CDD_DBFILE + '.pn')))",
-          "\tif skip_cdd_filter:",
-          "\t\tfasta_file, rpsblast_file = None, None",
-          "\t\tescape_set = set()",
-          "\telse:",
-          "\t\tfasta_file, rpsblast_file = generate_filter_file(ACR_ACA_FILE, CDD_DBFILE, INTERMEDIATES)",
-          "\t\t# obtain the escape list",
-          "\t\tescape_set = set()",
-          "\t\tfor line in open(ESCAPE_DBFILE).readlines():",
-          "\t\t\tline=line.rstrip()",
-          "\t\t\tescape_set.add(line)"
-        )
+    cdd_block_start <- grep("^\\tskip_cdd_filter = ", lines)
+    if (!base::length(cdd_block_start)) {
+      legacy_start <- grep("^\\t\\t*fasta_file, rpsblast_file = generate_filter_file\\(ACR_ACA_FILE, CDD_DBFILE, INTERMEDIATES\\)$", lines)
+      if (base::length(legacy_start)) {
+        cdd_block_start <- legacy_start[[1]]
+      }
+    } else {
+      cdd_block_start <- cdd_block_start[[1]]
+    }
+    cdd_block_end <- grep("^\\twith open\\(ACR_ACA_FILE\\) as acrFile:", lines)
+    if (base::length(cdd_block_start) == 1L && base::length(cdd_block_end) == 1L && cdd_block_end[[1]] > cdd_block_start) {
+      replacement <- c(
+        "\tskip_cdd_filter = (GENOME_TYPE == 'V') or (not os_path.exists(ESCAPE_DBFILE)) or (not (os_path.exists(CDD_DBFILE) or os_path.exists(CDD_DBFILE + '.pn')))",
+        "\tif skip_cdd_filter:",
+        "\t\tfasta_file, rpsblast_file = None, None",
+        "\t\tescape_set = set()",
+        "\telse:",
+        "\t\tfasta_file, rpsblast_file = generate_filter_file(ACR_ACA_FILE, CDD_DBFILE, INTERMEDIATES)",
+        "\t\t# obtain the escape list",
+        "\t\tescape_set = set()",
+        "\t\tfor line in open(ESCAPE_DBFILE).readlines():",
+        "\t\t\tline = line.rstrip()",
+        "\t\t\tif line:",
+        "\t\t\t\tescape_set.add(line)"
+      )
+      current_block <- lines[cdd_block_start:(cdd_block_end[[1]] - 1L)]
+      if (!identical(current_block, replacement)) {
         lines <- c(
-          lines[seq_len(block_idx - 1L)],
+          if (cdd_block_start > 1L) lines[seq_len(cdd_block_start - 1L)] else character(),
           replacement,
-          lines[(block_idx + 5L):base::length(lines)]
+          lines[cdd_block_end[[1]]:base::length(lines)]
         )
-        lines[filter_idx + (base::length(replacement) - 6L)] <- "\t\t\tis_cddfilter = (GENOME_TYPE != 'V') and (not skip_cdd_filter)"
-        base::writeLines(lines, con = runner_path)
         changed <- TRUE
       }
+    }
+
+    filter_idx <- grep("^\\t\\t\\tis_cddfilter = \\(GENOME_TYPE != 'V'\\)$", lines)
+    if (base::length(filter_idx)) {
+      lines[filter_idx] <- "\t\t\tis_cddfilter = (GENOME_TYPE != 'V') and (not skip_cdd_filter)"
+      changed <- TRUE
+    }
+
+    assign_idx <- grep("^\\t\\t\\tis_cddfilter =", lines)
+    if (base::length(assign_idx) > 1L) {
+      drop_idx <- assign_idx[c(FALSE, diff(assign_idx) == 1L)]
+      if (base::length(drop_idx)) {
+        lines <- lines[-drop_idx]
+        changed <- TRUE
+      }
+    }
+
+    if (changed) {
+      base::writeLines(lines, con = runner_path)
     }
   }
   changed

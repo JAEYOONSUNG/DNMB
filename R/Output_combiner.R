@@ -620,6 +620,15 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "plfold_accessibility_score",
       "accessibility_score",
       "accessibility_method",
+      "cai",
+      "cai_score",
+      "tai",
+      "tai_score",
+      "codon_efficiency_score",
+      "cai_reference_set",
+      "cai_reference_size",
+      "trna_total_gcn",
+      "informative_codon_count",
       "support"
     ),
     PADLOC = c(
@@ -973,6 +982,9 @@ dnmb_module_details_mrnacal <- function(genbank_table, base_cols) {
     dnmb_detail_key_value("earlyK", if ("mRNAcal_lysine_codon_count_2_8" %in% names(genbank_table)) genbank_table$mRNAcal_lysine_codon_count_2_8[keep] else NA, digits = 0),
     dnmb_detail_key_value("NCS45_K", if ("mRNAcal_ncs45_lysine_codon_count" %in% names(genbank_table)) genbank_table$mRNAcal_ncs45_lysine_codon_count[keep] else NA, digits = 0),
     dnmb_detail_key_value("intSD", if ("mRNAcal_internal_sd_count" %in% names(genbank_table)) genbank_table$mRNAcal_internal_sd_count[keep] else NA, digits = 0),
+    dnmb_detail_key_value("CAI", if ("mRNAcal_cai" %in% names(genbank_table)) genbank_table$mRNAcal_cai[keep] else NA, digits = 3),
+    dnmb_detail_key_value("tAI", if ("mRNAcal_tai" %in% names(genbank_table)) genbank_table$mRNAcal_tai[keep] else NA, digits = 3),
+    dnmb_detail_key_value("codon_eff", if ("mRNAcal_codon_efficiency_score" %in% names(genbank_table)) genbank_table$mRNAcal_codon_efficiency_score[keep] else NA, digits = 1),
     dnmb_detail_key_value("MFE", if ("mRNAcal_fold_mfe" %in% names(genbank_table)) genbank_table$mRNAcal_fold_mfe[keep] else NA, digits = 2)
   )
   out$alignment_summary <- dnmb_detail_join(

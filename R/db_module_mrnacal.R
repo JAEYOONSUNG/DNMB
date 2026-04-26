@@ -201,6 +201,292 @@
   )
 }
 
+.dnmb_mrnacal_all_codons <- function() {
+  bases <- c("A", "C", "G", "T")
+  codons <- character()
+  for (b1 in bases) for (b2 in bases) for (b3 in bases) {
+    codons <- c(codons, base::paste0(b1, b2, b3))
+  }
+  codons
+}
+
+.dnmb_mrnacal_genetic_code <- function() {
+  c(
+    TTT = "F", TTC = "F", TTA = "L", TTG = "L",
+    CTT = "L", CTC = "L", CTA = "L", CTG = "L",
+    ATT = "I", ATC = "I", ATA = "I", ATG = "M",
+    GTT = "V", GTC = "V", GTA = "V", GTG = "V",
+    TCT = "S", TCC = "S", TCA = "S", TCG = "S",
+    CCT = "P", CCC = "P", CCA = "P", CCG = "P",
+    ACT = "T", ACC = "T", ACA = "T", ACG = "T",
+    GCT = "A", GCC = "A", GCA = "A", GCG = "A",
+    TAT = "Y", TAC = "Y", TAA = "*", TAG = "*",
+    CAT = "H", CAC = "H", CAA = "Q", CAG = "Q",
+    AAT = "N", AAC = "N", AAA = "K", AAG = "K",
+    GAT = "D", GAC = "D", GAA = "E", GAG = "E",
+    TGT = "C", TGC = "C", TGA = "*", TGG = "W",
+    CGT = "R", CGC = "R", CGA = "R", CGG = "R",
+    AGT = "S", AGC = "S", AGA = "R", AGG = "R",
+    GGT = "G", GGC = "G", GGA = "G", GGG = "G"
+  )
+}
+
+.dnmb_mrnacal_codon_counts <- function(cds_dna) {
+  cds_dna <- .dnmb_mrnacal_normalize_dna(cds_dna)
+  counts <- stats::setNames(base::integer(64L), .dnmb_mrnacal_all_codons())
+  if (!base::nzchar(cds_dna) || base::nchar(cds_dna) < 3L) {
+    return(counts)
+  }
+  n_codons <- base::floor(base::nchar(cds_dna) / 3L)
+  if (n_codons < 1L) {
+    return(counts)
+  }
+  starts <- base::seq.int(1L, n_codons * 3L, by = 3L)
+  ends <- starts + 2L
+  codons <- base::substring(cds_dna, starts, ends)
+  codons <- codons[base::nchar(codons) == 3L & !base::grepl("[^ACGT]", codons)]
+  if (!base::length(codons)) {
+    return(counts)
+  }
+  tab <- base::table(codons)
+  for (cdn in base::names(tab)) {
+    if (cdn %in% base::names(counts)) {
+      counts[[cdn]] <- counts[[cdn]] + base::as.integer(tab[[cdn]])
+    }
+  }
+  counts
+}
+
+.dnmb_mrnacal_codon_counts_total <- function(cds_list) {
+  total <- stats::setNames(base::integer(64L), .dnmb_mrnacal_all_codons())
+  for (cds in cds_list) {
+    if (base::is.na(cds) || !base::nzchar(cds)) next
+    total <- total + .dnmb_mrnacal_codon_counts(cds)
+  }
+  total
+}
+
+.dnmb_mrnacal_cai_weights <- function(counts) {
+  code <- .dnmb_mrnacal_genetic_code()
+  codons <- .dnmb_mrnacal_all_codons()
+  weights <- stats::setNames(base::rep(NA_real_, 64L), codons)
+  excluded <- c("M", "W", "*")
+  for (aa in base::unique(code)) {
+    family_codons <- codons[code == aa]
+    if (aa %in% excluded || base::length(family_codons) < 2L) {
+      next
+    }
+    family_counts <- counts[family_codons]
+    family_max <- base::max(family_counts, na.rm = TRUE)
+    if (!base::is.finite(family_max) || family_max <= 0L) {
+      next
+    }
+    w <- base::pmax(family_counts, 0.5) / family_max
+    weights[family_codons] <- base::pmin(1, w)
+  }
+  weights
+}
+
+.dnmb_mrnacal_cai <- function(cds_dna, weights) {
+  if (!base::length(weights) || base::all(base::is.na(weights))) {
+    return(NA_real_)
+  }
+  counts <- .dnmb_mrnacal_codon_counts(cds_dna)
+  inform <- !base::is.na(weights) & counts > 0L
+  if (!base::any(inform)) {
+    return(NA_real_)
+  }
+  w <- weights[inform]
+  n <- counts[inform]
+  base::exp(base::sum(n * base::log(w)) / base::sum(n))
+}
+
+.dnmb_mrnacal_parse_anticodon_dna <- function(s) {
+  if (base::is.na(s) || !base::nzchar(s)) {
+    return(NA_character_)
+  }
+  m <- stringr::str_match(base::as.character(s)[1], "seq:([acgtuACGTU]{3})")[, 2]
+  if (base::is.na(m)) {
+    return(NA_character_)
+  }
+  base::toupper(base::gsub("U", "T", m, fixed = TRUE))
+}
+
+.dnmb_mrnacal_resolve_anticodon <- function(row, contigs = NULL) {
+  s <- if ("anticodon" %in% base::names(row)) base::as.character(row$anticodon[[1]]) else NA_character_
+  if (base::is.na(s) || !base::nzchar(s)) {
+    return(NA_character_)
+  }
+  ac <- .dnmb_mrnacal_parse_anticodon_dna(s)
+  if (!base::is.na(ac)) {
+    return(ac)
+  }
+  if (base::is.null(contigs) || !base::is.data.frame(contigs) || !base::nrow(contigs)) {
+    return(NA_character_)
+  }
+  is_complement <- base::grepl("complement\\(", s)
+  pos <- stringr::str_match(s, "(\\d+)\\.\\.(\\d+)")
+  ac_start <- suppressWarnings(base::as.integer(pos[, 2]))
+  ac_end <- suppressWarnings(base::as.integer(pos[, 3]))
+  if (base::is.na(ac_start) || base::is.na(ac_end) || ac_end < ac_start) {
+    return(NA_character_)
+  }
+  ctg <- .dnmb_mrnacal_match_contig(row, contigs)
+  if (base::is.null(ctg)) {
+    return(NA_character_)
+  }
+  seq_str <- ctg$sequence[[1]]
+  ac_seg <- .dnmb_mrnacal_segment(seq_str, ac_start, ac_end, circular = base::isTRUE(ctg$circular[[1]]))
+  if (!base::nzchar(ac_seg) || base::nchar(ac_seg) != 3L) {
+    return(NA_character_)
+  }
+  if (is_complement) {
+    ac_seg <- .dnmb_mrnacal_revcomp(ac_seg)
+  }
+  base::toupper(ac_seg)
+}
+
+.dnmb_mrnacal_trna_gcn <- function(genes, contigs = NULL) {
+  empty <- stats::setNames(base::integer(64L), .dnmb_mrnacal_all_codons())
+  if (!base::is.data.frame(genes) || !base::nrow(genes)) {
+    return(empty)
+  }
+  has_anticodon <- "anticodon" %in% base::names(genes)
+  has_product <- "product" %in% base::names(genes)
+  if (!has_anticodon) {
+    return(empty)
+  }
+  rows <- genes
+  if (has_product) {
+    is_trna <- !base::is.na(rows$product) & base::grepl("^tRNA-", rows$product, ignore.case = TRUE)
+    rows <- rows[is_trna, , drop = FALSE]
+  }
+  if (!base::nrow(rows)) {
+    return(empty)
+  }
+  acs <- base::vapply(base::seq_len(base::nrow(rows)), function(i) {
+    .dnmb_mrnacal_resolve_anticodon(rows[i, , drop = FALSE], contigs = contigs)
+  }, character(1))
+  acs <- acs[!base::is.na(acs)]
+  if (!base::length(acs)) {
+    return(empty)
+  }
+  codon_for_ac <- base::vapply(acs, .dnmb_mrnacal_revcomp, character(1))
+  gcn_by_codon <- empty
+  tab <- base::table(codon_for_ac)
+  for (cdn in base::names(tab)) {
+    if (cdn %in% base::names(gcn_by_codon)) {
+      gcn_by_codon[[cdn]] <- gcn_by_codon[[cdn]] + base::as.integer(tab[[cdn]])
+    }
+  }
+  gcn_by_codon
+}
+
+.dnmb_mrnacal_tai_weights <- function(gcn_by_codon) {
+  codons <- .dnmb_mrnacal_all_codons()
+  W <- stats::setNames(base::rep(0, 64L), codons)
+  s_GU <- 0.41
+  s_UG <- 0.68
+  for (canonical in base::names(gcn_by_codon)) {
+    g <- gcn_by_codon[[canonical]]
+    if (base::is.na(g) || g <= 0L) next
+    W[[canonical]] <- W[[canonical]] + g
+    nt3 <- base::substr(canonical, 3L, 3L)
+    prefix <- base::substr(canonical, 1L, 2L)
+    anticodon_5p <- switch(nt3, A = "T", C = "G", G = "C", T = "A", NA_character_)
+    if (base::is.na(anticodon_5p)) next
+    if (anticodon_5p == "G") {
+      partner <- base::paste0(prefix, "T")
+      if (partner %in% codons) {
+        W[[partner]] <- W[[partner]] + (1 - s_GU) * g
+      }
+    } else if (anticodon_5p == "T") {
+      partner <- base::paste0(prefix, "G")
+      if (partner %in% codons) {
+        W[[partner]] <- W[[partner]] + (1 - s_UG) * g
+      }
+    }
+  }
+  code <- .dnmb_mrnacal_genetic_code()
+  excluded <- c("M", "W", "*")
+  inform <- !(code %in% excluded)
+  W_inform <- W[inform]
+  W_max <- base::max(W_inform, na.rm = TRUE)
+  if (!base::is.finite(W_max) || W_max <= 0) {
+    return(stats::setNames(base::rep(NA_real_, 64L), codons))
+  }
+  w <- W / W_max
+  zero_w <- inform & (W <= 0)
+  if (base::any(zero_w)) {
+    pos <- inform & (W > 0)
+    if (base::any(pos)) {
+      gm <- base::exp(base::mean(base::log(w[pos])))
+      w[zero_w] <- gm
+    } else {
+      w[zero_w] <- NA_real_
+    }
+  }
+  w[!inform] <- NA_real_
+  w
+}
+
+.dnmb_mrnacal_tai <- function(cds_dna, weights) {
+  if (!base::length(weights) || base::all(base::is.na(weights))) {
+    return(NA_real_)
+  }
+  counts <- .dnmb_mrnacal_codon_counts(cds_dna)
+  inform <- !base::is.na(weights) & counts > 0L
+  if (!base::any(inform)) {
+    return(NA_real_)
+  }
+  w <- weights[inform]
+  n <- counts[inform]
+  w_safe <- base::pmax(w, 1e-6)
+  base::exp(base::sum(n * base::log(w_safe)) / base::sum(n))
+}
+
+.dnmb_mrnacal_full_cds <- function(row, contigs) {
+  if ("rearranged_nt_seq" %in% base::names(row)) {
+    s <- .dnmb_mrnacal_normalize_dna(row$rearranged_nt_seq[[1]])
+    if (base::nzchar(s) && base::nchar(s) >= 3L) {
+      return(s)
+    }
+  }
+  ctg <- .dnmb_mrnacal_match_contig(row, contigs)
+  if (base::is.null(ctg)) {
+    return("")
+  }
+  seq <- ctg$sequence[[1]]
+  circular <- base::isTRUE(ctg$circular[[1]])
+  start <- base::as.integer(row$start[[1]])
+  end <- base::as.integer(row$end[[1]])
+  direction <- base::as.character(row$direction[[1]])
+  if (base::is.na(start) || base::is.na(end) || end < start || !direction %in% c("+", "-")) {
+    return("")
+  }
+  cds <- .dnmb_mrnacal_segment(seq, start, end, circular = circular)
+  if (direction == "-") {
+    cds <- .dnmb_mrnacal_revcomp(cds)
+  }
+  cds
+}
+
+.dnmb_mrnacal_select_cai_reference <- function(genes) {
+  if (!base::is.data.frame(genes) || !base::nrow(genes)) {
+    return(list(mask = base::logical(), label = "all_cds"))
+  }
+  if (!"product" %in% base::names(genes)) {
+    return(list(mask = base::rep(TRUE, base::nrow(genes)), label = "all_cds"))
+  }
+  product <- base::as.character(genes$product)
+  is_ribo <- !base::is.na(product) &
+    base::grepl("^([35]0S\\s+)?ribosomal protein\\s+[SL][0-9]+", product, ignore.case = TRUE)
+  if (base::sum(is_ribo) >= 8L) {
+    return(list(mask = is_ribo, label = "ribosomal_proteins"))
+  }
+  list(mask = !base::is.na(product) & base::nzchar(product), label = "all_cds")
+}
+
 .dnmb_mrnacal_sd_seed <- function(genes, translation_domain = "bacteria", sd_seed = NULL) {
   if (!base::is.null(sd_seed) && base::nzchar(base::as.character(sd_seed)[1])) {
     return(.dnmb_mrnacal_normalize_dna(sd_seed))
@@ -1123,10 +1409,16 @@
     "rbs_unpaired_fraction", "start_unpaired_fraction",
     "rbs_plfold_unpaired_probability", "start_plfold_unpaired_probability",
     "tir_plfold_unpaired_probability", "standby_plfold_unpaired_probability",
+    "downstream_plfold_unpaired_probability",
     "plfold_accessibility_score", "accessibility_score", "accessibility_method",
     "plfold_window", "plfold_span", "plfold_ulength",
     "plfold_local_upstream", "plfold_local_downstream",
     "fold_structure", "fold_sequence",
+    "internal_sd_count", "internal_sd_motifs", "internal_sd_min_position", "internal_sd_penalty",
+    "tir_score_percentile",
+    "cai", "cai_score", "tai", "tai_score",
+    "codon_efficiency_score", "cai_reference_set", "cai_reference_size",
+    "trna_total_gcn", "informative_codon_count",
     "window_upstream", "window_downstream", "support"
   )
   for (col in cols) {
@@ -1205,8 +1497,17 @@ dnmb_run_mrnacal_module <- function(genes,
   seed <- .dnmb_mrnacal_sd_seed(seed_genes, translation_domain = translation_domain, sd_seed = sd_seed)
   status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("mrnacal_sd_seed", "ok", seed)
 
+  trna_gcn <- .dnmb_mrnacal_trna_gcn(genes, contigs = contigs)
+  trna_total <- base::as.integer(base::sum(trna_gcn, na.rm = TRUE))
+  tai_weights <- .dnmb_mrnacal_tai_weights(trna_gcn)
+  if (trna_total > 0L) {
+    status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("mrnacal_trna", "ok", base::paste0(trna_total, " tRNA genes annotated"))
+  } else {
+    status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("mrnacal_trna", "missing", "No tRNA anticodon annotations found; tAI will be NA.")
+  }
+
   calc_cols <- base::intersect(
-    c("locus_tag", "start", "end", "direction", "translation", "contig_number", "contig"),
+    c("locus_tag", "start", "end", "direction", "translation", "contig_number", "contig", "product", "rearranged_nt_seq"),
     base::names(genes)
   )
   gene_tbl <- base::as.data.frame(genes[, calc_cols, drop = FALSE], stringsAsFactors = FALSE)
@@ -1246,6 +1547,30 @@ dnmb_run_mrnacal_module <- function(genes,
     ))
   }
 
+  full_cds_list <- vapply(base::seq_len(base::nrow(gene_tbl)), function(i) {
+    .dnmb_mrnacal_full_cds(gene_tbl[i, , drop = FALSE], contigs)
+  }, character(1))
+  cai_ref_info <- .dnmb_mrnacal_select_cai_reference(gene_tbl)
+  cai_ref_mask <- cai_ref_info$mask
+  cai_ref_label <- cai_ref_info$label
+  if (base::length(cai_ref_mask) != base::length(full_cds_list)) {
+    cai_ref_mask <- base::rep(TRUE, base::length(full_cds_list))
+    cai_ref_label <- "all_cds"
+  }
+  cai_ref_seqs <- full_cds_list[cai_ref_mask]
+  cai_ref_seqs <- cai_ref_seqs[!base::is.na(cai_ref_seqs) & base::nzchar(cai_ref_seqs)]
+  cai_ref_size <- base::length(cai_ref_seqs)
+  cai_weights <- if (cai_ref_size > 0L) {
+    .dnmb_mrnacal_cai_weights(.dnmb_mrnacal_codon_counts_total(cai_ref_seqs))
+  } else {
+    stats::setNames(base::rep(NA_real_, 64L), .dnmb_mrnacal_all_codons())
+  }
+  if (cai_ref_size > 0L) {
+    status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("mrnacal_cai", "ok", base::paste0("reference=", cai_ref_label, " (", cai_ref_size, " CDS)"))
+  } else {
+    status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("mrnacal_cai", "missing", "No reference CDS available; CAI will be NA.")
+  }
+
   base_rows <- vector("list", base::nrow(gene_tbl))
   for (i in base::seq_len(base::nrow(gene_tbl))) {
     win <- windows[[i]]
@@ -1253,6 +1578,11 @@ dnmb_run_mrnacal_module <- function(genes,
     rbs <- .dnmb_mrnacal_best_rbs(win$sequence_dna, win$upstream_len_observed, sd_seed = seed)
     start_score <- .dnmb_mrnacal_start_score(win$start_codon)
     cds_dna <- base::substr(win$sequence_dna, win$upstream_len_observed + 1L, base::nchar(win$sequence_dna))
+    full_cds_dna <- full_cds_list[[i]]
+    cai_value <- .dnmb_mrnacal_cai(full_cds_dna, cai_weights)
+    tai_value <- .dnmb_mrnacal_tai(full_cds_dna, tai_weights)
+    cds_codon_counts <- .dnmb_mrnacal_codon_counts(full_cds_dna)
+    informative_codons <- base::sum(cds_codon_counts[!base::is.na(cai_weights)])
     early <- .dnmb_mrnacal_early_context(cds_dna, translation = if ("translation" %in% base::names(row)) row$translation[[1]] else NA_character_)
     internal_sd <- .dnmb_mrnacal_internal_sd(cds_dna, sd_seed = seed, scan_len = 60L)
     upstream_context <- .dnmb_mrnacal_upstream_context(win$sequence_dna, win$upstream_len_observed, rbs_start = rbs$rbs_start)
@@ -1339,6 +1669,14 @@ dnmb_run_mrnacal_module <- function(genes,
       internal_sd_positions = internal_sd$internal_sd_positions,
       internal_sd_min_position = internal_sd$internal_sd_min_position,
       internal_sd_penalty = internal_sd$internal_sd_penalty,
+      cai = cai_value,
+      cai_score = base::round(100 * cai_value, 2),
+      tai = tai_value,
+      tai_score = base::round(100 * tai_value, 2),
+      cai_reference_set = cai_ref_label,
+      cai_reference_size = cai_ref_size,
+      trna_total_gcn = trna_total,
+      informative_codon_count = base::as.integer(informative_codons),
       upstream20_sequence = upstream_context$upstream20_sequence,
       upstream20_at_fraction = upstream_context$upstream20_at_fraction,
       upstream20_score = upstream_context$upstream20_score,
@@ -1489,6 +1827,13 @@ dnmb_run_mrnacal_module <- function(genes,
   results$tir_score_band <- .dnmb_mrnacal_band(results$tir_score)
   results$family_id <- results$tir_score_band
   results$hit_label <- base::paste0("Translation efficiency: ", results$tir_score_band)
+  cai_for_ce <- ifelse(base::is.na(results$cai_score), NA_real_, results$cai_score)
+  tai_for_ce <- ifelse(base::is.na(results$tai_score), NA_real_, results$tai_score)
+  results$codon_efficiency_score <- base::round(base::rowMeans(
+    base::cbind(cai_for_ce, tai_for_ce),
+    na.rm = TRUE
+  ), 2)
+  results$codon_efficiency_score[base::is.nan(results$codon_efficiency_score)] <- NA_real_
   results$support <- base::paste0(
     "window=-", results$window_upstream, "/+", results$window_downstream,
     "; sd_seed=", results$rbs_seed,
@@ -1501,10 +1846,15 @@ dnmb_run_mrnacal_module <- function(genes,
     "; earlyK=", results$lysine_codon_count_2_8,
     "; NCS45_K=", results$ncs45_lysine_codon_count,
     "; internal_SD=", results$internal_sd_count,
+    "; CAI=", base::round(results$cai, 3),
+    "; tAI=", base::round(results$tai, 3),
+    "; codon_eff=", results$codon_efficiency_score,
+    "; cai_ref=", results$cai_reference_set,
+    "; tRNA_GCN=", results$trna_total_gcn,
     "; SKIK_like=", results$skik_like,
     "; pct=", results$tir_score_percentile,
     "; fold=RNAfold_MFE",
-    "; score=0.20*RBS+0.18*antiSD_duplex+0.32*local_RNAplfold_access+0.10*upstreamAU+0.10*start+0.07*earlyK+0.03*MFE-internal_SD_penalty"
+    "; score=0.20*RBS+0.18*antiSD_duplex+0.32*local_RNAplfold_access+0.10*upstreamAU+0.10*start+0.07*earlyK+0.03*MFE-internal_SD_penalty (CAI/tAI reported separately)"
   )
 
   result_path <- base::file.path(output_dir, "mrnacal_translation_efficiency.tsv")

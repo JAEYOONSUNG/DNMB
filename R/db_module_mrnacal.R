@@ -312,38 +312,78 @@
   base::toupper(base::gsub("U", "T", m, fixed = TRUE))
 }
 
+.dnmb_mrnacal_aa3_to_aa1 <- function(aa3) {
+  table <- c(
+    Ala = "A", Arg = "R", Asn = "N", Asp = "D", Cys = "C",
+    Glu = "E", Gln = "Q", Gly = "G", His = "H", Ile = "I",
+    Leu = "L", Lys = "K", Met = "M", Phe = "F", Pro = "P",
+    Ser = "S", Thr = "T", Trp = "W", Tyr = "Y", Val = "V",
+    Sec = "U", Pyl = "O"
+  )
+  table[base::as.character(aa3)]
+}
+
+.dnmb_mrnacal_infer_anticodon_from_seq <- function(row) {
+  if (!"rearranged_nt_seq" %in% base::names(row) || !"product" %in% base::names(row)) {
+    return(NA_character_)
+  }
+  seq_dna <- .dnmb_mrnacal_normalize_dna(row$rearranged_nt_seq[[1]])
+  product <- base::as.character(row$product[[1]])
+  if (!base::nzchar(seq_dna) || base::nchar(seq_dna) < 70L || base::nchar(seq_dna) > 110L) {
+    return(NA_character_)
+  }
+  match_aa <- stringr::str_match(product, "^tRNA-([A-Z][a-z]{2})")[, 2]
+  if (base::is.na(match_aa)) {
+    return(NA_character_)
+  }
+  expected_aa <- base::as.character(.dnmb_mrnacal_aa3_to_aa1(match_aa))
+  if (base::is.na(expected_aa)) {
+    return(NA_character_)
+  }
+  code <- .dnmb_mrnacal_genetic_code()
+  L <- base::nchar(seq_dna)
+  offsets <- base::unique(c(L - 42L, L - 41L, L - 43L, L - 40L, 34L, 35L, 33L))
+  offsets <- offsets[offsets >= 1L & (offsets + 2L) <= L]
+  for (offset in offsets) {
+    ac <- base::toupper(base::substr(seq_dna, offset, offset + 2L))
+    if (base::nchar(ac) != 3L || base::grepl("[^ACGT]", ac)) next
+    codon <- .dnmb_mrnacal_revcomp(ac)
+    aa <- code[codon]
+    if (!base::is.na(aa) && base::identical(base::as.character(aa), expected_aa)) {
+      return(ac)
+    }
+  }
+  NA_character_
+}
+
 .dnmb_mrnacal_resolve_anticodon <- function(row, contigs = NULL) {
   s <- if ("anticodon" %in% base::names(row)) base::as.character(row$anticodon[[1]]) else NA_character_
-  if (base::is.na(s) || !base::nzchar(s)) {
-    return(NA_character_)
+  if (!base::is.na(s) && base::nzchar(s)) {
+    ac <- .dnmb_mrnacal_parse_anticodon_dna(s)
+    if (!base::is.na(ac)) {
+      return(ac)
+    }
+    if (!base::is.null(contigs) && base::is.data.frame(contigs) && base::nrow(contigs)) {
+      is_complement <- base::grepl("complement\\(", s)
+      pos <- stringr::str_match(s, "(\\d+)\\.\\.(\\d+)")
+      ac_start <- suppressWarnings(base::as.integer(pos[, 2]))
+      ac_end <- suppressWarnings(base::as.integer(pos[, 3]))
+      if (!base::is.na(ac_start) && !base::is.na(ac_end) && ac_end >= ac_start) {
+        ctg <- .dnmb_mrnacal_match_contig(row, contigs)
+        if (!base::is.null(ctg)) {
+          seq_str <- ctg$sequence[[1]]
+          ac_seg <- .dnmb_mrnacal_segment(seq_str, ac_start, ac_end, circular = base::isTRUE(ctg$circular[[1]]))
+          if (base::nzchar(ac_seg) && base::nchar(ac_seg) == 3L) {
+            if (is_complement) {
+              ac_seg <- .dnmb_mrnacal_revcomp(ac_seg)
+            }
+            return(base::toupper(ac_seg))
+          }
+        }
+      }
+    }
   }
-  ac <- .dnmb_mrnacal_parse_anticodon_dna(s)
-  if (!base::is.na(ac)) {
-    return(ac)
-  }
-  if (base::is.null(contigs) || !base::is.data.frame(contigs) || !base::nrow(contigs)) {
-    return(NA_character_)
-  }
-  is_complement <- base::grepl("complement\\(", s)
-  pos <- stringr::str_match(s, "(\\d+)\\.\\.(\\d+)")
-  ac_start <- suppressWarnings(base::as.integer(pos[, 2]))
-  ac_end <- suppressWarnings(base::as.integer(pos[, 3]))
-  if (base::is.na(ac_start) || base::is.na(ac_end) || ac_end < ac_start) {
-    return(NA_character_)
-  }
-  ctg <- .dnmb_mrnacal_match_contig(row, contigs)
-  if (base::is.null(ctg)) {
-    return(NA_character_)
-  }
-  seq_str <- ctg$sequence[[1]]
-  ac_seg <- .dnmb_mrnacal_segment(seq_str, ac_start, ac_end, circular = base::isTRUE(ctg$circular[[1]]))
-  if (!base::nzchar(ac_seg) || base::nchar(ac_seg) != 3L) {
-    return(NA_character_)
-  }
-  if (is_complement) {
-    ac_seg <- .dnmb_mrnacal_revcomp(ac_seg)
-  }
-  base::toupper(ac_seg)
+  .dnmb_mrnacal_infer_anticodon_from_seq(row)
 }
 
 .dnmb_mrnacal_trna_gcn <- function(genes, contigs = NULL) {
@@ -353,13 +393,16 @@
   }
   has_anticodon <- "anticodon" %in% base::names(genes)
   has_product <- "product" %in% base::names(genes)
-  if (!has_anticodon) {
+  has_seq <- "rearranged_nt_seq" %in% base::names(genes)
+  if (!has_anticodon && !(has_product && has_seq)) {
     return(empty)
   }
   rows <- genes
   if (has_product) {
-    is_trna <- !base::is.na(rows$product) & base::grepl("^tRNA-", rows$product, ignore.case = TRUE)
+    is_trna <- !base::is.na(rows$product) & base::grepl("^tRNA-[A-Z][a-z]{2}", rows$product)
     rows <- rows[is_trna, , drop = FALSE]
+  } else if (has_anticodon) {
+    rows <- rows[!base::is.na(rows$anticodon) & base::nzchar(rows$anticodon), , drop = FALSE]
   }
   if (!base::nrow(rows)) {
     return(empty)

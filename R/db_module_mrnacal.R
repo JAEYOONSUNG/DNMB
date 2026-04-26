@@ -325,6 +325,74 @@
   base::as.numeric(score)
 }
 
+.dnmb_mrnacal_internal_sd <- function(cds_dna, sd_seed = "AGGAGG", scan_len = 60L) {
+  cds_dna <- .dnmb_mrnacal_normalize_dna(cds_dna)
+  empty <- list(
+    internal_sd_count = 0L,
+    internal_sd_motifs = NA_character_,
+    internal_sd_positions = NA_character_,
+    internal_sd_min_position = NA_integer_,
+    internal_sd_penalty = 0
+  )
+  if (!base::nzchar(cds_dna)) {
+    return(empty)
+  }
+  scan_len <- base::as.integer(scan_len)[1]
+  if (base::is.na(scan_len) || scan_len < 6L) {
+    scan_len <- 60L
+  }
+  region <- base::substr(cds_dna, 1L, base::min(scan_len, base::nchar(cds_dna)))
+  if (base::nchar(region) < 6L) {
+    return(empty)
+  }
+  seed_kmers <- base::unique(.dnmb_mrnacal_seed_kmers(sd_seed, min_len = 6L, max_len = 6L))
+  seed_kmers <- seed_kmers[base::nchar(seed_kmers) == 6L]
+  if (!base::length(seed_kmers)) {
+    seed_kmers <- "AGGAGG"
+  }
+  n <- base::nchar(region)
+  hits <- list()
+  used <- base::rep(FALSE, n)
+  for (pos in base::seq_len(n - 5L)) {
+    if (base::any(used[pos:(pos + 5L)])) {
+      next
+    }
+    window <- base::substr(region, pos, pos + 5L)
+    best_seed <- NA_character_
+    best_mm <- 7L
+    for (seed in seed_kmers) {
+      mm <- .dnmb_mrnacal_hamming(window, seed)
+      if (mm < best_mm) {
+        best_mm <- mm
+        best_seed <- seed
+      }
+    }
+    if (best_mm <= 1L) {
+      hits[[base::length(hits) + 1L]] <- list(
+        position = pos,
+        motif = window,
+        seed = best_seed,
+        mismatches = best_mm
+      )
+      used[pos:(pos + 5L)] <- TRUE
+    }
+  }
+  if (!base::length(hits)) {
+    return(empty)
+  }
+  count <- base::length(hits)
+  motifs <- vapply(hits, function(h) h$motif, character(1))
+  positions <- vapply(hits, function(h) h$position, integer(1))
+  penalty <- base::min(20, 5 * count + 3 * base::sum(vapply(hits, function(h) h$mismatches == 0L, logical(1))))
+  list(
+    internal_sd_count = base::as.integer(count),
+    internal_sd_motifs = base::paste(motifs, collapse = ","),
+    internal_sd_positions = base::paste(positions, collapse = ","),
+    internal_sd_min_position = base::as.integer(base::min(positions)),
+    internal_sd_penalty = base::round(penalty, 2)
+  )
+}
+
 .dnmb_mrnacal_early_context <- function(sequence_dna, translation = NA_character_) {
   sequence_dna <- .dnmb_mrnacal_normalize_dna(sequence_dna)
   cds <- if (base::nchar(sequence_dna) >= 3L) sequence_dna else ""
@@ -788,10 +856,13 @@
     tir_access_end <- if ("tir_plfold_access_end" %in% base::names(tbl)) tbl$tir_plfold_access_end[[i]] else NA_integer_
     standby_start <- if ("standby_plfold_start" %in% base::names(tbl)) tbl$standby_plfold_start[[i]] else NA_integer_
     standby_end <- if ("standby_plfold_end" %in% base::names(tbl)) tbl$standby_plfold_end[[i]] else NA_integer_
+    downstream_start <- if ("downstream_plfold_access_start" %in% base::names(tbl)) tbl$downstream_plfold_access_start[[i]] else NA_integer_
+    downstream_end <- if ("downstream_plfold_access_end" %in% base::names(tbl)) tbl$downstream_plfold_access_end[[i]] else NA_integer_
     rbs_prob <- .dnmb_mrnacal_lunp_region(lunp, rbs_start, rbs_end)
     start_prob <- .dnmb_mrnacal_lunp_region(lunp, start_access_start, start_access_end)
     tir_prob <- .dnmb_mrnacal_lunp_region(lunp, tir_access_start, tir_access_end)
     standby_prob <- .dnmb_mrnacal_lunp_region(lunp, standby_start, standby_end)
+    downstream_prob <- .dnmb_mrnacal_lunp_region(lunp, downstream_start, downstream_end)
     rows[[i]] <- data.frame(
       fold_id = id,
       locus_tag = id_map[[id]],
@@ -799,6 +870,7 @@
       start_plfold_unpaired_probability = start_prob,
       tir_plfold_unpaired_probability = tir_prob,
       standby_plfold_unpaired_probability = standby_prob,
+      downstream_plfold_unpaired_probability = downstream_prob,
       plfold_window = window,
       plfold_span = span,
       plfold_ulength = ulength,
@@ -807,17 +879,18 @@
   }
   out <- dplyr::bind_rows(rows)
   out$plfold_accessibility_score <- base::round(100 * base::mapply(
-    function(rbs, start, tir, standby) {
+    function(rbs, start, tir, standby, downstream) {
       .dnmb_mrnacal_weighted_mean(
-        c(rbs, start, tir, standby),
-        c(0.30, 0.25, 0.35, 0.10),
+        c(rbs, start, tir, standby, downstream),
+        c(0.26, 0.20, 0.30, 0.08, 0.16),
         fallback = NA_real_
       )
     },
     out$rbs_plfold_unpaired_probability,
     out$start_plfold_unpaired_probability,
     out$tir_plfold_unpaired_probability,
-    out$standby_plfold_unpaired_probability
+    out$standby_plfold_unpaired_probability,
+    out$downstream_plfold_unpaired_probability
   ), 2)
   out_path <- base::file.path(output_dir, "mrnacal_plfold_results.tsv")
   readr::write_tsv(out, out_path)
@@ -1181,6 +1254,7 @@ dnmb_run_mrnacal_module <- function(genes,
     start_score <- .dnmb_mrnacal_start_score(win$start_codon)
     cds_dna <- base::substr(win$sequence_dna, win$upstream_len_observed + 1L, base::nchar(win$sequence_dna))
     early <- .dnmb_mrnacal_early_context(cds_dna, translation = if ("translation" %in% base::names(row)) row$translation[[1]] else NA_character_)
+    internal_sd <- .dnmb_mrnacal_internal_sd(cds_dna, sd_seed = seed, scan_len = 60L)
     upstream_context <- .dnmb_mrnacal_upstream_context(win$sequence_dna, win$upstream_len_observed, rbs_start = rbs$rbs_start)
     local <- .dnmb_mrnacal_local_tir_window(win$sequence_dna, win$upstream_len_observed, upstream_flank = 35L, downstream_flank = 30L)
     start_coord <- win$upstream_len_observed + 1L
@@ -1189,6 +1263,12 @@ dnmb_run_mrnacal_module <- function(genes,
     start_access_end <- base::min(seq_n, start_coord + 14L)
     tir_access_start <- base::max(1L, start_coord - 18L)
     tir_access_end <- base::min(seq_n, start_coord + 9L)
+    downstream_access_start <- base::min(seq_n, start_coord + 1L)
+    downstream_access_end <- base::min(seq_n, start_coord + 30L)
+    if (downstream_access_end < downstream_access_start) {
+      downstream_access_start <- NA_integer_
+      downstream_access_end <- NA_integer_
+    }
     if (!base::is.na(rbs$rbs_start) && rbs$rbs_start > 1L) {
       standby_start <- base::max(1L, rbs$rbs_start - 8L)
       standby_end <- rbs$rbs_start - 1L
@@ -1214,6 +1294,8 @@ dnmb_run_mrnacal_module <- function(genes,
       start_access_end = start_access_end,
       tir_access_start = tir_access_start,
       tir_access_end = tir_access_end,
+      downstream_access_start = downstream_access_start,
+      downstream_access_end = downstream_access_end,
       standby_start = standby_start,
       standby_end = standby_end,
       rbs_plfold_start = to_local(rbs$rbs_start),
@@ -1222,6 +1304,8 @@ dnmb_run_mrnacal_module <- function(genes,
       start_plfold_access_end = to_local(start_access_end),
       tir_plfold_access_start = to_local(tir_access_start),
       tir_plfold_access_end = to_local(tir_access_end),
+      downstream_plfold_access_start = to_local(downstream_access_start),
+      downstream_plfold_access_end = to_local(downstream_access_end),
       standby_plfold_start = to_local(standby_start),
       standby_plfold_end = to_local(standby_end),
       start_codon = win$start_codon,
@@ -1250,6 +1334,11 @@ dnmb_run_mrnacal_module <- function(genes,
       early_poly_a_penalty = early$early_poly_a_penalty,
       basic_aa_count_2_8 = early$basic_aa_count_2_8,
       skik_like = early$skik_like,
+      internal_sd_count = internal_sd$internal_sd_count,
+      internal_sd_motifs = internal_sd$internal_sd_motifs,
+      internal_sd_positions = internal_sd$internal_sd_positions,
+      internal_sd_min_position = internal_sd$internal_sd_min_position,
+      internal_sd_penalty = internal_sd$internal_sd_penalty,
       upstream20_sequence = upstream_context$upstream20_sequence,
       upstream20_at_fraction = upstream_context$upstream20_at_fraction,
       upstream20_score = upstream_context$upstream20_score,
@@ -1313,6 +1402,7 @@ dnmb_run_mrnacal_module <- function(genes,
       "rbs_plfold_start", "rbs_plfold_end",
       "start_plfold_access_start", "start_plfold_access_end",
       "tir_plfold_access_start", "tir_plfold_access_end",
+      "downstream_plfold_access_start", "downstream_plfold_access_end",
       "standby_plfold_start", "standby_plfold_end"
     ), drop = FALSE],
     output_dir = output_dir,
@@ -1328,6 +1418,7 @@ dnmb_run_mrnacal_module <- function(genes,
         "start_plfold_unpaired_probability",
         "tir_plfold_unpaired_probability",
         "standby_plfold_unpaired_probability",
+        "downstream_plfold_unpaired_probability",
         "plfold_accessibility_score",
         "plfold_window", "plfold_span", "plfold_ulength"
       ), drop = FALSE],
@@ -1339,6 +1430,7 @@ dnmb_run_mrnacal_module <- function(genes,
     results$start_plfold_unpaired_probability <- NA_real_
     results$tir_plfold_unpaired_probability <- NA_real_
     results$standby_plfold_unpaired_probability <- NA_real_
+    results$downstream_plfold_unpaired_probability <- NA_real_
     results$plfold_accessibility_score <- NA_real_
     results$plfold_window <- NA_integer_
     results$plfold_span <- NA_integer_
@@ -1379,31 +1471,40 @@ dnmb_run_mrnacal_module <- function(genes,
   accessibility_for_total <- ifelse(base::is.na(results$accessibility_score), 50, results$accessibility_score)
   duplex_for_total <- ifelse(base::is.na(results$duplex_score), results$rbs_score, results$duplex_score)
   upstream_au_for_total <- ifelse(base::is.na(results$upstream_au_score), 50, results$upstream_au_score)
-  results$tir_score <- base::round(
-    0.20 * results$rbs_score +
-      0.18 * duplex_for_total +
-      0.32 * accessibility_for_total +
-      0.10 * upstream_au_for_total +
-      0.10 * results$start_codon_score +
-      0.07 * results$early_k_score +
-      0.03 * fold_score_for_total,
-    2
-  )
+  internal_sd_penalty_for_total <- ifelse(base::is.na(results$internal_sd_penalty), 0, results$internal_sd_penalty)
+  raw_tir_score <- 0.20 * results$rbs_score +
+    0.18 * duplex_for_total +
+    0.32 * accessibility_for_total +
+    0.10 * upstream_au_for_total +
+    0.10 * results$start_codon_score +
+    0.07 * results$early_k_score +
+    0.03 * fold_score_for_total -
+    internal_sd_penalty_for_total
+  results$tir_score <- base::round(base::pmin(100, base::pmax(0, raw_tir_score)), 2)
+  results$tir_score_percentile <- if (base::sum(!base::is.na(results$tir_score)) >= 2L) {
+    base::round(100 * stats::ecdf(results$tir_score)(results$tir_score), 2)
+  } else {
+    NA_real_
+  }
   results$tir_score_band <- .dnmb_mrnacal_band(results$tir_score)
   results$family_id <- results$tir_score_band
   results$hit_label <- base::paste0("Translation efficiency: ", results$tir_score_band)
   results$support <- base::paste0(
     "window=-", results$window_upstream, "/+", results$window_downstream,
     "; sd_seed=", results$rbs_seed,
+    "; spacer=", results$rbs_spacer,
     "; anti_sd=", results$anti_sd_sequence,
     "; accessibility=", results$accessibility_method,
     "; plfold_window=-", results$plfold_local_upstream, "/+", results$plfold_local_downstream,
+    "; downstream_access=", base::round(100 * results$downstream_plfold_unpaired_probability, 1),
     "; upstream_AU=", results$upstream_au_score,
     "; earlyK=", results$lysine_codon_count_2_8,
     "; NCS45_K=", results$ncs45_lysine_codon_count,
+    "; internal_SD=", results$internal_sd_count,
     "; SKIK_like=", results$skik_like,
+    "; pct=", results$tir_score_percentile,
     "; fold=RNAfold_MFE",
-    "; score=0.20*RBS+0.18*antiSD_duplex+0.32*local_RNAplfold_access+0.10*upstreamAU+0.10*start+0.07*earlyK+0.03*MFE"
+    "; score=0.20*RBS+0.18*antiSD_duplex+0.32*local_RNAplfold_access+0.10*upstreamAU+0.10*start+0.07*earlyK+0.03*MFE-internal_SD_penalty"
   )
 
   result_path <- base::file.path(output_dir, "mrnacal_translation_efficiency.tsv")

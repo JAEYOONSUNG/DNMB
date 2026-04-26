@@ -577,6 +577,7 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "hit_label",
       "tir_score",
       "tir_score_band",
+      "tir_score_percentile",
       "rbs_motif",
       "rbs_spacer",
       "rbs_score",
@@ -599,6 +600,10 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "early_aaa_run",
       "early_poly_a_penalty",
       "skik_like",
+      "internal_sd_count",
+      "internal_sd_motifs",
+      "internal_sd_min_position",
+      "internal_sd_penalty",
       "upstream20_sequence",
       "upstream20_at_fraction",
       "upstream_au_score",
@@ -611,6 +616,7 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "start_plfold_unpaired_probability",
       "tir_plfold_unpaired_probability",
       "standby_plfold_unpaired_probability",
+      "downstream_plfold_unpaired_probability",
       "plfold_accessibility_score",
       "accessibility_score",
       "accessibility_method",
@@ -954,14 +960,19 @@ dnmb_module_details_mrnacal <- function(genbank_table, base_cols) {
   } else {
     NA_character_
   }
-  out$significance <- dnmb_detail_key_value("TIR_score", genbank_table$mRNAcal_tir_score[keep], digits = 2)
+  out$significance <- dnmb_detail_join(
+    dnmb_detail_key_value("TIR_score", genbank_table$mRNAcal_tir_score[keep], digits = 2),
+    dnmb_detail_key_value("pct", if ("mRNAcal_tir_score_percentile" %in% names(genbank_table)) genbank_table$mRNAcal_tir_score_percentile[keep] else NA, digits = 1)
+  )
   out$score_summary <- dnmb_detail_join(
     dnmb_detail_key_value("RBS", if ("mRNAcal_rbs_score" %in% names(genbank_table)) genbank_table$mRNAcal_rbs_score[keep] else NA, digits = 1),
     dnmb_detail_key_value("antiSD", if ("mRNAcal_duplex_score" %in% names(genbank_table)) genbank_table$mRNAcal_duplex_score[keep] else NA, digits = 1),
     dnmb_detail_key_value("access", if ("mRNAcal_accessibility_score" %in% names(genbank_table)) genbank_table$mRNAcal_accessibility_score[keep] else NA, digits = 1),
+    dnmb_detail_key_value("downA", if ("mRNAcal_downstream_plfold_unpaired_probability" %in% names(genbank_table)) 100 * suppressWarnings(as.numeric(genbank_table$mRNAcal_downstream_plfold_unpaired_probability[keep])) else NA, digits = 1),
     dnmb_detail_key_value("upAU", if ("mRNAcal_upstream_au_score" %in% names(genbank_table)) genbank_table$mRNAcal_upstream_au_score[keep] else NA, digits = 1),
     dnmb_detail_key_value("earlyK", if ("mRNAcal_lysine_codon_count_2_8" %in% names(genbank_table)) genbank_table$mRNAcal_lysine_codon_count_2_8[keep] else NA, digits = 0),
     dnmb_detail_key_value("NCS45_K", if ("mRNAcal_ncs45_lysine_codon_count" %in% names(genbank_table)) genbank_table$mRNAcal_ncs45_lysine_codon_count[keep] else NA, digits = 0),
+    dnmb_detail_key_value("intSD", if ("mRNAcal_internal_sd_count" %in% names(genbank_table)) genbank_table$mRNAcal_internal_sd_count[keep] else NA, digits = 0),
     dnmb_detail_key_value("MFE", if ("mRNAcal_fold_mfe" %in% names(genbank_table)) genbank_table$mRNAcal_fold_mfe[keep] else NA, digits = 2)
   )
   out$alignment_summary <- dnmb_detail_join(

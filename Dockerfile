@@ -5,6 +5,7 @@ FROM rocker/r-ver:4.4.1
 ARG DNMB_PROMOTECH_DOWNLOAD_MODEL=false
 ARG DNMB_PROMOTECH_MODEL=RF-HOT
 ARG DNMB_PROMOTECH_MODEL_BASE_URL=https://www.cs.mun.ca/~lourdes/public/PromoTech_models
+ARG VIENNARNA_VERSION=2.7.2
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DNMB_CACHE_ROOT=/opt/dnmb-cache \
@@ -81,13 +82,28 @@ RUN apt-get update && \
       libbio-perl-run-perl \
       libbio-tools-run-alignment-clustalw-perl \
       libdate-calc-perl \
+      libgsl-dev \
       libjson-parse-perl \
+      liblapack-dev \
+      liblapacke-dev \
+      libmpfr-dev \
       muscle \
+      pkg-config \
       vmatch && \
     ln -sf /usr/bin/vmatch /usr/local/bin/vmatch2 && \
     ln -sf /usr/bin/mkvtree /usr/local/bin/mkvtree2 && \
     ln -sf /usr/bin/vsubseqselect /usr/local/bin/vsubseqselect2 && \
     rm -rf /var/lib/apt/lists/*
+
+RUN curl -L "https://github.com/ViennaRNA/ViennaRNA/releases/download/v${VIENNARNA_VERSION}/ViennaRNA-${VIENNARNA_VERSION}.tar.gz" -o /tmp/ViennaRNA.tar.gz && \
+    tar -xzf /tmp/ViennaRNA.tar.gz -C /tmp && \
+    cd "/tmp/ViennaRNA-${VIENNARNA_VERSION}" && \
+    ./configure --prefix=/usr/local --disable-lto --without-swig --without-perl --without-python --without-doc --without-forester --without-kinfold --without-rnalocmin && \
+    make -j"$(nproc)" && \
+    make install && \
+    ldconfig && \
+    RNAfold --version && \
+    rm -rf "/tmp/ViennaRNA-${VIENNARNA_VERSION}" /tmp/ViennaRNA.tar.gz
 
 RUN mkdir -p /opt/macsyfinder/models && \
     cp -a /root/.macsyfinder/models/CasFinder /opt/macsyfinder/models/CasFinder && \
@@ -109,7 +125,6 @@ RUN DNMB_PROMOTECH_REPO_DIR=/opt/vendor/promotech \
     DNMB_PROMOTECH_MODEL="${DNMB_PROMOTECH_MODEL}" \
     DNMB_PROMOTECH_MODEL_BASE_URL="${DNMB_PROMOTECH_MODEL_BASE_URL}" \
     Rscript /opt/DNMB/inst/scripts/prewarm_promotech_cache.R
-RUN chmod -R a+rwX /opt/dnmb-cache
 
 WORKDIR /data
 

@@ -384,7 +384,7 @@ dnmb_order_genbank_table_for_output <- function(genbank_table) {
 }
 
 dnmb_supported_module_prefixes <- function() {
-  c("CLEAN", "GapMindAA", "GapMindCarbon", "GapMind", "DefenseFinder", "dbAPIS", "AcrFinder", "Promotech", "PADLOC", "DefensePredictor", "ISelement", "Prophage", "dbCAN", "MEROPS", "PAZy")
+  c("CLEAN", "GapMindAA", "GapMindCarbon", "GapMind", "DefenseFinder", "dbAPIS", "AcrFinder", "Promotech", "mRNAcal", "PADLOC", "DefensePredictor", "ISelement", "Prophage", "dbCAN", "MEROPS", "PAZy")
 }
 
 dnmb_module_prefix_order <- function(genbank_table) {
@@ -572,6 +572,25 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "promoter_sequence",
       "support"
     ),
+    mRNAcal = c(
+      "family_id",
+      "hit_label",
+      "tir_score",
+      "tir_score_band",
+      "rbs_motif",
+      "rbs_spacer",
+      "rbs_score",
+      "start_codon",
+      "start_codon_score",
+      "early_k_score",
+      "fold_mfe",
+      "fold_mfe_per_nt",
+      "fold_score",
+      "rbs_unpaired_fraction",
+      "start_unpaired_fraction",
+      "accessibility_score",
+      "support"
+    ),
     PADLOC = c(
       "system",
       "system_number",
@@ -655,6 +674,7 @@ dnmb_build_module_details_table <- function(genbank_table) {
     dnmb_module_details_dbapis(out, base_cols),
     dnmb_module_details_acrfinder(out, base_cols),
     dnmb_module_details_promotech(out, base_cols),
+    dnmb_module_details_mrnacal(out, base_cols),
     dnmb_module_details_padloc(out, base_cols),
     dnmb_module_details_defensepredictor(out, base_cols),
     dnmb_module_details_iselement(out, base_cols),
@@ -710,6 +730,7 @@ dnmb_module_detail_order <- function(genbank_table) {
     dbAPIS = "dbAPIS",
     AcrFinder = "AcrFinder",
     Promotech = "Promotech",
+    mRNAcal = "mRNAcal",
     PADLOC = "PADLOC",
     DefensePredictor = "DefensePredictor",
     REBASEfinder = "REBASE",
@@ -882,6 +903,46 @@ dnmb_module_details_promotech <- function(genbank_table, base_cols) {
   out$context_summary <- dnmb_detail_join(
     if ("Promotech_promoter_sequence" %in% names(genbank_table)) paste0("sequence=", as.character(genbank_table$Promotech_promoter_sequence[keep])) else NA_character_,
     if ("Promotech_support" %in% names(genbank_table)) as.character(genbank_table$Promotech_support[keep]) else NA_character_
+  )
+  out
+}
+
+dnmb_module_details_mrnacal <- function(genbank_table, base_cols) {
+  label_col <- if ("mRNAcal_tir_score" %in% names(genbank_table)) genbank_table$mRNAcal_tir_score else NULL
+  if (is.null(label_col)) {
+    return(data.frame())
+  }
+  keep <- !is.na(suppressWarnings(as.numeric(label_col)))
+  if (!any(keep)) {
+    return(data.frame())
+  }
+  base <- dnmb_module_detail_base(genbank_table, base_cols, keep)
+  out <- dnmb_module_detail_template(base)
+  out$module_category <- "mRNAcal"
+  out$primary_call <- if ("mRNAcal_hit_label" %in% names(genbank_table)) {
+    as.character(genbank_table$mRNAcal_hit_label[keep])
+  } else {
+    paste0("Translation efficiency: ", as.character(genbank_table$mRNAcal_tir_score_band[keep]))
+  }
+  out$reference_id <- if ("mRNAcal_rbs_motif" %in% names(genbank_table)) {
+    paste0("RBS=", as.character(genbank_table$mRNAcal_rbs_motif[keep]))
+  } else {
+    NA_character_
+  }
+  out$significance <- dnmb_detail_key_value("TIR_score", genbank_table$mRNAcal_tir_score[keep], digits = 2)
+  out$score_summary <- dnmb_detail_join(
+    dnmb_detail_key_value("RBS", if ("mRNAcal_rbs_score" %in% names(genbank_table)) genbank_table$mRNAcal_rbs_score[keep] else NA, digits = 1),
+    dnmb_detail_key_value("access", if ("mRNAcal_accessibility_score" %in% names(genbank_table)) genbank_table$mRNAcal_accessibility_score[keep] else NA, digits = 1),
+    dnmb_detail_key_value("MFE", if ("mRNAcal_fold_mfe" %in% names(genbank_table)) genbank_table$mRNAcal_fold_mfe[keep] else NA, digits = 2)
+  )
+  out$alignment_summary <- dnmb_detail_join(
+    dnmb_detail_key_value("spacer", if ("mRNAcal_rbs_spacer" %in% names(genbank_table)) genbank_table$mRNAcal_rbs_spacer[keep] else NA, digits = 0),
+    if ("mRNAcal_start_codon" %in% names(genbank_table)) paste0("start=", as.character(genbank_table$mRNAcal_start_codon[keep])) else NA_character_,
+    if ("mRNAcal_second_codon" %in% names(genbank_table)) paste0("second=", as.character(genbank_table$mRNAcal_second_codon[keep])) else NA_character_
+  )
+  out$context_summary <- dnmb_detail_join(
+    if ("mRNAcal_early_codons" %in% names(genbank_table)) paste0("early_codons=", as.character(genbank_table$mRNAcal_early_codons[keep])) else NA_character_,
+    if ("mRNAcal_support" %in% names(genbank_table)) as.character(genbank_table$mRNAcal_support[keep]) else NA_character_
   )
   out
 }
@@ -1504,6 +1565,9 @@ dnmb_header_group_for_column <- function(column_name) {
   if (grepl("^Promotech_", column_name)) {
     return("Promotech")
   }
+  if (grepl("^mRNAcal_", column_name)) {
+    return("mRNAcal")
+  }
   if (grepl("^PADLOC_", column_name)) {
     return("PADLOC")
   }
@@ -1600,6 +1664,14 @@ dnmb_header_group_styles <- function() {
       valign = "center",
       border = "Bottom",
       borderColour = "#7B9B38"
+    ),
+    mRNAcal = openxlsx::createStyle(
+      fgFill = "#E1EEF7",
+      textDecoration = "bold",
+      halign = "center",
+      valign = "center",
+      border = "Bottom",
+      borderColour = "#3A79A8"
     ),
     PADLOC = openxlsx::createStyle(
       fgFill = "#FDE9D9",

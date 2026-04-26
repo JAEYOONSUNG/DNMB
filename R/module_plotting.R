@@ -349,6 +349,7 @@ dnmb_render_module_plots <- function(genbank_table, output_dir = getwd(), cache_
   run_plot("DefenseFinder",    function() .dnmb_plot_defensefinder_module(genbank_table, output_dir = output_dir))
   run_plot("dbAPIS",           function() .dnmb_plot_dbapis_module(genbank_table, output_dir = output_dir))
   run_plot("AcrFinder",        function() .dnmb_plot_acrfinder_module(genbank_table, output_dir = output_dir))
+  run_plot("mRNAcal",          function() .dnmb_plot_mrnacal_module(genbank_table, output_dir = output_dir))
   run_plot("PADLOC",           function() .dnmb_plot_padloc_module(genbank_table, output_dir = output_dir))
   run_plot("DefensePredictor", function() .dnmb_plot_defensepredictor_module(genbank_table, output_dir = output_dir))
   run_plot("ISelement",        function() .dnmb_plot_iselement_module(genbank_table, output_dir = output_dir))
@@ -358,7 +359,7 @@ dnmb_render_module_plots <- function(genbank_table, output_dir = getwd(), cache_
   run_plot("dbCAN",            function() .dnmb_plot_dbcan_module(genbank_table, output_dir = output_dir))
   run_plot("MEROPS",           function() .dnmb_plot_merops_module(genbank_table, output_dir = output_dir))
   run_plot("PAZy",             function() .dnmb_plot_pazy_module(genbank_table, output_dir = output_dir, cache_root = cache_root))
-  run_plot("REBASEfinder",     function() .dnmb_plot_rebasefinder_module(genbank_table, output_dir = output_dir))
+  run_plot("REBASEfinder",     function() .dnmb_plot_rebasefinder_module(genbank_table, output_dir = output_dir, cache_root = cache_root))
   run_plot("DefenseOverview",      function() .dnmb_plot_integrated_defense_module(genbank_table, output_dir = output_dir, defensefinder_activity = "Defense"))
   run_plot("AntiDefenseOverview",  function() .dnmb_plot_integrated_defense_module(genbank_table, output_dir = output_dir, defensefinder_activity = "Anti-defense"))
 
@@ -372,32 +373,30 @@ dnmb_render_module_plots <- function(genbank_table, output_dir = getwd(), cache_
   plots
 }
 
-# REBASEfinder overview — delegates to R/plot_rebasefinder.R
-# Falls back to copying DefenseViz PDF if custom plot fails or no data
-.dnmb_plot_rebasefinder_module <- function(genbank_table, output_dir) {
-  result <- tryCatch(
-    .dnmb_plot_rebasefinder_overview(genbank_table, output_dir),
-    error = function(e) NULL
-  )
-  if (!is.null(result)) return(result)
-
-  # The overview function may have saved a PDF before erroring (e.g.,
-  # the A+B fallback succeeded but the return propagation failed).
-  # Check if the PDF was written anyway.
+# REBASEfinder overview — delegates to R/plot_rebasefinder.R.
+# Do not fall back to DefenseViz's native RM_system_dotplot.pdf here; that is
+# the old-style plot and should never overwrite DNMB's REBASE_overview.pdf.
+.dnmb_plot_rebasefinder_module <- function(genbank_table, output_dir, cache_root = NULL) {
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   expected_pdf <- file.path(plot_dir, "REBASE_overview.pdf")
-  if (file.exists(expected_pdf) && file.info(expected_pdf)$size > 500) {
+  had_previous <- file.exists(expected_pdf)
+  previous_mtime <- if (had_previous) file.info(expected_pdf)$mtime else as.POSIXct(NA)
+  result <- tryCatch(
+    .dnmb_plot_rebasefinder_overview(genbank_table, output_dir, cache_root = cache_root),
+    error = function(e) NULL
+  )
+  if (!is.null(result) && file.exists(expected_pdf) && file.info(expected_pdf)$size > 500) {
     return(list(pdf = expected_pdf))
   }
-
-  # Fallback: copy DefenseViz PDF from module output
-  rm_dir <- file.path(output_dir, "dnmb_module_rebasefinder")
-  if (!dir.exists(rm_dir)) return(NULL)
-  src_files <- list.files(rm_dir, pattern = "\\.pdf$", full.names = TRUE)
-  if (length(src_files)) {
-    dest_path <- expected_pdf
-    file.copy(src_files[1], dest_path, overwrite = TRUE)
-    return(list(pdf = dest_path))
+  if (file.exists(expected_pdf)) {
+    current_mtime <- file.info(expected_pdf)$mtime
+    newly_written <- !had_previous || (!is.na(previous_mtime) && !is.na(current_mtime) && current_mtime > previous_mtime)
+    if (isTRUE(newly_written) && file.info(expected_pdf)$size > 500) {
+      return(list(pdf = expected_pdf))
+    }
+    if (had_previous) {
+      unlink(expected_pdf, force = TRUE)
+    }
   }
   NULL
 }

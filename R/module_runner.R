@@ -348,10 +348,10 @@
 #' supplied gene table and returns per-module results or a merged locus-level
 #' table.
 #'
-#' Live execution is currently implemented for `dbCAN`, `MEROPS`, `CLEAN`, `PAZy`, `GapMind`, `DefenseFinder`, `dbAPIS`, `AcrFinder`, `Promotech`, `PADLOC`, `DefensePredictor`, `ISelement`, and `Prophage`.
+#' Live execution is currently implemented for `dbCAN`, `MEROPS`, `CLEAN`, `PAZy`, `GapMind`, `DefenseFinder`, `dbAPIS`, `AcrFinder`, `Promotech`, `mRNAcal`, `PADLOC`, `DefensePredictor`, `ISelement`, and `Prophage`.
 #'
 #' @param db Optional character vector of module names to run.
-#' @param module_dbCAN,module_MEROPS,module_CLEAN,module_PAZy,module_GapMind,module_DefenseFinder,module_dbAPIS,module_AcrFinder,module_Promotech,module_PADLOC,module_DefensePredictor,module_ISelement,module_Prophage Logical toggles used when
+#' @param module_dbCAN,module_MEROPS,module_CLEAN,module_PAZy,module_GapMind,module_DefenseFinder,module_dbAPIS,module_AcrFinder,module_Promotech,module_mRNAcal,module_PADLOC,module_DefensePredictor,module_ISelement,module_Prophage Logical toggles used when
 #'   `db` is not supplied.
 #' @param module_Prophage_backend Character backend for `Prophage`; one of
 #'   `phispy`, `virsorter2`, or `pide`.
@@ -383,6 +383,14 @@
 #'   requested, download the selected model into the DNMB cache if it is
 #'   missing.
 #' @param promotech_model_base_url Base URL for upstream Promotech model files.
+#' @param mrnacal_upstream,mrnacal_downstream Transcript-window lengths around
+#'   the start codon used by the mRNAcal translation-initiation module.
+#' @param mrnacal_rnafold_path Optional path to `RNAfold`; `NULL` auto-detects
+#'   from `PATH`.
+#' @param mrnacal_require_rnafold Logical; fail the module when `RNAfold` is
+#'   unavailable. Set `FALSE` for sequence-only smoke runs.
+#' @param mrnacal_sd_seed Optional Shine-Dalgarno seed override.
+#' @param mrnacal_top_folds Number of high-scoring fold diagrams to draw.
 #' @param module_cpu Integer thread count for external tools.
 #' @param merge Logical; when `TRUE`, return a merged locus-level table instead
 #'   of a list of per-module runs.
@@ -401,6 +409,7 @@ run_module_set <- function(db = NULL,
                            module_dbAPIS = TRUE,
                            module_AcrFinder = TRUE,
                            module_Promotech = FALSE,
+                           module_mRNAcal = FALSE,
                            module_DefenseFinder_antidefense = TRUE,
                            module_PADLOC = TRUE,
                            module_DefensePredictor = TRUE,
@@ -431,6 +440,12 @@ run_module_set <- function(db = NULL,
                            promotech_python = "python3",
                            promotech_download_model = TRUE,
                            promotech_model_base_url = .dnmb_promotech_default_model_base_url(),
+                           mrnacal_upstream = 60L,
+                           mrnacal_downstream = 60L,
+                           mrnacal_rnafold_path = NULL,
+                           mrnacal_require_rnafold = TRUE,
+                           mrnacal_sd_seed = NULL,
+                           mrnacal_top_folds = 12L,
                            iselement_analysis_depth = "standard",
                            iselement_related_genbanks = NULL,
                            iselement_related_metadata = NULL,
@@ -467,6 +482,7 @@ run_module_set <- function(db = NULL,
       dbAPIS = isTRUE(module_dbAPIS),
       AcrFinder = isTRUE(module_AcrFinder),
       Promotech = isTRUE(module_Promotech),
+      mRNAcal = isTRUE(module_mRNAcal),
       PADLOC = isTRUE(module_PADLOC),
       DefensePredictor = isTRUE(module_DefensePredictor),
       REBASEfinder = isTRUE(module_REBASEfinder),
@@ -481,6 +497,7 @@ run_module_set <- function(db = NULL,
     )))
   } else {
     db <- as.character(db)
+    db[tolower(db) %in% c("mrnacal", "mrna_cal", "translationefficiency", "translation_efficiency")] <- "mRNAcal"
     if ("Prophage" %in% db) {
       legacy_backend <- tryCatch(
         .dnmb_prophage_normalize_backend(module_Prophage_backend),
@@ -523,10 +540,10 @@ run_module_set <- function(db = NULL,
     return(list())
   }
 
-  unsupported <- setdiff(db, c("dbCAN", "MEROPS", "CLEAN", "PAZy", "GapMindAA", "GapMindCarbon", "DefenseFinder", "dbAPIS", "AcrFinder", "Promotech", "PADLOC", "DefensePredictor", "REBASEfinder", "ISelement", "PhiSpy", "VirSorter2", "PIDE", "EggNOG"))
+  unsupported <- setdiff(db, c("dbCAN", "MEROPS", "CLEAN", "PAZy", "GapMindAA", "GapMindCarbon", "DefenseFinder", "dbAPIS", "AcrFinder", "Promotech", "mRNAcal", "PADLOC", "DefensePredictor", "REBASEfinder", "ISelement", "PhiSpy", "VirSorter2", "PIDE", "EggNOG"))
   if (length(unsupported)) {
     stop(
-      "Live module execution is currently implemented only for dbCAN, MEROPS, CLEAN, PAZy, GapMind, DefenseFinder, dbAPIS, AcrFinder, Promotech, PADLOC, DefensePredictor, ISelement, PhiSpy, VirSorter2, PIDE, and EggNOG. Unsupported module(s): ",
+      "Live module execution is currently implemented only for dbCAN, MEROPS, CLEAN, PAZy, GapMind, DefenseFinder, dbAPIS, AcrFinder, Promotech, mRNAcal, PADLOC, DefensePredictor, ISelement, PhiSpy, VirSorter2, PIDE, and EggNOG. Unsupported module(s): ",
       paste(unsupported, collapse = ", "),
       call. = FALSE
     )
@@ -545,6 +562,7 @@ run_module_set <- function(db = NULL,
       dbAPIS = list(module = "dbapis", version = module_version %||% "current"),
       AcrFinder = list(module = "acrfinder", version = module_version %||% "current"),
       Promotech = list(module = "promotech", version = module_version %||% "current"),
+      mRNAcal = list(module = "mrnacal", version = "embedded"),
       PADLOC = list(module = "padloc", version = module_version %||% "current"),
       DefensePredictor = list(module = "defensepredictor", version = module_version %||% "current"),
       GapMindAA = list(module = "gapmind", version = "aa"),
@@ -791,6 +809,46 @@ run_module_set <- function(db = NULL,
     }
   }
 
+  ## --- 3ae. mRNAcal ---
+  if ("mRNAcal" %in% db) {
+    if (isTRUE(verbose)) {
+      message("[DNMB] ── mRNAcal ──")
+    }
+    mrnacal_result <- .dnmb_module_try_run("mRNAcal", function() {
+      dnmb_run_mrnacal_module(
+        genes = genes,
+        output_dir = .dnmb_module_output_dir("mRNAcal", output_dir = output_dir),
+        genbank = genbank,
+        upstream = mrnacal_upstream,
+        downstream = mrnacal_downstream,
+        rnafold_path = mrnacal_rnafold_path,
+        require_rnafold = isTRUE(mrnacal_require_rnafold),
+        sd_seed = mrnacal_sd_seed,
+        translation_domain = .dnmb_detect_translation_domain(target = genes, gb_path = genbank),
+        cpu = as.integer(module_cpu)[1],
+        top_folds = mrnacal_top_folds,
+        verbose = verbose
+      )
+    })
+    if (!isTRUE(mrnacal_result$ok)) {
+      warning(
+        "mRNAcal module execution failed: ",
+        .dnmb_module_status_detail(mrnacal_result$status) %||% "unknown error",
+        call. = FALSE
+      )
+    } else {
+      runs$mRNAcal <- structure(
+        list(
+          database = "mRNAcal",
+          output_table = mrnacal_result$output_table %||% .dnmb_mrnacal_output_table(genes = genes, results = mrnacal_result$results),
+          hits = mrnacal_result$hits,
+          module_result = mrnacal_result
+        ),
+        class = "dnmb_module_run"
+      )
+    }
+  }
+
   ## --- 3a. PADLOC ---
   if ("PADLOC" %in% db) {
     if (isTRUE(verbose)) {
@@ -871,6 +929,7 @@ run_module_set <- function(db = NULL,
         compare_rebase = TRUE,
         search_motifs = TRUE,
         install = isTRUE(module_install),
+        cache_root = module_cache_root,
         cpu = as.integer(module_cpu)[1],
         verbose = verbose
       )

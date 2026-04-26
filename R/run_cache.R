@@ -129,6 +129,37 @@
   fields
 }
 
+.dnmb_rebasefinder_cache_identity <- function(cache_root = NULL) {
+  cache_dir <- file.path(.dnmb_db_cache_root(cache_root = cache_root, create = FALSE), "rebasefinder", "cache")
+  files <- c(
+    file.path(cache_dir, "rebase_data.rds"),
+    file.path(cache_dir, "REBASE_protein_seqs.txt"),
+    file.path(cache_dir, "rebase_db.fasta"),
+    file.path(cache_dir, "rebase_bairoch_lookup.rds")
+  )
+  files <- files[file.exists(files)]
+  info <- if (length(files)) file.info(files) else data.frame()
+  file_state <- if (length(files)) {
+    data.frame(
+      file = basename(files),
+      size = unname(as.numeric(info$size)),
+      mtime = unname(format(info$mtime, "%Y-%m-%d %H:%M:%S %z")),
+      stringsAsFactors = FALSE
+    )
+  } else {
+    data.frame(file = character(), size = numeric(), mtime = character())
+  }
+  file_state <- file_state[order(file_state$file), , drop = FALSE]
+  rownames(file_state) <- NULL
+  list(
+    installed = file.exists(file.path(cache_dir, "rebase_data.rds")),
+    module = "rebasefinder",
+    version = "embedded",
+    cache_dir = normalizePath(cache_dir, winslash = "/", mustWork = FALSE),
+    files = file_state
+  )
+}
+
 .dnmb_collect_module_db_signatures <- function(module_aliases,
                                                module_version = NULL,
                                                module_cache_root = NULL,
@@ -164,6 +195,9 @@
   if ("Promotech" %in% module_aliases) {
     signatures$Promotech <- .dnmb_db_manifest_identity("promotech", current_version, cache_root = module_cache_root)
   }
+  if ("mRNAcal" %in% module_aliases) {
+    signatures$mRNAcal <- list(installed = TRUE, module = "mrnacal", version = "embedded")
+  }
   if ("PADLOC" %in% module_aliases) {
     signatures$PADLOC <- .dnmb_db_manifest_identity("padloc", current_version, cache_root = module_cache_root)
   }
@@ -198,7 +232,7 @@
     signatures$ISelement <- list(installed = TRUE, module = "iselement", version = current_version)
   }
   if ("REBASEfinder" %in% module_aliases) {
-    signatures$REBASEfinder <- list(installed = TRUE, module = "rebasefinder", version = "embedded")
+    signatures$REBASEfinder <- .dnmb_rebasefinder_cache_identity(cache_root = module_cache_root)
   }
 
   signatures
@@ -221,6 +255,12 @@
                                          promotech_python = "python3",
                                          promotech_download_model = TRUE,
                                          promotech_model_base_url = .dnmb_promotech_default_model_base_url(),
+                                         mrnacal_upstream = 60L,
+                                         mrnacal_downstream = 60L,
+                                         mrnacal_rnafold_path = NULL,
+                                         mrnacal_require_rnafold = TRUE,
+                                         mrnacal_sd_seed = NULL,
+                                         mrnacal_top_folds = 12L,
                                          iselement_analysis_depth = "full",
                                          iselement_related_genbanks = NULL,
                                          iselement_related_metadata = NULL,
@@ -259,6 +299,12 @@
       promotech_python = as.character(promotech_python)[1],
       promotech_download_model = isTRUE(promotech_download_model),
       promotech_model_base_url = as.character(promotech_model_base_url)[1],
+      mrnacal_upstream = as.integer(mrnacal_upstream)[1],
+      mrnacal_downstream = as.integer(mrnacal_downstream)[1],
+      mrnacal_rnafold_path = if (is.null(mrnacal_rnafold_path)) NULL else as.character(mrnacal_rnafold_path)[1],
+      mrnacal_require_rnafold = isTRUE(mrnacal_require_rnafold),
+      mrnacal_sd_seed = if (is.null(mrnacal_sd_seed)) NULL else as.character(mrnacal_sd_seed)[1],
+      mrnacal_top_folds = as.integer(mrnacal_top_folds)[1],
       iselement_analysis_depth = as.character(iselement_analysis_depth)[1],
       iselement_auto_discover_related = isTRUE(iselement_auto_discover_related),
       iselement_max_related = as.integer(iselement_max_related)[1]
@@ -318,6 +364,12 @@
         file.path(wd, "dnmb_module_promotech", "promotech_promoter_feature_for_gb")
       )
     ),
+    mRNAcal = list(
+      mode = "all",
+      paths = c(
+        file.path(wd, "dnmb_module_mrnacal", "mrnacal_translation_efficiency.tsv")
+      )
+    ),
     PADLOC = list(
       mode = "all",
       paths = c(file.path(wd, "dnmb_module_padloc", "padloc_query_proteins_padloc.csv"))
@@ -328,7 +380,7 @@
     ),
     REBASEfinder = list(
       mode = "all",
-      paths = c(file.path(wd, "dnmb_module_rebasefinder", "rebasefinder_input.tsv"))
+      paths = c(file.path(wd, "dnmb_module_rebasefinder", "R-M_REBASE_analysis.xlsx"))
     ),
     GapMind = list(
       mode = "all",

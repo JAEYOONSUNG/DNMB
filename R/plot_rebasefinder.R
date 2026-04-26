@@ -1,4 +1,4 @@
-.dnmb_plot_rebasefinder_overview <- function(genbank_table, output_dir) {
+.dnmb_plot_rebasefinder_overview <- function(genbank_table, output_dir, cache_root = NULL) {
   tbl <- .dnmb_contig_ordered_table(genbank_table)
   req <- "REBASEfinder_family_id"
   if (!nrow(tbl) || !all(req %in% names(tbl))) return(NULL)
@@ -74,7 +74,7 @@
   # so the composite never crashes entirely.
   empty_plot <- ggplot2::ggplot() + ggplot2::theme_void()
   p_blast <- tryCatch(
-    .dnmb_plot_rebasefinder_blast_quality(tbl, role_palette, display_info, rm_palette),
+    .dnmb_plot_rebasefinder_blast_quality(tbl, role_palette, display_info, rm_palette, cache_root = cache_root),
     error = function(e) empty_plot
   )
   uniprot_doms <- tryCatch(
@@ -109,7 +109,7 @@
     error = function(e) NULL
   )
   if (!is.null(bottom_row)) {
-    meth_types_present <- .dnmb_rebasefinder_infer_methylation_type(tbl)
+    meth_types_present <- .dnmb_rebasefinder_infer_methylation_type(tbl, cache_root = cache_root)
     has_meth_annot <- any(!is.na(meth_types_present))
     if (has_meth_annot) {
       bottom_row_wrapped <- cowplot::ggdraw() +
@@ -512,7 +512,7 @@
 # ====================================================================
 # Panel C: BLAST Match Quality — legend horizontal at bottom
 # ====================================================================
-.dnmb_plot_rebasefinder_blast_quality <- function(tbl, role_palette, display_info, rm_palette = NULL) {
+.dnmb_plot_rebasefinder_blast_quality <- function(tbl, role_palette, display_info, rm_palette = NULL, cache_root = NULL) {
   has_identity <- "REBASEfinder_blast_identity" %in% names(tbl)
   has_bitscore <- "REBASEfinder_blast_bitscore" %in% names(tbl)
   has_role     <- "REBASEfinder_enzyme_role" %in% names(tbl)
@@ -533,7 +533,7 @@
   if (!nrow(plot_tbl)) return(ggplot2::ggplot() + ggplot2::theme_void())
 
   # Infer methylation type for M subunits + recognition sequence
-  meth_type_all <- .dnmb_rebasefinder_infer_methylation_type(tbl)
+  meth_type_all <- .dnmb_rebasefinder_infer_methylation_type(tbl, cache_root = cache_root)
   plot_tbl$meth_type <- meth_type_all[match(plot_tbl$locus_tag, tbl$locus_tag)]
   has_rec <- "REBASEfinder_rec_seq" %in% names(tbl)
   if (has_rec) {
@@ -564,7 +564,7 @@
   meth_pal <- c("N6A" = "#D32F2F", "N5C" = "#1565C0", "N4C" = "#FF8F00")
   meth_target <- c("N6A" = "A", "N5C" = "C", "N4C" = "C")
   has_ggtext <- requireNamespace("ggtext", quietly = TRUE)
-  bairoch <- tryCatch(.dnmb_rebasefinder_download_bairoch(), error = function(e) NULL)
+  bairoch <- tryCatch(.dnmb_rebasefinder_download_bairoch(cache_root = cache_root), error = function(e) NULL)
   if (has_ggtext) {
     old_lvls <- levels(plot_tbl$display_typed)
     label_vec <- as.character(plot_tbl$display_typed)
@@ -912,7 +912,7 @@
 
 # Methylation type inference from catalytic motifs
 # C5-PC motif → N5C; amino-MTase motif → N6A (most common); fallback NA
-.dnmb_rebasefinder_infer_methylation_type <- function(tbl) {
+.dnmb_rebasefinder_infer_methylation_type <- function(tbl, cache_root = NULL) {
   # Strategy (in priority order):
   # 1. REBASE bairoch metadata — authoritative, per-enzyme lookup
   # 2. Protein motif detection — heuristic fallback
@@ -922,7 +922,7 @@
   has_rec <- "REBASEfinder_rec_seq" %in% names(tbl)
 
   # Pre-load bairoch lookup (cached after first download)
-  bairoch <- tryCatch(.dnmb_rebasefinder_download_bairoch(), error = function(e) NULL)
+  bairoch <- tryCatch(.dnmb_rebasefinder_download_bairoch(cache_root = cache_root), error = function(e) NULL)
 
   # Motif detection (fallback)
   detailed <- .dnmb_rebasefinder_scan_motifs_detailed(tbl)

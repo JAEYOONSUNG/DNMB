@@ -14,6 +14,15 @@
   .dnmb_rebasefinder_status_row(character(), character(), character())
 }
 
+.dnmb_rebasefinder_cache_dir <- function(cache_root = NULL, create = TRUE) {
+  root <- .dnmb_db_cache_root(cache_root = cache_root, create = create)
+  path <- file.path(root, "rebasefinder", "cache")
+  if (isTRUE(create)) {
+    dir.create(path, recursive = TRUE, showWarnings = FALSE)
+  }
+  normalizePath(path, winslash = "/", mustWork = FALSE)
+}
+
 # ── REBASE bairoch metadata: methylation type + position lookup ──
 # Downloads once from rebase.neb.com/rebase/link_bairoch, parses the
 # bairoch-format flat file, and builds a lookup table keyed by enzyme
@@ -25,14 +34,23 @@
 # is a heuristic fallback at best.
 
 .dnmb_rebasefinder_bairoch_cache_path <- function(cache_root = NULL) {
-  root <- .dnmb_db_cache_root(cache_root = cache_root, create = TRUE)
-  file.path(root, "db_modules", "rebasefinder", "cache", "rebase_bairoch_lookup.rds")
+  file.path(.dnmb_rebasefinder_cache_dir(cache_root = cache_root, create = TRUE), "rebase_bairoch_lookup.rds")
 }
 
 .dnmb_rebasefinder_download_bairoch <- function(cache_root = NULL, force = FALSE) {
   cache_path <- .dnmb_rebasefinder_bairoch_cache_path(cache_root)
   if (!isTRUE(force) && file.exists(cache_path)) {
     return(readRDS(cache_path))
+  }
+  legacy_path <- file.path(
+    .dnmb_db_cache_root(cache_root = cache_root, create = FALSE),
+    "db_modules", "rebasefinder", "cache", "rebase_bairoch_lookup.rds"
+  )
+  if (!isTRUE(force) && file.exists(legacy_path)) {
+    lookup <- readRDS(legacy_path)
+    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
+    tryCatch(saveRDS(lookup, cache_path), error = function(e) NULL)
+    return(lookup)
   }
   url <- "http://rebase.neb.com/rebase/link_bairoch"
   tmp <- tempfile(fileext = ".txt")
@@ -274,6 +292,7 @@ dnmb_run_rebasefinder_module <- function(genes,
                                          max_operon_gap = 5000,
                                          max_intervening = 1,
                                          install = TRUE,
+                                         cache_root = NULL,
                                          cpu = 1L,
                                          verbose = TRUE) {
 
@@ -315,7 +334,7 @@ dnmb_run_rebasefinder_module <- function(genes,
 
   # Override DefenseViz cache dir → DNMB's db_modules/rebasefinder/cache
   # This works regardless of DefenseViz version (no env var dependency)
-  rebase_cache <- base::file.path(.dnmb_db_cache_root(create = TRUE), "rebasefinder", "cache")
+  rebase_cache <- .dnmb_rebasefinder_cache_dir(cache_root = cache_root, create = TRUE)
   base::dir.create(rebase_cache, recursive = TRUE, showWarnings = FALSE)
   tryCatch({
     cache_path <- rebase_cache  # capture value

@@ -143,6 +143,37 @@
       label_tbl$x[label_tbl$tool == tool] <- venn_x + venn_w * posx
       label_tbl$y[label_tbl$tool == tool] <- venn_y + venn_h * posy
     }
+  } else if (!is.null(ve$ellipses)) {
+    ell <- as.data.frame(ve$ellipses)
+    if (all(c("h", "k", "a", "b") %in% names(ell)) && nrow(ell)) {
+      x_min <- min(ell$h - ell$a, na.rm = TRUE)
+      x_max <- max(ell$h + ell$a, na.rm = TRUE)
+      y_min <- min(ell$k - ell$b, na.rm = TRUE)
+      y_max <- max(ell$k + ell$b, na.rm = TRUE)
+      x_span <- max(1e-6, x_max - x_min)
+      y_span <- max(1e-6, y_max - y_min)
+      pad <- 0.06
+      for (tool in label_tbl$tool) {
+        if (!(tool %in% rownames(ell))) {
+          next
+        }
+        cx <- ell[tool, "h"]
+        cy <- ell[tool, "k"]
+        a <- max(1e-6, ell[tool, "a"])
+        b <- max(1e-6, ell[tool, "b"])
+        vec <- preferred_dirs[[tool]] %||% c(0, 1)
+        vec <- vec / sqrt(sum(vec^2))
+        radius <- 1 / sqrt((vec[[1]] / a)^2 + (vec[[2]] / b)^2)
+        edge_x <- (cx + vec[[1]] * (radius + pad * x_span) - x_min) / x_span
+        edge_y <- (cy + vec[[2]] * (radius + pad * y_span) - y_min) / y_span
+        posx <- (cx + vec[[1]] * (radius + 0.20 * x_span) - x_min) / x_span
+        posy <- (cy + vec[[2]] * (radius + 0.20 * y_span) - y_min) / y_span
+        label_tbl$anchor_x[label_tbl$tool == tool] <- venn_x + venn_w * edge_x
+        label_tbl$anchor_y[label_tbl$tool == tool] <- venn_y + venn_h * edge_y
+        label_tbl$x[label_tbl$tool == tool] <- venn_x + venn_w * posx
+        label_tbl$y[label_tbl$tool == tool] <- venn_y + venn_h * posy
+      }
+    }
   }
 
   miss <- is.na(label_tbl$x) | is.na(label_tbl$y)
@@ -745,7 +776,9 @@
 }
 
 .dnmb_integrated_defense_overlap_panel <- function(tool_membership) {
-  if (!requireNamespace("venneuler", quietly = TRUE) || !requireNamespace("ggplotify", quietly = TRUE)) {
+  has_eulerr <- requireNamespace("eulerr", quietly = TRUE)
+  has_venneuler <- requireNamespace("venneuler", quietly = TRUE)
+  if ((!has_eulerr && !has_venneuler) || !requireNamespace("ggplotify", quietly = TRUE)) {
     return(NULL)
   }
   preferred_order <- c("DefensePredictor", "PADLOC", "DefenseFinder", "REBASE", "AntiDefenseFinder", "dbAPIS", "AcrFinder")
@@ -788,32 +821,59 @@
     "dbAPIS" = "DBA",
     "AcrFinder" = "ACR"
   )
-  ve <- tryCatch(
-    venneuler::venneuler(venn_expr),
-    error = function(e) NULL
-  )
+  ve <- NULL
+  p_venn <- NULL
+  if (has_eulerr) {
+    ve <- tryCatch(
+      eulerr::euler(venn_expr, shape = "ellipse"),
+      error = function(e) NULL
+    )
+    if (!is.null(ve)) {
+      venn_names <- rownames(ve$ellipses)
+      venn_cols <- unname(set_colors[venn_names])
+      p_venn <- ggplotify::as.ggplot(
+        graphics::plot(
+          ve,
+          labels = FALSE,
+          quantities = FALSE,
+          fills = list(fill = venn_cols, alpha = 0.32),
+          edges = list(col = grDevices::adjustcolor("grey45", alpha.f = 0.45), lwd = 0.7)
+        )
+      ) +
+        ggplot2::theme_void() +
+        ggplot2::theme(plot.margin = ggplot2::margin(0, 0, 0, 0))
+    }
+  }
+  if (is.null(ve) && has_venneuler) {
+    ve <- tryCatch(
+      venneuler::venneuler(venn_expr),
+      error = function(e) NULL
+    )
+  }
   if (is.null(ve)) {
     return(ggplot2::ggplot() + ggplot2::theme_void())
   }
-  ve$labels <- rep("", length(set_sizes))
-  ve_local <- ve
-  venn_names <- rownames(ve$centers)
-  venn_cols <- unname(set_colors[venn_names])
-  p_venn <- ggplotify::as.ggplot(function() {
-    par(mar = c(0, 0, 0, 0))
-    plot(
-      ve_local,
-      main = NULL,
-      col = venn_cols,
-      border = grDevices::adjustcolor("grey45", alpha.f = 0.28),
-      lwd = 0.5,
-      cex = 0.82,
-      col.txt = "black",
-      alpha = 0.32
-    )
-  }) +
-    ggplot2::theme_void() +
-    ggplot2::theme(plot.margin = ggplot2::margin(0, 0, 0, 0))
+  if (is.null(p_venn)) {
+    ve$labels <- rep("", length(set_sizes))
+    ve_local <- ve
+    venn_names <- rownames(ve$centers)
+    venn_cols <- unname(set_colors[venn_names])
+    p_venn <- ggplotify::as.ggplot(function() {
+      par(mar = c(0, 0, 0, 0))
+      plot(
+        ve_local,
+        main = NULL,
+        col = venn_cols,
+        border = grDevices::adjustcolor("grey45", alpha.f = 0.28),
+        lwd = 0.5,
+        cex = 0.82,
+        col.txt = "black",
+        alpha = 0.32
+      )
+    }) +
+      ggplot2::theme_void() +
+      ggplot2::theme(plot.margin = ggplot2::margin(0, 0, 0, 0))
+  }
 
   accessions <- sort(unique(tool_membership$accession))
   incidence <- data.frame(accession = accessions, stringsAsFactors = FALSE)
@@ -846,7 +906,7 @@
   singleton_last_rank <- if (any(top_combo$n_sets == 1L)) max(top_combo$rank[top_combo$n_sets == 1L]) else NA_integer_
   rank_offset <- 0.00
 
-  row_positions <- c("DefensePredictor" = 1.00, "PADLOC" = 1.55, "DefenseFinder" = 2.10, "REBASE" = 2.65)
+  row_positions <- stats::setNames(1.00 + 0.55 * seq.int(0L, length(tool_order) - 1L), tool_order)
   matrix_df <- do.call(rbind, lapply(seq_len(nrow(top_combo)), function(i) {
     members <- unlist(top_combo$members[[i]])
     data.frame(
@@ -863,6 +923,9 @@
     if (length(yvals) < 2) return(NULL)
     data.frame(rank = top_combo$rank[[i]] + rank_offset, y_min = min(yvals), y_max = max(yvals), stringsAsFactors = FALSE)
   }))
+  if (is.null(connector_df)) {
+    connector_df <- data.frame(rank = numeric(), y_min = numeric(), y_max = numeric())
+  }
 
   set_df <- data.frame(tool = factor(tool_order, levels = rev(tool_order)), size = as.numeric(set_sizes[tool_order]), stringsAsFactors = FALSE)
   set_df$y <- unname(row_positions[tool_order])

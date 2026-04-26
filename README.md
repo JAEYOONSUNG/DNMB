@@ -328,6 +328,41 @@ run_DNMB(
   validation; DNMB promoter-to-gene mapping and GenBank/SnapGene artifact
   generation then completed in about 15 seconds.
 
+**mRNAcal / Translation Initiation** (Optional)
+
+mRNAcal can be appended as a DNMB module with `module_mRNAcal = TRUE`. It scores
+each protein-coding gene's transcript initiation region using RBS motif quality,
+RBS-to-start spacing, start codon, early lysine/AAA-AAG codon context, RNAfold
+MFE, and MFE-derived RBS/start accessibility. The default window is 60 nt
+upstream and 60 nt downstream of the start codon in the transcript direction.
+
+DNMB uses ViennaRNA `RNAfold` for fast batch MFE folding. Docker builds
+ViennaRNA from source (`VIENNARNA_VERSION=2.7.2` by default), so `RNAfold` is
+available on `PATH`; local runs can pass
+`mrnacal_rnafold_path = "/path/to/RNAfold"` when needed. Results are written to
+`dnmb_module_mrnacal/mrnacal_translation_efficiency.tsv`, appended to
+`DNMB_table.xlsx` with the `mRNAcal_` prefix, and visualized under
+`visualizations/` as `mRNAcal_translation_efficiency.pdf` plus top fold arc
+diagrams in `mRNAcal_top_folds.pdf`.
+
+```r
+run_DNMB(module_mRNAcal = TRUE)
+
+run_module_set(
+  db = "mRNAcal",
+  mrnacal_upstream = 60,
+  mrnacal_downstream = 60,
+  merge = TRUE
+)
+```
+
+- **Note:** If a 16S/SSU rRNA annotation is present, DNMB derives the
+  Shine-Dalgarno seed from its 3' tail; otherwise it falls back to `AGGAGG`
+  for bacteria and `GGAGG` for archaea. Use `mrnacal_sd_seed = "AGGAGG"` to
+  force a specific motif.
+- **Runtime:** The module folds short TIR windows in one RNAfold batch, so it is
+  much lighter than full transcriptome folding.
+
 
 ## Contributing
 We welcome contributions from the community! If you have suggestions for improvements, additional scripts, or updates to the database, please see our contributing guidelines for more information on how to get involved.

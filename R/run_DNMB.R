@@ -9,6 +9,8 @@
 #' @param module_dbAPIS Logical, whether to run and append dbAPIS anti-defense module results.
 #' @param module_AcrFinder Logical, whether to run and append AcrFinder anti-CRISPR module results.
 #' @param module_Promotech Logical, whether to run and append Promotech promoter prediction results.
+#' @param module_mRNAcal Logical, whether to run and append translation
+#'   initiation efficiency and RNAfold results.
 #' @param module_DefenseFinder_antidefense Logical; when \code{TRUE},
 #'   DefenseFinder is run with AntiDefenseFinder enabled so anti-defense hits
 #'   are merged into the DefenseFinder module output.
@@ -60,6 +62,14 @@
 #'   requested, download the selected model into the DNMB cache if it is
 #'   missing.
 #' @param promotech_model_base_url Base URL for upstream Promotech model files.
+#' @param mrnacal_upstream,mrnacal_downstream Transcript-window lengths around
+#'   each start codon used by the mRNAcal module.
+#' @param mrnacal_rnafold_path Optional path to `RNAfold`; `NULL` auto-detects
+#'   from `PATH`.
+#' @param mrnacal_require_rnafold Logical; fail the mRNAcal module when
+#'   `RNAfold` is unavailable.
+#' @param mrnacal_sd_seed Optional Shine-Dalgarno seed override.
+#' @param mrnacal_top_folds Number of high-scoring fold diagrams to draw.
 #' @param clean_previous Logical. If \code{TRUE}, remove prior run artifacts
 #'   before starting. Cached module results and InterProScan outputs are kept
 #'   when their saved input/database signatures still match the current run.
@@ -164,6 +174,7 @@ run_DNMB <- function(
     module_dbAPIS = TRUE,
     module_AcrFinder = TRUE,
     module_Promotech = FALSE,
+    module_mRNAcal = FALSE,
     module_DefenseFinder_antidefense = TRUE,
     module_PADLOC = TRUE,
     module_DefensePredictor = TRUE,
@@ -198,6 +209,12 @@ run_DNMB <- function(
     promotech_python = "python3",
     promotech_download_model = TRUE,
     promotech_model_base_url = .dnmb_promotech_default_model_base_url(),
+    mrnacal_upstream = 60L,
+    mrnacal_downstream = 60L,
+    mrnacal_rnafold_path = NULL,
+    mrnacal_require_rnafold = TRUE,
+    mrnacal_sd_seed = NULL,
+    mrnacal_top_folds = 12L,
     clean_previous = TRUE,
     comparative = FALSE,
     comparative_data_root = NULL
@@ -252,6 +269,7 @@ run_DNMB <- function(
     module_dbAPIS = module_dbAPIS,
     module_AcrFinder = module_AcrFinder,
     module_Promotech = module_Promotech,
+    module_mRNAcal = module_mRNAcal,
     module_PADLOC = module_PADLOC,
     module_DefensePredictor = module_DefensePredictor,
     module_REBASEfinder = module_REBASEfinder,
@@ -280,6 +298,12 @@ run_DNMB <- function(
     promotech_python = promotech_python,
     promotech_download_model = promotech_download_model,
     promotech_model_base_url = promotech_model_base_url,
+    mrnacal_upstream = mrnacal_upstream,
+    mrnacal_downstream = mrnacal_downstream,
+    mrnacal_rnafold_path = mrnacal_rnafold_path,
+    mrnacal_require_rnafold = mrnacal_require_rnafold,
+    mrnacal_sd_seed = mrnacal_sd_seed,
+    mrnacal_top_folds = mrnacal_top_folds,
     iselement_analysis_depth = iselement_analysis_depth,
     iselement_related_genbanks = iselement_related_genbanks,
     iselement_related_metadata = iselement_related_metadata,
@@ -436,6 +460,7 @@ run_DNMB <- function(
     module_dbAPIS = module_dbAPIS,
     module_AcrFinder = module_AcrFinder,
     module_Promotech = module_Promotech,
+    module_mRNAcal = module_mRNAcal,
     module_PADLOC = module_PADLOC,
     module_DefensePredictor = module_DefensePredictor,
       module_REBASEfinder = module_REBASEfinder,
@@ -464,6 +489,12 @@ run_DNMB <- function(
     promotech_python = promotech_python,
     promotech_download_model = promotech_download_model,
     promotech_model_base_url = promotech_model_base_url,
+    mrnacal_upstream = mrnacal_upstream,
+    mrnacal_downstream = mrnacal_downstream,
+    mrnacal_rnafold_path = mrnacal_rnafold_path,
+    mrnacal_require_rnafold = mrnacal_require_rnafold,
+    mrnacal_sd_seed = mrnacal_sd_seed,
+    mrnacal_top_folds = mrnacal_top_folds,
     iselement_analysis_depth = iselement_analysis_depth,
     iselement_related_genbanks = iselement_related_genbanks,
     iselement_related_metadata = iselement_related_metadata,
@@ -523,6 +554,7 @@ run_DNMB <- function(
               module_dbAPIS = module_dbAPIS,
               module_AcrFinder = module_AcrFinder,
               module_Promotech = module_Promotech,
+              module_mRNAcal = module_mRNAcal,
               module_DefenseFinder_antidefense = module_DefenseFinder_antidefense,
               module_cpu = module_cpu,
               promotech_predictions = promotech_predictions,
@@ -533,6 +565,12 @@ run_DNMB <- function(
               promotech_python = promotech_python,
               promotech_download_model = promotech_download_model,
               promotech_model_base_url = promotech_model_base_url,
+              mrnacal_upstream = mrnacal_upstream,
+              mrnacal_downstream = mrnacal_downstream,
+              mrnacal_rnafold_path = mrnacal_rnafold_path,
+              mrnacal_require_rnafold = mrnacal_require_rnafold,
+              mrnacal_sd_seed = mrnacal_sd_seed,
+              mrnacal_top_folds = mrnacal_top_folds,
               iselement_analysis_depth = iselement_analysis_depth,
               iselement_related_genbanks = iselement_related_genbanks,
               iselement_related_metadata = iselement_related_metadata,
@@ -652,6 +690,7 @@ dnmb_enabled_module_aliases <- function(module_dbCAN = FALSE,
                                         module_dbAPIS = FALSE,
                                         module_AcrFinder = FALSE,
                                         module_Promotech = FALSE,
+                                        module_mRNAcal = FALSE,
                                         module_PADLOC = FALSE,
                                         module_DefensePredictor = FALSE,
                                         module_REBASEfinder = FALSE,
@@ -678,6 +717,7 @@ dnmb_enabled_module_aliases <- function(module_dbCAN = FALSE,
     dbAPIS = isTRUE(module_dbAPIS),
     AcrFinder = isTRUE(module_AcrFinder),
     Promotech = isTRUE(module_Promotech),
+    mRNAcal = isTRUE(module_mRNAcal),
     PADLOC = isTRUE(module_PADLOC),
     DefensePredictor = isTRUE(module_DefensePredictor),
     REBASEfinder = isTRUE(module_REBASEfinder),
@@ -705,6 +745,7 @@ dnmb_resolve_module_results <- function(module_aliases,
                                         module_dbAPIS = TRUE,
                                         module_AcrFinder = TRUE,
                                         module_Promotech = FALSE,
+                                        module_mRNAcal = FALSE,
                                         module_DefenseFinder_antidefense = TRUE,
                                         module_cpu = .dnmb_default_cpu(),
                                         promotech_predictions = NULL,
@@ -715,6 +756,12 @@ dnmb_resolve_module_results <- function(module_aliases,
                                         promotech_python = "python3",
                                         promotech_download_model = TRUE,
                                         promotech_model_base_url = .dnmb_promotech_default_model_base_url(),
+                                        mrnacal_upstream = 60L,
+                                        mrnacal_downstream = 60L,
+                                        mrnacal_rnafold_path = NULL,
+                                        mrnacal_require_rnafold = TRUE,
+                                        mrnacal_sd_seed = NULL,
+                                        mrnacal_top_folds = 12L,
                                         iselement_analysis_depth = "full",
                                         iselement_related_genbanks = NULL,
                                         iselement_related_metadata = NULL,
@@ -747,6 +794,7 @@ dnmb_resolve_module_results <- function(module_aliases,
     "dbAPIS",
     "AcrFinder",
     "Promotech",
+    "mRNAcal",
     "PADLOC",
     "DefensePredictor",
     "REBASEfinder",
@@ -768,6 +816,7 @@ dnmb_resolve_module_results <- function(module_aliases,
   module_flags$module_dbAPIS <- module_dbAPIS
   module_flags$module_AcrFinder <- module_AcrFinder
   module_flags$module_Promotech <- isTRUE(module_Promotech) || "Promotech" %in% module_aliases
+  module_flags$module_mRNAcal <- isTRUE(module_mRNAcal) || "mRNAcal" %in% module_aliases
   module_flags$module_DefenseFinder_antidefense <- module_DefenseFinder_antidefense
   module_flags$module_cpu <- module_cpu
   module_flags$module_Prophage_backend <- module_Prophage_backend
@@ -779,6 +828,12 @@ dnmb_resolve_module_results <- function(module_aliases,
   module_flags$promotech_python <- promotech_python
   module_flags$promotech_download_model <- promotech_download_model
   module_flags$promotech_model_base_url <- promotech_model_base_url
+  module_flags$mrnacal_upstream <- mrnacal_upstream
+  module_flags$mrnacal_downstream <- mrnacal_downstream
+  module_flags$mrnacal_rnafold_path <- mrnacal_rnafold_path
+  module_flags$mrnacal_require_rnafold <- mrnacal_require_rnafold
+  module_flags$mrnacal_sd_seed <- mrnacal_sd_seed
+  module_flags$mrnacal_top_folds <- mrnacal_top_folds
   module_flags$iselement_analysis_depth <- iselement_analysis_depth
   module_flags$iselement_related_genbanks <- iselement_related_genbanks
   module_flags$iselement_related_metadata <- iselement_related_metadata

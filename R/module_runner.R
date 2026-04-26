@@ -385,6 +385,8 @@
 #' @param promotech_model_base_url Base URL for upstream Promotech model files.
 #' @param mrnacal_upstream,mrnacal_downstream Transcript-window lengths around
 #'   the start codon used by the mRNAcal translation-initiation module.
+#'   RNAplfold is run on a smaller local TIR window inside this extracted
+#'   sequence for speed.
 #' @param mrnacal_rnafold_path Optional path to `RNAfold`; `NULL` auto-detects
 #'   from `PATH`. Sibling `RNAplfold` and `RNAduplex` binaries are used when
 #'   available.

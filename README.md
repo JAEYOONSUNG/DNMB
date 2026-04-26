@@ -333,18 +333,21 @@ run_DNMB(
 mRNAcal can be appended as a DNMB module with `module_mRNAcal = TRUE`. It scores
 each protein-coding gene's transcript initiation region using RBS motif quality,
 RBS-to-start spacing, anti-Shine-Dalgarno duplex energy, RNAplfold local
-accessibility, start codon, early lysine/AAA-AAG codon context, and RNAfold
-MFE. The default window is 60 nt upstream and 60 nt downstream of the start
-codon in the transcript direction.
+accessibility, upstream A/U-rich enhancer context, start codon, N-terminal
+coding sequence context (including early lysine/AAA-AAG codons and the first
+45 bp after `ATG`), and RNAfold MFE. The default extraction window is
+60 nt upstream and 60 nt downstream of the start codon in the transcript
+direction, but RNAplfold is run on a smaller local TIR window around the start
+codon for speed and biological specificity.
 
 DNMB uses ViennaRNA `RNAfold` for fast batch MFE folding, `RNAplfold` for
-RBS/start unpaired probabilities, and `RNAduplex` for anti-SD:RBS binding
-energy. Docker builds ViennaRNA from source (`VIENNARNA_VERSION=2.7.2` by
-default), so these tools are available on `PATH`; local runs can pass
-`mrnacal_rnafold_path = "/path/to/RNAfold"` when needed, and sibling
-`RNAplfold`/`RNAduplex` binaries are detected automatically. Results are written
-to `dnmb_module_mrnacal/mrnacal_translation_efficiency.tsv`, appended to
-`DNMB_table.xlsx` with the `mRNAcal_` prefix, and visualized under
+RBS, start, standby-site, and start-centered TIR unpaired probabilities, and
+`RNAduplex` for anti-SD:RBS binding energy. Docker builds ViennaRNA from source
+(`VIENNARNA_VERSION=2.7.2` by default), so these tools are available on `PATH`;
+local runs can pass `mrnacal_rnafold_path = "/path/to/RNAfold"` when needed,
+and sibling `RNAplfold`/`RNAduplex` binaries are detected automatically. Results
+are written to `dnmb_module_mrnacal/mrnacal_translation_efficiency.tsv`,
+appended to `DNMB_table.xlsx` with the `mRNAcal_` prefix, and visualized under
 `visualizations/` as `mRNAcal_translation_efficiency.pdf` plus top fold arc
 diagrams in `mRNAcal_top_folds.pdf`.
 
@@ -363,8 +366,13 @@ run_module_set(
   Shine-Dalgarno seed from its 3' tail; otherwise it falls back to `AGGAGG`
   for bacteria and `GGAGG` for archaea. Use `mrnacal_sd_seed = "AGGAGG"` to
   force a specific motif.
-- **Scoring:** The composite score weights RBS motif/spacing, anti-SD duplex
-  energy, RNAplfold accessibility, start codon, early coding context, and MFE.
+- **Scoring:** The composite score prioritizes local TIR accessibility:
+  `0.20*RBS + 0.18*antiSD + 0.32*RNAplfold local accessibility +
+  0.10*upstream A/U + 0.10*start + 0.07*early coding context + 0.03*MFE`.
+  The early coding-context term follows the N-terminal coding sequence idea of
+  Tian et al. (`doi:10.1016/j.ymben.2019.07.001`) and reports both codon 2-8
+  lysine signals and NCS45 features. Long homopolymeric AAA/poly-A runs are
+  penalized rather than blindly rewarded.
 - **Runtime:** The module folds short TIR windows in ViennaRNA batches, so it is
   much lighter than full transcriptome folding.
 

@@ -587,6 +587,21 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "start_codon",
       "start_codon_score",
       "early_k_score",
+      "lysine_codon_count_2_8",
+      "aaa_count_2_8",
+      "aag_count_2_8",
+      "early_coding_at_fraction",
+      "ncs45_sequence",
+      "ncs45_at_fraction",
+      "ncs45_lysine_codon_count",
+      "ncs45_aaa_count",
+      "ncs45_aag_count",
+      "early_aaa_run",
+      "early_poly_a_penalty",
+      "skik_like",
+      "upstream20_sequence",
+      "upstream20_at_fraction",
+      "upstream_au_score",
       "fold_mfe",
       "fold_mfe_per_nt",
       "fold_score",
@@ -594,6 +609,8 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "start_unpaired_fraction",
       "rbs_plfold_unpaired_probability",
       "start_plfold_unpaired_probability",
+      "tir_plfold_unpaired_probability",
+      "standby_plfold_unpaired_probability",
       "plfold_accessibility_score",
       "accessibility_score",
       "accessibility_method",
@@ -942,12 +959,17 @@ dnmb_module_details_mrnacal <- function(genbank_table, base_cols) {
     dnmb_detail_key_value("RBS", if ("mRNAcal_rbs_score" %in% names(genbank_table)) genbank_table$mRNAcal_rbs_score[keep] else NA, digits = 1),
     dnmb_detail_key_value("antiSD", if ("mRNAcal_duplex_score" %in% names(genbank_table)) genbank_table$mRNAcal_duplex_score[keep] else NA, digits = 1),
     dnmb_detail_key_value("access", if ("mRNAcal_accessibility_score" %in% names(genbank_table)) genbank_table$mRNAcal_accessibility_score[keep] else NA, digits = 1),
+    dnmb_detail_key_value("upAU", if ("mRNAcal_upstream_au_score" %in% names(genbank_table)) genbank_table$mRNAcal_upstream_au_score[keep] else NA, digits = 1),
+    dnmb_detail_key_value("earlyK", if ("mRNAcal_lysine_codon_count_2_8" %in% names(genbank_table)) genbank_table$mRNAcal_lysine_codon_count_2_8[keep] else NA, digits = 0),
+    dnmb_detail_key_value("NCS45_K", if ("mRNAcal_ncs45_lysine_codon_count" %in% names(genbank_table)) genbank_table$mRNAcal_ncs45_lysine_codon_count[keep] else NA, digits = 0),
     dnmb_detail_key_value("MFE", if ("mRNAcal_fold_mfe" %in% names(genbank_table)) genbank_table$mRNAcal_fold_mfe[keep] else NA, digits = 2)
   )
   out$alignment_summary <- dnmb_detail_join(
     dnmb_detail_key_value("spacer", if ("mRNAcal_rbs_spacer" %in% names(genbank_table)) genbank_table$mRNAcal_rbs_spacer[keep] else NA, digits = 0),
     dnmb_detail_key_value("duplex_dG", if ("mRNAcal_duplex_energy" %in% names(genbank_table)) genbank_table$mRNAcal_duplex_energy[keep] else NA, digits = 2),
     if ("mRNAcal_start_codon" %in% names(genbank_table)) paste0("start=", as.character(genbank_table$mRNAcal_start_codon[keep])) else NA_character_,
+    if ("mRNAcal_upstream20_sequence" %in% names(genbank_table)) paste0("up20=", as.character(genbank_table$mRNAcal_upstream20_sequence[keep])) else NA_character_,
+    if ("mRNAcal_skik_like" %in% names(genbank_table)) paste0("SKIK_like=", as.character(genbank_table$mRNAcal_skik_like[keep])) else NA_character_,
     if ("mRNAcal_second_codon" %in% names(genbank_table)) paste0("second=", as.character(genbank_table$mRNAcal_second_codon[keep])) else NA_character_
   )
   out$context_summary <- dnmb_detail_join(

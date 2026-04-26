@@ -23,9 +23,18 @@
 }
 
 .dnmb_mrnacal_normalize_dna <- function(x) {
-  x <- base::toupper(base::as.character(x)[1])
-  x <- base::gsub("[^ACGTUN]", "", x)
-  x <- base::gsub("U", "T", x, fixed = TRUE)
+  x <- base::as.character(x)[1]
+  if (base::is.na(x) || !base::nzchar(x)) {
+    return("")
+  }
+  if (!base::grepl("[^ACGT]", x, perl = TRUE)) {
+    return(x)
+  }
+  x <- base::toupper(x)
+  x <- base::chartr("U", "T", x)
+  if (base::grepl("[^ACGTN]", x, perl = TRUE)) {
+    x <- base::gsub("[^ACGTN]", "", x, perl = TRUE)
+  }
   x
 }
 
@@ -248,12 +257,8 @@
   if (!base::length(codons)) {
     return(counts)
   }
-  tab <- base::table(codons)
-  for (cdn in base::names(tab)) {
-    if (cdn %in% base::names(counts)) {
-      counts[[cdn]] <- counts[[cdn]] + base::as.integer(tab[[cdn]])
-    }
-  }
+  tab <- base::tabulate(base::match(codons, base::names(counts)), nbins = 64L)
+  counts <- counts + base::as.integer(tab)
   counts
 }
 
@@ -287,11 +292,13 @@
   weights
 }
 
-.dnmb_mrnacal_cai <- function(cds_dna, weights) {
+.dnmb_mrnacal_cai <- function(cds_dna, weights, counts = NULL) {
   if (!base::length(weights) || base::all(base::is.na(weights))) {
     return(NA_real_)
   }
-  counts <- .dnmb_mrnacal_codon_counts(cds_dna)
+  if (base::is.null(counts)) {
+    counts <- .dnmb_mrnacal_codon_counts(cds_dna)
+  }
   inform <- !base::is.na(weights) & counts > 0L
   if (!base::any(inform)) {
     return(NA_real_)
@@ -473,11 +480,13 @@
   w
 }
 
-.dnmb_mrnacal_tai <- function(cds_dna, weights) {
+.dnmb_mrnacal_tai <- function(cds_dna, weights, counts = NULL) {
   if (!base::length(weights) || base::all(base::is.na(weights))) {
     return(NA_real_)
   }
-  counts <- .dnmb_mrnacal_codon_counts(cds_dna)
+  if (base::is.null(counts)) {
+    counts <- .dnmb_mrnacal_codon_counts(cds_dna)
+  }
   inform <- !base::is.na(weights) & counts > 0L
   if (!base::any(inform)) {
     return(NA_real_)
@@ -523,7 +532,7 @@
   }
   product <- base::as.character(genes$product)
   is_ribo <- !base::is.na(product) &
-    base::grepl("^([35]0S\\s+)?ribosomal protein\\s+[SL][0-9]+", product, ignore.case = TRUE)
+    base::grepl("^([35]0S\\s+)?ribosomal\\s+(subunit\\s+)?protein\\s+[SL][0-9]+", product, ignore.case = TRUE)
   if (base::sum(is_ribo) >= 8L) {
     return(list(mask = is_ribo, label = "ribosomal_proteins"))
   }
@@ -573,9 +582,10 @@
 }
 
 .dnmb_mrnacal_hamming <- function(a, b) {
-  aa <- base::strsplit(a, "", fixed = TRUE)[[1]]
-  bb <- base::strsplit(b, "", fixed = TRUE)[[1]]
-  base::sum(aa != bb)
+  if (base::nchar(a) != base::nchar(b)) {
+    return(NA_integer_)
+  }
+  base::sum(base::charToRaw(a) != base::charToRaw(b))
 }
 
 .dnmb_mrnacal_best_rbs <- function(sequence_dna, upstream_len, sd_seed = "AGGAGG") {
@@ -1622,9 +1632,9 @@ dnmb_run_mrnacal_module <- function(genes,
     start_score <- .dnmb_mrnacal_start_score(win$start_codon)
     cds_dna <- base::substr(win$sequence_dna, win$upstream_len_observed + 1L, base::nchar(win$sequence_dna))
     full_cds_dna <- full_cds_list[[i]]
-    cai_value <- .dnmb_mrnacal_cai(full_cds_dna, cai_weights)
-    tai_value <- .dnmb_mrnacal_tai(full_cds_dna, tai_weights)
     cds_codon_counts <- .dnmb_mrnacal_codon_counts(full_cds_dna)
+    cai_value <- .dnmb_mrnacal_cai(full_cds_dna, cai_weights, counts = cds_codon_counts)
+    tai_value <- .dnmb_mrnacal_tai(full_cds_dna, tai_weights, counts = cds_codon_counts)
     informative_codons <- base::sum(cds_codon_counts[!base::is.na(cai_weights)])
     early <- .dnmb_mrnacal_early_context(cds_dna, translation = if ("translation" %in% base::names(row)) row$translation[[1]] else NA_character_)
     internal_sd <- .dnmb_mrnacal_internal_sd(cds_dna, sd_seed = seed, scan_len = 60L)

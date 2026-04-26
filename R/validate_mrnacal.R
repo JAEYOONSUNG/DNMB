@@ -19,6 +19,10 @@
 #'   When provided, overrides the auto-constructed URL.
 #' @param paxdb_dataset PaxDB dataset slug. Defaults to
 #'   `WHOLE_ORGANISM-integrated`.
+#' @param gene_metadata Optional data.frame with at least
+#'   `locus_tag` and any of `gene`/`protein_id`/`old_locus_tag`,
+#'   used to broaden ID matching when the mRNAcal results table
+#'   lacks gene names. Falls back to the global `genbank_table`.
 #' @param cache_dir Where to cache downloaded PaxDB files.
 #' @param output_dir Directory where the validation TSVs and PDF go.
 #' @param generate_plot Whether to render the scatter PDF.
@@ -34,12 +38,36 @@ dnmb_validate_mrnacal <- function(results,
                                   genbank = NULL,
                                   paxdb_url = NULL,
                                   paxdb_dataset = "WHOLE_ORGANISM-integrated",
+                                  gene_metadata = NULL,
                                   cache_dir = NULL,
                                   output_dir = NULL,
                                   generate_plot = TRUE) {
   results <- .dnmb_validate_load_results(results)
   if (!base::nrow(results)) {
     stop("mRNAcal results are empty.", call. = FALSE)
+  }
+  if (base::is.null(gene_metadata)) {
+    gene_metadata <- base::get0("genbank_table", envir = base::.GlobalEnv, inherits = FALSE)
+  }
+  if (base::is.data.frame(gene_metadata) && base::nrow(gene_metadata)) {
+    add_cols <- base::intersect(
+      c("gene", "protein_id", "old_locus_tag", "gene_synonym"),
+      base::names(gene_metadata)
+    )
+    if (base::length(add_cols) && "locus_tag" %in% base::names(gene_metadata)) {
+      meta <- base::as.data.frame(
+        gene_metadata[, c("locus_tag", add_cols), drop = FALSE],
+        stringsAsFactors = FALSE
+      )
+      meta$locus_tag <- base::as.character(meta$locus_tag)
+      meta <- meta[!base::duplicated(meta$locus_tag), , drop = FALSE]
+      idx <- base::match(base::as.character(results$locus_tag), meta$locus_tag)
+      for (col in add_cols) {
+        if (!col %in% base::names(results)) {
+          results[[col]] <- meta[[col]][idx]
+        }
+      }
+    }
   }
   if (base::is.null(output_dir)) {
     output_dir <- base::file.path(base::getwd(), "mrnacal_validation")
@@ -241,12 +269,14 @@ dnmb_validate_mrnacal <- function(results,
     return(data.frame())
   }
   if (base::ncol(tbl) >= 3L) {
-    base::names(tbl)[1:3] <- c("internal_id", "string_id", "abundance")
+    base::names(tbl)[1:3] <- c("gene_name", "string_id", "abundance")
   } else {
     base::names(tbl)[1:2] <- c("string_id", "abundance")
+    tbl$gene_name <- NA_character_
   }
   tbl$abundance <- suppressWarnings(base::as.numeric(tbl$abundance))
   tbl$string_id <- base::as.character(tbl$string_id)
+  tbl$gene_name <- base::as.character(tbl$gene_name)
   tbl$external_id <- base::sub("^[0-9]+\\.", "", tbl$string_id)
   tbl <- tbl[!base::is.na(tbl$abundance) & tbl$abundance > 0, , drop = FALSE]
   tbl
@@ -255,34 +285,55 @@ dnmb_validate_mrnacal <- function(results,
 .dnmb_validate_match <- function(results, abundance, genbank = NULL) {
   abundance <- base::as.data.frame(abundance, stringsAsFactors = FALSE)
   abundance$external_id <- base::as.character(abundance$external_id)
+  if (!"gene_name" %in% base::names(abundance)) {
+    abundance$gene_name <- NA_character_
+  }
+  abundance$gene_name <- base::as.character(abundance$gene_name)
   results <- base::as.data.frame(results, stringsAsFactors = FALSE)
   results$locus_tag <- base::as.character(results$locus_tag)
   if ("protein_id" %in% base::names(results)) {
     results$protein_id <- base::as.character(results$protein_id)
   }
+  if ("gene" %in% base::names(results)) {
+    results$gene <- base::as.character(results$gene)
+  }
 
-  match_keys <- list(
-    locus_tag = if ("locus_tag" %in% base::names(results)) results$locus_tag else character(0),
-    protein_id = if ("protein_id" %in% base::names(results)) results$protein_id else character(0),
-    locus_tag_strip = if ("locus_tag" %in% base::names(results)) base::sub("\\.[0-9]+$", "", results$locus_tag) else character(0)
-  )
-  match_keys <- match_keys[base::lengths(match_keys) > 0L]
+  norm_id <- function(x) {
+    base::tolower(base::gsub("[^A-Za-z0-9]", "", base::as.character(x)))
+  }
 
-  ext <- abundance$external_id
-  ext_strip <- base::sub("\\.[0-9]+$", "", ext)
+  ext_raw <- abundance$external_id
+  ext_strip_ver <- base::sub("\\.[0-9]+$", "", ext_raw)
+  ext_norm <- norm_id(ext_raw)
+  gene_norm <- norm_id(abundance$gene_name)
 
   matches <- base::rep(NA_integer_, base::nrow(results))
-  for (key in match_keys) {
+
+  try_keys <- function(values) {
+    if (!base::length(values)) return(invisible(NULL))
+    raw <- base::as.character(values)
+    raw_strip <- base::sub("\\.[0-9]+$", "", raw)
+    norm <- norm_id(raw)
     candidates <- list(
-      base::match(key, ext),
-      base::match(key, ext_strip),
-      base::match(base::sub("\\.[0-9]+$", "", key), ext)
+      base::match(raw, ext_raw),
+      base::match(raw, ext_strip_ver),
+      base::match(raw_strip, ext_raw),
+      base::match(raw_strip, ext_strip_ver),
+      base::match(norm, ext_norm),
+      if (base::any(base::nzchar(gene_norm), na.rm = TRUE)) base::match(norm, gene_norm) else integer(0)
     )
     for (m in candidates) {
+      if (!base::length(m)) next
       take <- base::is.na(matches) & !base::is.na(m)
-      matches[take] <- m[take]
+      matches[take] <<- m[take]
     }
   }
+
+  if ("locus_tag" %in% base::names(results)) try_keys(results$locus_tag)
+  if ("protein_id" %in% base::names(results)) try_keys(results$protein_id)
+  if ("gene" %in% base::names(results)) try_keys(results$gene)
+  if ("old_locus_tag" %in% base::names(results)) try_keys(results$old_locus_tag)
+  if ("gene_synonym" %in% base::names(results)) try_keys(results$gene_synonym)
 
   keep <- !base::is.na(matches)
   if (!base::any(keep)) {
@@ -291,6 +342,9 @@ dnmb_validate_mrnacal <- function(results,
   out <- results[keep, , drop = FALSE]
   out$abundance <- abundance$abundance[matches[keep]]
   out$abundance_external_id <- abundance$external_id[matches[keep]]
+  if ("gene_name" %in% base::names(abundance)) {
+    out$abundance_gene_name <- abundance$gene_name[matches[keep]]
+  }
   out$abundance_log10 <- base::log10(out$abundance)
   out
 }

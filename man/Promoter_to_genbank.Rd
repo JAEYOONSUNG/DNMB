@@ -2,20 +2,33 @@
 % Please edit documentation in R/Promotech_genbank.R
 \name{Promoter_to_genbank}
 \alias{Promoter_to_genbank}
-\title{Promotech to sanpgene #}
+\title{Add Promotech promoter predictions to GenBank}
 \usage{
-Promoter_to_genbank(promotech = NULL, genbank = NULL)
+Promoter_to_genbank(
+  promotech = NULL,
+  genbank = NULL,
+  output_file = NULL,
+  snippet_file = NULL,
+  threshold = NULL
+)
 }
 \arguments{
-\item{df}{A data frame containing the data from eggNOG-mapper (http://eggnog-mapper.embl.de).}
+\item{promotech}{Path to a Promotech \code{genome_predictions.csv},
+\code{promotech_predictions.tsv}, or legacy \code{promotech.csv} file. If \code{NULL},
+the current directory is searched.}
 
-\item{EggNOG_dir}{A string specifying the directory where the eggNOG-mapper output files are located. If NULL, the current working directory is used.}
+\item{genbank}{Path to a GenBank file. If \code{NULL}, the current directory is
+searched for one \code{.gb}, \code{.gbk}, or \code{.gbff} file.}
 
-\item{save_output}{A logical value indicating whether to save the output to an Excel file in XLSX format. Defaults to FALSE.}
+\item{output_file}{Optional GenBank path for the annotated copy.}
+
+\item{snippet_file}{Optional path for the paste-ready GenBank FEATURES block.}
+
+\item{threshold}{Optional minimum Promotech score to keep.}
 }
 \value{
-A list containing summary information of the processed data.
+Invisibly returns a list with the written annotation file paths.
 }
 \description{
-Promotech to sanpgene #
+Add Promotech promoter predictions to GenBank
 }

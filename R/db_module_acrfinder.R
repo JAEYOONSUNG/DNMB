@@ -22,6 +22,36 @@
   .dnmb_acrfinder_status_row(character(), character(), character())
 }
 
+.dnmb_acrfinder_trace <- function(path, text) {
+  base::cat(base::paste0(text, "\n"), file = path, append = TRUE)
+}
+
+.dnmb_acrfinder_trace_result <- function(path, result, label = "acrfinder_run") {
+  if (base::is.null(result) || !base::is.list(result)) {
+    return(invisible(FALSE))
+  }
+  lines <- c(
+    base::sprintf("[%s] %s status=%s ok=%s", base::Sys.time(), label, result$status %||% NA_integer_, base::isTRUE(result$ok)),
+    if (!base::is.null(result$error) && base::nzchar(base::as.character(result$error))) {
+      base::paste0("error: ", base::as.character(result$error))
+    } else {
+      character()
+    },
+    if (base::length(result$stderr)) {
+      c("stderr:", result$stderr)
+    } else {
+      character()
+    },
+    if (base::length(result$stdout)) {
+      c("stdout:", result$stdout)
+    } else {
+      character()
+    }
+  )
+  .dnmb_acrfinder_trace(path, base::paste(lines, collapse = "\n"))
+  invisible(TRUE)
+}
+
 .dnmb_acrfinder_patch_biopython_compat <- function(repo_dir) {
   mask_path <- base::file.path(repo_dir, "mask_fna_with_spacers.py")
   changed <- FALSE
@@ -45,6 +75,38 @@
   runner_path <- base::file.path(repo_dir, "acr_aca_cri_runner.py")
   if (base::file.exists(runner_path)) {
     lines <- base::readLines(runner_path, warn = FALSE)
+    if (!base::any(lines == "from shutil import which as shutil_which")) {
+      import_anchor <- grep("^from os import path as os_path$", lines)
+      if (base::length(import_anchor)) {
+        lines <- append(lines, "from shutil import which as shutil_which", after = import_anchor[[1]])
+        changed <- TRUE
+      }
+    }
+    if (!base::any(lines == "def _dnmb_rpsblast_binary():")) {
+      import_idx <- grep("^from shutil import which as shutil_which$", lines)
+      if (base::length(import_idx)) {
+        lines <- append(
+          lines,
+          c(
+            "",
+            "def _dnmb_rpsblast_binary():",
+            "    return shutil_which('rpsblast+') or shutil_which('rpsblast')"
+          ),
+          after = import_idx[[1]]
+        )
+        changed <- TRUE
+      }
+    }
+    selector_idx <- grep("CRISPR_CAS_FINDER_EXECUTABLE, CRISPR_CAS_FINDER_SO, NUM_CPUS = ", lines, fixed = TRUE)
+    if (base::length(selector_idx) && base::grepl("dependencies/CRISPRCasFinder/sel392v2\\.so", lines[[selector_idx[[1]]]])) {
+      lines[[selector_idx[[1]]]] <- "CRISPR_CAS_FINDER_EXECUTABLE, CRISPR_CAS_FINDER_SO, NUM_CPUS = 'dependencies/CRISPRCasFinder/CRISPRCasFinder.pl', '/usr/lib/vmatch/SELECT/sel392.so', '4'  # CRISPRCasFinder files"
+      changed <- TRUE
+    }
+    rpsblast_exec_idx <- grep("execute\\(\\['rpsblast\\+',", lines)
+    if (base::length(rpsblast_exec_idx)) {
+      lines[rpsblast_exec_idx] <- sub("execute\\(\\['rpsblast\\+',", "execute([_dnmb_rpsblast_binary(),", lines[rpsblast_exec_idx])
+      changed <- TRUE
+    }
     cdd_block_start <- grep("^\\tskip_cdd_filter = ", lines)
     if (!base::length(cdd_block_start)) {
       legacy_start <- grep("^\\t\\t*fasta_file, rpsblast_file = generate_filter_file\\(ACR_ACA_FILE, CDD_DBFILE, INTERMEDIATES\\)$", lines)
@@ -57,7 +119,7 @@
     cdd_block_end <- grep("^\\twith open\\(ACR_ACA_FILE\\) as acrFile:", lines)
     if (base::length(cdd_block_start) == 1L && base::length(cdd_block_end) == 1L && cdd_block_end[[1]] > cdd_block_start) {
       replacement <- c(
-        "\tskip_cdd_filter = (GENOME_TYPE == 'V') or (not os_path.exists(ESCAPE_DBFILE)) or (not (os_path.exists(CDD_DBFILE) or os_path.exists(CDD_DBFILE + '.pn')))",
+        "\tskip_cdd_filter = (GENOME_TYPE == 'V') or (_dnmb_rpsblast_binary() is None) or (not os_path.exists(ESCAPE_DBFILE)) or (not (os_path.exists(CDD_DBFILE) or os_path.exists(CDD_DBFILE + '.pn')))",
         "\tif skip_cdd_filter:",
         "\t\tfasta_file, rpsblast_file = None, None",
         "\t\tescape_set = set()",
@@ -81,15 +143,14 @@
       }
     }
 
-    filter_idx <- grep("^\\t\\t\\tis_cddfilter = \\(GENOME_TYPE != 'V'\\)$", lines)
-    if (base::length(filter_idx)) {
-      lines[filter_idx] <- "\t\t\tis_cddfilter = (GENOME_TYPE != 'V') and (not skip_cdd_filter)"
-      changed <- TRUE
-    }
-
     assign_idx <- grep("^\\t\\t\\tis_cddfilter =", lines)
-    if (base::length(assign_idx) > 1L) {
-      drop_idx <- assign_idx[c(FALSE, diff(assign_idx) == 1L)]
+    if (base::length(assign_idx)) {
+      corrected_assignment <- "\t\t\tis_cddfilter = (GENOME_TYPE != 'V') and (not skip_cdd_filter)"
+      if (!identical(lines[[assign_idx[[1]]]], corrected_assignment)) {
+        lines[[assign_idx[[1]]]] <- corrected_assignment
+        changed <- TRUE
+      }
+      drop_idx <- assign_idx[-1L]
       if (base::length(drop_idx)) {
         lines <- lines[-drop_idx]
         changed <- TRUE
@@ -98,6 +159,24 @@
 
     if (changed) {
       base::writeLines(lines, con = runner_path)
+    }
+  }
+
+  crisprcas_path <- base::file.path(repo_dir, "dependencies", "CRISPRCasFinder", "CRISPRCasFinder.pl")
+  if (base::file.exists(crisprcas_path)) {
+    lines <- base::readLines(crisprcas_path, warn = FALSE)
+    so_idx <- grep('^my \\$so = "\\./sel392v2\\.so";', lines)
+    if (base::length(so_idx)) {
+      lines[[so_idx[[1]]]] <- 'my $so = $ENV{"DNMB_VMATCH_SEL392"} || "/usr/lib/vmatch/SELECT/sel392.so"; # path to shared object (.so) file (former name: $pathSoFile)'
+      changed <- TRUE
+    }
+    trunc_idx <- grep('elsif\\(\\$ARGV\\[\\$i\\]=~/-truncDR/ or \\$ARGV\\[\\$i\\]=~/-t/\\)\\{', lines)
+    if (base::length(trunc_idx)) {
+      lines[[trunc_idx[[1]]]] <- '    elsif($ARGV[$i]=~/^-truncDR$/ or $ARGV[$i]=~/^-t$/){'
+      changed <- TRUE
+    }
+    if (base::isTRUE(changed)) {
+      base::writeLines(lines, con = crisprcas_path)
     }
   }
   changed
@@ -279,6 +358,16 @@ dnmb_acrfinder_install_module <- function(version = .dnmb_acrfinder_default_vers
   status <- .dnmb_acrfinder_empty_status()
   manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
   cache_state <- .dnmb_acrfinder_cached_install_state(layout, manifest = manifest)
+
+  if (base::dir.exists(layout$repo_dir)) {
+    patch_changed <- .dnmb_acrfinder_patch_biopython_compat(layout$repo_dir)
+    if (base::isTRUE(patch_changed)) {
+      status <- dplyr::bind_rows(
+        status,
+        .dnmb_acrfinder_status_row("acrfinder_repo_patch", "ok", "Applied Biopython/CDD compatibility patch.")
+      )
+    }
+  }
 
   if (!base::isTRUE(cache_state$ok) && !base::isTRUE(force) && !base::is.null(manifest) && base::isTRUE(manifest$install_ok)) {
     status <- dplyr::bind_rows(
@@ -591,6 +680,7 @@ dnmb_acrfinder_full_normalize_hits <- function(parsed_outputs) {
     evidence_mode = base::as.character(tbl$evidence_mode),
     substrate_label = base::rep("anti-CRISPR", base::nrow(tbl)),
     support = support,
+    typing_eligible = base::rep(TRUE, base::nrow(tbl)),
     classification = if ("Classification" %in% names(tbl)) base::as.character(tbl$Classification) else NA_character_,
     pident = if ("pident" %in% names(tbl)) base::as.numeric(tbl$pident) else NA_real_,
     stringsAsFactors = FALSE
@@ -620,8 +710,124 @@ dnmb_acrfinder_full_normalize_hits <- function(parsed_outputs) {
   )
 }
 
+.dnmb_acrfinder_find_on_path <- function(binary, path_entries = character()) {
+  binary <- base::as.character(binary)[1]
+  path_entries <- base::as.character(path_entries)
+  path_entries <- path_entries[!base::is.na(path_entries) & base::nzchar(path_entries)]
+  candidates <- base::file.path(path_entries, binary)
+  existing <- candidates[base::file.exists(candidates)]
+  if (base::length(existing)) {
+    return(existing[[1]])
+  }
+  detected <- base::Sys.which(binary)
+  if (base::length(detected) && base::nzchar(detected[[1]])) {
+    return(base::unname(detected[[1]]))
+  }
+  ""
+}
+
+.dnmb_acrfinder_find_rpsblast <- function(path_entries = character()) {
+  for (binary in c("rpsblast+", "rpsblast")) {
+    found <- .dnmb_acrfinder_find_on_path(binary, path_entries = path_entries)
+    if (base::nzchar(found)) {
+      return(found)
+    }
+  }
+  ""
+}
+
+.dnmb_acrfinder_runtime_status <- function(path_entries = character()) {
+  required_bins <- c(
+    "diamond", "blastn", "perl", "clustalw", "muscle", "fuzznuc", "needle",
+    "vmatch2", "mkvtree2", "vsubseqselect2"
+  )
+  rows <- lapply(required_bins, function(binary) {
+    found <- .dnmb_acrfinder_find_on_path(binary, path_entries = path_entries)
+    .dnmb_acrfinder_status_row(
+      paste0("acrfinder_dependency_", binary),
+      if (base::nzchar(found)) "ok" else "missing",
+      if (base::nzchar(found)) found else paste0(binary, " not found in PATH.")
+    )
+  })
+  status <- dplyr::bind_rows(rows)
+
+  perl_path <- .dnmb_acrfinder_find_on_path("perl", path_entries = path_entries)
+  if (base::nzchar(perl_path)) {
+    perl_modules <- c(
+      bioperl = "Bio::SeqIO",
+      bioperl_run_clustalw = "Bio::Tools::Run::Alignment::Clustalw",
+      date_calc = "Date::Calc",
+      json_parse = "JSON::Parse"
+    )
+    perl_rows <- lapply(names(perl_modules), function(label) {
+      module <- perl_modules[[label]]
+      check <- dnmb_run_external(perl_path, args = c(paste0("-M", module), "-e", "1"), required = FALSE)
+      .dnmb_acrfinder_status_row(
+        paste0("acrfinder_dependency_", label),
+        if (base::isTRUE(check$ok)) "ok" else "missing",
+        if (base::isTRUE(check$ok)) module else paste0("Perl module ", module, " is missing.")
+      )
+    })
+    status <- dplyr::bind_rows(status, dplyr::bind_rows(perl_rows))
+  }
+
+  rpsblast <- .dnmb_acrfinder_find_rpsblast(path_entries = path_entries)
+  status <- dplyr::bind_rows(
+    status,
+    .dnmb_acrfinder_status_row(
+      "acrfinder_dependency_rpsblast",
+      if (base::nzchar(rpsblast)) "ok" else "skipped",
+      if (base::nzchar(rpsblast)) rpsblast else "rpsblast/rpsblast+ not found; AcrFinder CDD filtering will be skipped."
+    )
+  )
+  sel392 <- base::Sys.getenv("DNMB_VMATCH_SEL392", unset = "/usr/lib/vmatch/SELECT/sel392.so")
+  status <- dplyr::bind_rows(
+    status,
+    .dnmb_acrfinder_status_row(
+      "acrfinder_dependency_vmatch_sel392",
+      if (base::file.exists(sel392)) "ok" else "missing",
+      if (base::file.exists(sel392)) sel392 else "Vmatch selector sel392.so is missing."
+    )
+  )
+  status
+}
+
+.dnmb_acrfinder_output_prefixes <- function(prefix) {
+  prefix <- base::trimws(base::as.character(prefix)[1])
+  if (base::is.na(prefix) || !base::nzchar(prefix)) {
+    return(character())
+  }
+  unique(c(prefix, sub("\\.[0-9]+$", "", prefix)))
+}
+
+.dnmb_acrfinder_first_existing_output <- function(output_dir, prefixes, suffix) {
+  candidates <- base::file.path(output_dir, base::paste0(prefixes, suffix))
+  existing <- candidates[base::file.exists(candidates)]
+  if (base::length(existing)) {
+    return(existing[[1]])
+  }
+  glob <- base::list.files(output_dir, pattern = base::paste0(suffix, "$"), full.names = TRUE)
+  if (base::length(glob)) {
+    return(glob[[1]])
+  }
+  candidates[[1]]
+}
+
 .dnmb_acrfinder_output_table <- function(genes, hits) {
-  out <- .dnmb_module_output_table(genes = genes, hits = hits)
+  genes_df <- base::as.data.frame(genes, stringsAsFactors = FALSE)
+  hits_df <- base::as.data.frame(hits, stringsAsFactors = FALSE)
+  if (base::nrow(hits_df) && all(c("locus_tag", "protein_id") %in% base::names(genes_df)) && "query" %in% base::names(hits_df)) {
+    protein_keys <- .dnmb_module_clean_annotation_key(genes_df$protein_id)
+    locus_keys <- .dnmb_module_clean_annotation_key(genes_df$locus_tag)
+    hit_keys <- .dnmb_module_clean_annotation_key(hits_df$query)
+    matched <- base::match(hit_keys, protein_keys)
+    replace <- !base::is.na(matched) & !base::is.na(locus_keys[matched]) & base::nzchar(locus_keys[matched])
+    if (base::any(replace)) {
+      hits_df$query_protein_id <- hits_df$query
+      hits_df$query[replace] <- locus_keys[matched[replace]]
+    }
+  }
+  out <- .dnmb_module_output_table(genes = genes_df, hits = hits_df)
   ordered <- c(
     base::intersect(dnmb_backbone_columns(), base::names(out)),
     base::intersect(c("family_id", "hit_label", "acr_id", "pident", "qcov", "evalue", "bitscore", "align_len", "support"), base::names(out)),
@@ -678,6 +884,9 @@ dnmb_run_acrfinder_module <- function(genes,
   }
 
   final_dir <- base::file.path(output_dir, "acrfinder_output")
+  if (base::dir.exists(final_dir)) {
+    base::unlink(final_dir, recursive = TRUE, force = TRUE)
+  }
   base::dir.create(final_dir, recursive = TRUE, showWarnings = FALSE)
   cmd <- c(
     base::file.path(module$manifest$repo_dir, "acr_aca_cri_runner.py"),
@@ -702,6 +911,14 @@ dnmb_run_acrfinder_module <- function(genes,
     strsplit(base::Sys.getenv("PATH"), .Platform$path.sep, fixed = TRUE)[[1]]
   )
   acr_path_entries <- unique(acr_path_entries[base::nzchar(acr_path_entries) & base::file.exists(acr_path_entries)])
+  dependency_status <- .dnmb_acrfinder_runtime_status(acr_path_entries)
+  status <- dplyr::bind_rows(status, dependency_status)
+  blocking_dependency <- dependency_status$status %in% c("missing", "failed")
+  if (base::any(blocking_dependency)) {
+    detail <- base::paste(dependency_status$detail[blocking_dependency], collapse = "; ")
+    status <- dplyr::bind_rows(status, .dnmb_acrfinder_status_row("acrfinder_run", "failed", detail))
+    return(list(ok = FALSE, status = status, files = list(trace_log = trace_log), raw_hits = .dnmb_acrfinder_empty_hits(), hits = .dnmb_module_empty_optional_long_table(), output_table = data.frame()))
+  }
   run <- dnmb_run_external(
     module$files$env_python,
     args = cmd,
@@ -712,11 +929,23 @@ dnmb_run_acrfinder_module <- function(genes,
     ),
     required = FALSE
   )
+  .dnmb_acrfinder_trace_result(trace_log, run, label = "acrfinder_run")
 
-  homology_path <- base::file.path(final_dir, paste0(full_input$prefix, "_homology_based.out"))
+  output_prefixes <- .dnmb_acrfinder_output_prefixes(full_input$prefix)
+  homology_path <- .dnmb_acrfinder_first_existing_output(final_dir, output_prefixes, "_homology_based.out")
   gba_candidates <- c(
-    base::file.path(final_dir, paste0(full_input$prefix, "_guilt_by_association.out")),
-    base::file.path(final_dir, paste0(full_input$prefix, "_guilt-by-association.out"))
+    vapply(
+      output_prefixes,
+      function(prefix) .dnmb_acrfinder_first_existing_output(final_dir, prefix, "_guilt_by_association.out"),
+      character(1),
+      USE.NAMES = FALSE
+    ),
+    vapply(
+      output_prefixes,
+      function(prefix) .dnmb_acrfinder_first_existing_output(final_dir, prefix, "_guilt-by-association.out"),
+      character(1),
+      USE.NAMES = FALSE
+    )
   )
   gba_existing <- gba_candidates[base::file.exists(gba_candidates)]
   gba_path <- if (base::length(gba_existing)) gba_existing[[1]] else gba_candidates[[1]]

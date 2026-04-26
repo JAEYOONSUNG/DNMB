@@ -8,6 +8,7 @@
 #' @param module_DefenseFinder Logical, whether to run and append DefenseFinder module results.
 #' @param module_dbAPIS Logical, whether to run and append dbAPIS anti-defense module results.
 #' @param module_AcrFinder Logical, whether to run and append AcrFinder anti-CRISPR module results.
+#' @param module_Promotech Logical, whether to run and append Promotech promoter prediction results.
 #' @param module_DefenseFinder_antidefense Logical; when \code{TRUE},
 #'   DefenseFinder is run with AntiDefenseFinder enabled so anti-defense hits
 #'   are merged into the DefenseFinder module output.
@@ -44,6 +45,21 @@
 #'   (e.g., \code{c("Pfam", "TIGRFAM")}). \code{NULL} runs all.
 #' @param interproscan_path Path to \code{interproscan.sh}. \code{NULL}
 #'   auto-detects via \code{INTERPROSCAN_HOME} or PATH.
+#' @param promotech_predictions Optional precomputed Promotech
+#'   `genome_predictions.csv`/TSV path. Supplying this avoids live model
+#'   execution.
+#' @param promotech_model Promotech model name (`RF-HOT`, `RF-TETRA`, `GRU`,
+#'   or `LSTM`) used for live execution.
+#' @param promotech_threshold Numeric Promotech probability threshold.
+#' @param promotech_max_distance Maximum upstream distance, in bp, used to map
+#'   promoter windows to genes.
+#' @param promotech_test_samples Optional Promotech test-sample size for short
+#'   smoke runs.
+#' @param promotech_python Python executable for live Promotech execution.
+#' @param promotech_download_model Logical; when live Promotech execution is
+#'   requested, download the selected model into the DNMB cache if it is
+#'   missing.
+#' @param promotech_model_base_url Base URL for upstream Promotech model files.
 #' @param clean_previous Logical. If \code{TRUE}, remove prior run artifacts
 #'   before starting. Cached module results and InterProScan outputs are kept
 #'   when their saved input/database signatures still match the current run.
@@ -106,7 +122,6 @@
 
 .dnmb_attach_runtime_packages <- function() {
   pkgs <- c(
-    "tidyverse",
     "reshape2",
     "grid",
     "circlize",
@@ -114,9 +129,7 @@
     "Biostrings",
     "openxlsx",
     "seqinr",
-    "Peptides",
-    "ggplotify",
-    "venneuler"
+    "Peptides"
   )
 
   missing <- character()
@@ -150,6 +163,7 @@ run_DNMB <- function(
     module_DefenseFinder = TRUE,
     module_dbAPIS = TRUE,
     module_AcrFinder = TRUE,
+    module_Promotech = FALSE,
     module_DefenseFinder_antidefense = TRUE,
     module_PADLOC = TRUE,
     module_DefensePredictor = TRUE,
@@ -176,6 +190,14 @@ run_DNMB <- function(
     iselement_max_related = 5L,
     interproscan_applications = NULL,
     interproscan_path = NULL,
+    promotech_predictions = NULL,
+    promotech_model = "RF-HOT",
+    promotech_threshold = 0.5,
+    promotech_max_distance = 300L,
+    promotech_test_samples = NULL,
+    promotech_python = "python3",
+    promotech_download_model = TRUE,
+    promotech_model_base_url = .dnmb_promotech_default_model_base_url(),
     clean_previous = TRUE,
     comparative = FALSE,
     comparative_data_root = NULL
@@ -229,6 +251,7 @@ run_DNMB <- function(
     module_DefenseFinder = module_DefenseFinder,
     module_dbAPIS = module_dbAPIS,
     module_AcrFinder = module_AcrFinder,
+    module_Promotech = module_Promotech,
     module_PADLOC = module_PADLOC,
     module_DefensePredictor = module_DefensePredictor,
     module_REBASEfinder = module_REBASEfinder,
@@ -249,6 +272,14 @@ run_DNMB <- function(
     module_asset_urls = module_asset_urls,
     module_DefenseFinder_antidefense = module_DefenseFinder_antidefense,
     module_Prophage_backend = module_Prophage_backend,
+    promotech_predictions = promotech_predictions,
+    promotech_model = promotech_model,
+    promotech_threshold = promotech_threshold,
+    promotech_max_distance = promotech_max_distance,
+    promotech_test_samples = promotech_test_samples,
+    promotech_python = promotech_python,
+    promotech_download_model = promotech_download_model,
+    promotech_model_base_url = promotech_model_base_url,
     iselement_analysis_depth = iselement_analysis_depth,
     iselement_related_genbanks = iselement_related_genbanks,
     iselement_related_metadata = iselement_related_metadata,
@@ -404,6 +435,7 @@ run_DNMB <- function(
     module_DefenseFinder = module_DefenseFinder,
     module_dbAPIS = module_dbAPIS,
     module_AcrFinder = module_AcrFinder,
+    module_Promotech = module_Promotech,
     module_PADLOC = module_PADLOC,
     module_DefensePredictor = module_DefensePredictor,
       module_REBASEfinder = module_REBASEfinder,
@@ -424,6 +456,14 @@ run_DNMB <- function(
     module_asset_urls = module_asset_urls,
     module_DefenseFinder_antidefense = module_DefenseFinder_antidefense,
     module_Prophage_backend = module_Prophage_backend,
+    promotech_predictions = promotech_predictions,
+    promotech_model = promotech_model,
+    promotech_threshold = promotech_threshold,
+    promotech_max_distance = promotech_max_distance,
+    promotech_test_samples = promotech_test_samples,
+    promotech_python = promotech_python,
+    promotech_download_model = promotech_download_model,
+    promotech_model_base_url = promotech_model_base_url,
     iselement_analysis_depth = iselement_analysis_depth,
     iselement_related_genbanks = iselement_related_genbanks,
     iselement_related_metadata = iselement_related_metadata,
@@ -482,8 +522,17 @@ run_DNMB <- function(
               module_asset_urls = module_asset_urls,
               module_dbAPIS = module_dbAPIS,
               module_AcrFinder = module_AcrFinder,
+              module_Promotech = module_Promotech,
               module_DefenseFinder_antidefense = module_DefenseFinder_antidefense,
               module_cpu = module_cpu,
+              promotech_predictions = promotech_predictions,
+              promotech_model = promotech_model,
+              promotech_threshold = promotech_threshold,
+              promotech_max_distance = promotech_max_distance,
+              promotech_test_samples = promotech_test_samples,
+              promotech_python = promotech_python,
+              promotech_download_model = promotech_download_model,
+              promotech_model_base_url = promotech_model_base_url,
               iselement_analysis_depth = iselement_analysis_depth,
               iselement_related_genbanks = iselement_related_genbanks,
               iselement_related_metadata = iselement_related_metadata,
@@ -602,6 +651,7 @@ dnmb_enabled_module_aliases <- function(module_dbCAN = FALSE,
                                         module_DefenseFinder = FALSE,
                                         module_dbAPIS = FALSE,
                                         module_AcrFinder = FALSE,
+                                        module_Promotech = FALSE,
                                         module_PADLOC = FALSE,
                                         module_DefensePredictor = FALSE,
                                         module_REBASEfinder = FALSE,
@@ -627,6 +677,7 @@ dnmb_enabled_module_aliases <- function(module_dbCAN = FALSE,
     DefenseFinder = isTRUE(module_DefenseFinder),
     dbAPIS = isTRUE(module_dbAPIS),
     AcrFinder = isTRUE(module_AcrFinder),
+    Promotech = isTRUE(module_Promotech),
     PADLOC = isTRUE(module_PADLOC),
     DefensePredictor = isTRUE(module_DefensePredictor),
     REBASEfinder = isTRUE(module_REBASEfinder),
@@ -653,8 +704,17 @@ dnmb_resolve_module_results <- function(module_aliases,
                                         module_asset_urls = NULL,
                                         module_dbAPIS = TRUE,
                                         module_AcrFinder = TRUE,
+                                        module_Promotech = FALSE,
                                         module_DefenseFinder_antidefense = TRUE,
                                         module_cpu = .dnmb_default_cpu(),
+                                        promotech_predictions = NULL,
+                                        promotech_model = "RF-HOT",
+                                        promotech_threshold = 0.5,
+                                        promotech_max_distance = 300L,
+                                        promotech_test_samples = NULL,
+                                        promotech_python = "python3",
+                                        promotech_download_model = TRUE,
+                                        promotech_model_base_url = .dnmb_promotech_default_model_base_url(),
                                         iselement_analysis_depth = "full",
                                         iselement_related_genbanks = NULL,
                                         iselement_related_metadata = NULL,
@@ -686,6 +746,7 @@ dnmb_resolve_module_results <- function(module_aliases,
     "DefenseFinder",
     "dbAPIS",
     "AcrFinder",
+    "Promotech",
     "PADLOC",
     "DefensePredictor",
     "REBASEfinder",
@@ -706,9 +767,18 @@ dnmb_resolve_module_results <- function(module_aliases,
   module_flags$module_asset_urls <- module_asset_urls
   module_flags$module_dbAPIS <- module_dbAPIS
   module_flags$module_AcrFinder <- module_AcrFinder
+  module_flags$module_Promotech <- isTRUE(module_Promotech) || "Promotech" %in% module_aliases
   module_flags$module_DefenseFinder_antidefense <- module_DefenseFinder_antidefense
   module_flags$module_cpu <- module_cpu
   module_flags$module_Prophage_backend <- module_Prophage_backend
+  module_flags$promotech_predictions <- promotech_predictions
+  module_flags$promotech_model <- promotech_model
+  module_flags$promotech_threshold <- promotech_threshold
+  module_flags$promotech_max_distance <- promotech_max_distance
+  module_flags$promotech_test_samples <- promotech_test_samples
+  module_flags$promotech_python <- promotech_python
+  module_flags$promotech_download_model <- promotech_download_model
+  module_flags$promotech_model_base_url <- promotech_model_base_url
   module_flags$iselement_analysis_depth <- iselement_analysis_depth
   module_flags$iselement_related_genbanks <- iselement_related_genbanks
   module_flags$iselement_related_metadata <- iselement_related_metadata

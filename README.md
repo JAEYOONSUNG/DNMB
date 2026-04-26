@@ -284,12 +284,49 @@ emapper.py --cpu 20 --mp_start_method forkserver --data_dir [eggnog_data directo
 **Promotech** (Optional)
 
 https://github.com/BioinformaticsLabAtMUN/PromoTech
-```python
-python promotech.py -pg -m RF-HOT -f examples/genome/[my_fasta].fna -g -o results 
 
-python promotech.py -g -m RF-HOT -t 0.6 -i results -o results
+Promotech can be appended as a DNMB module. It is disabled by default because
+the upstream RF-HOT/RF-TETRA models are large and are not bundled with DNMB.
+DNMB caches Promotech runtime files under the module cache
+(`DNMB_CACHE_ROOT` or `~/.dnmb-cache`). If live prediction is requested without
+a precomputed predictions file, the selected model is downloaded into that same
+cache unless `promotech_download_model = FALSE`.
+Each run writes `dnmb_module_promotech/promotech_promoter_feature_for_gb` for
+copying into a GenBank FEATURES block and, when a GenBank input is available,
+`dnmb_module_promotech/promotech_promoters_annotated.gbk` for SnapGene import.
+Promoter feature labels include both the stable Promotech id and score, for
+example `Promotech_000001 (score=0.62883)`.
+
+```r
+# Import a precomputed Promotech genome_predictions.csv/TSV file
+run_DNMB(
+  module_Promotech = TRUE,
+  promotech_predictions = "genome_predictions.csv",
+  promotech_threshold = 0.6
+)
+
+# Or run only the Promotech module against the active genbank_table
+run_module_set(
+  db = "Promotech",
+  promotech_predictions = "genome_predictions.csv",
+  merge = TRUE
+)
+
+# Live prediction: caches the Promotech repo and selected model first
+run_DNMB(
+  module_Promotech = TRUE,
+  promotech_model = "RF-HOT",
+  promotech_threshold = 0.6
+)
 ```
-- **Note:** fasta must have only capital letters
+- **Note:** Live Promotech execution requires the upstream Python dependencies
+  and enough RAM. Precomputed `genome_predictions.csv` import works without
+  downloading the model or running Promotech itself.
+- **Runtime:** RF-HOT live prediction is intentionally heavy because upstream
+  Promotech scans every 40-nt window on both strands. A 2.36 Mb bacterial
+  genome took about 26 minutes and roughly 12 GB RAM in Docker during local
+  validation; DNMB promoter-to-gene mapping and GenBank/SnapGene artifact
+  generation then completed in about 15 seconds.
 
 
 ## Contributing

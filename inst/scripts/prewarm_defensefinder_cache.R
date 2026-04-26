@@ -21,10 +21,10 @@ result <- DNMB:::dnmb_defensefinder_install_module(
   install = TRUE,
   repo_url = repo_source,
   asset_urls = asset_urls,
-  force = TRUE
+  force = identical(Sys.getenv("DNMB_DEFENSEFINDER_FORCE_INSTALL", unset = "false"), "true")
 )
 
-print(result$status)
+print(result$status, n = Inf, width = Inf)
 
 if (!isTRUE(result$ok)) {
   quit(status = 1L)

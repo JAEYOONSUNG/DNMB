@@ -34,6 +34,32 @@
   base::cat(base::paste0(text, "\n"), file = path, append = TRUE)
 }
 
+.dnmb_defensefinder_trace_result <- function(path, result, label = "defensefinder_run") {
+  if (base::is.null(result) || !base::is.list(result)) {
+    return(invisible(FALSE))
+  }
+  lines <- c(
+    base::sprintf("[%s] %s status=%s ok=%s", base::Sys.time(), label, result$status %||% NA_integer_, base::isTRUE(result$ok)),
+    if (!base::is.null(result$error) && base::nzchar(base::as.character(result$error))) {
+      base::paste0("error: ", base::as.character(result$error))
+    } else {
+      character()
+    },
+    if (base::length(result$stderr)) {
+      c("stderr:", result$stderr)
+    } else {
+      character()
+    },
+    if (base::length(result$stdout)) {
+      c("stdout:", result$stdout)
+    } else {
+      character()
+    }
+  )
+  .dnmb_defensefinder_trace(path, base::paste(lines, collapse = "\n"))
+  invisible(TRUE)
+}
+
 .dnmb_defensefinder_asset_layout <- function(module_dir) {
   list(
     module_dir = module_dir,
@@ -881,6 +907,16 @@ dnmb_run_defensefinder_module <- function(genes,
   base::dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   trace_log <- base::file.path(output_dir, "defensefinder_module_trace.log")
   status <- .dnmb_defensefinder_empty_status()
+  stale_outputs <- base::file.path(
+    output_dir,
+    c(
+      "defensefinder_best_solution_genes.tsv",
+      "defensefinder_systems.tsv",
+      "defensefinder_hmmer.tsv",
+      "defensefinder_id_map.tsv"
+    )
+  )
+  base::unlink(stale_outputs[base::file.exists(stale_outputs)], force = TRUE)
 
   install_result <- dnmb_defensefinder_install_module(
     version = version,
@@ -929,6 +965,7 @@ dnmb_run_defensefinder_module <- function(genes,
     ),
     required = FALSE
   )
+  .dnmb_defensefinder_trace_result(trace_log, run, label = "defensefinder_run")
 
   raw_root <- base::file.path(stage_out, "defense-finder-tmp")
   genes_tbl_raw <- dnmb_defensefinder_collect_raw_genes(raw_root)

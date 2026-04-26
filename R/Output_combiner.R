@@ -384,7 +384,7 @@ dnmb_order_genbank_table_for_output <- function(genbank_table) {
 }
 
 dnmb_supported_module_prefixes <- function() {
-  c("CLEAN", "GapMindAA", "GapMindCarbon", "GapMind", "DefenseFinder", "dbAPIS", "AcrFinder", "PADLOC", "DefensePredictor", "ISelement", "Prophage", "dbCAN", "MEROPS", "PAZy")
+  c("CLEAN", "GapMindAA", "GapMindCarbon", "GapMind", "DefenseFinder", "dbAPIS", "AcrFinder", "Promotech", "PADLOC", "DefensePredictor", "ISelement", "Prophage", "dbCAN", "MEROPS", "PAZy")
 }
 
 dnmb_module_prefix_order <- function(genbank_table) {
@@ -560,6 +560,18 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "pident",
       "support"
     ),
+    Promotech = c(
+      "family_id",
+      "hit_label",
+      "promoter_id",
+      "promoter_score",
+      "promoter_start",
+      "promoter_end",
+      "promoter_strand",
+      "distance_to_gene",
+      "promoter_sequence",
+      "support"
+    ),
     PADLOC = c(
       "system",
       "system_number",
@@ -642,6 +654,7 @@ dnmb_build_module_details_table <- function(genbank_table) {
     dnmb_module_details_defensefinder(out, base_cols),
     dnmb_module_details_dbapis(out, base_cols),
     dnmb_module_details_acrfinder(out, base_cols),
+    dnmb_module_details_promotech(out, base_cols),
     dnmb_module_details_padloc(out, base_cols),
     dnmb_module_details_defensepredictor(out, base_cols),
     dnmb_module_details_iselement(out, base_cols),
@@ -696,6 +709,7 @@ dnmb_module_detail_order <- function(genbank_table) {
     DefenseFinder = "DefenseFinder",
     dbAPIS = "dbAPIS",
     AcrFinder = "AcrFinder",
+    Promotech = "Promotech",
     PADLOC = "PADLOC",
     DefensePredictor = "DefensePredictor",
     REBASEfinder = "REBASE",
@@ -831,6 +845,43 @@ dnmb_module_details_acrfinder <- function(genbank_table, base_cols) {
     if ("AcrFinder_enzyme_role" %in% names(genbank_table)) paste0("target=", as.character(genbank_table$AcrFinder_enzyme_role[keep])) else NA_character_,
     if ("AcrFinder_substrate_label" %in% names(genbank_table)) paste0("label=", as.character(genbank_table$AcrFinder_substrate_label[keep])) else NA_character_,
     if ("AcrFinder_support" %in% names(genbank_table)) as.character(genbank_table$AcrFinder_support[keep]) else NA_character_
+  )
+  out
+}
+
+dnmb_module_details_promotech <- function(genbank_table, base_cols) {
+  label_col <- if ("Promotech_promoter_id" %in% names(genbank_table)) genbank_table$Promotech_promoter_id else NULL
+  if (is.null(label_col)) {
+    return(data.frame())
+  }
+  keep <- !is.na(label_col) & nzchar(label_col)
+  if (!any(keep)) {
+    return(data.frame())
+  }
+  base <- dnmb_module_detail_base(genbank_table, base_cols, keep)
+  out <- dnmb_module_detail_template(base)
+  out$module_category <- "Promotech"
+  out$primary_call <- if ("Promotech_hit_label" %in% names(genbank_table)) {
+    label <- as.character(genbank_table$Promotech_hit_label[keep])
+    fallback <- if ("Promotech_family_id" %in% names(genbank_table)) as.character(genbank_table$Promotech_family_id[keep]) else "promoter"
+    ifelse(!is.na(label) & nzchar(label), label, fallback)
+  } else {
+    "Promotech promoter"
+  }
+  out$reference_id <- paste0("promoter=", as.character(genbank_table$Promotech_promoter_id[keep]))
+  out$significance <- dnmb_detail_key_value("score", if ("Promotech_promoter_score" %in% names(genbank_table)) genbank_table$Promotech_promoter_score[keep] else NA, digits = 3)
+  out$alignment_summary <- dnmb_detail_join(
+    if (all(c("Promotech_promoter_start", "Promotech_promoter_end") %in% names(genbank_table))) {
+      paste0("interval=", genbank_table$Promotech_promoter_start[keep], "-", genbank_table$Promotech_promoter_end[keep])
+    } else {
+      NA_character_
+    },
+    if ("Promotech_promoter_strand" %in% names(genbank_table)) paste0("strand=", as.character(genbank_table$Promotech_promoter_strand[keep])) else NA_character_,
+    dnmb_detail_key_value("distance_to_gene", if ("Promotech_distance_to_gene" %in% names(genbank_table)) genbank_table$Promotech_distance_to_gene[keep] else NA, digits = 0)
+  )
+  out$context_summary <- dnmb_detail_join(
+    if ("Promotech_promoter_sequence" %in% names(genbank_table)) paste0("sequence=", as.character(genbank_table$Promotech_promoter_sequence[keep])) else NA_character_,
+    if ("Promotech_support" %in% names(genbank_table)) as.character(genbank_table$Promotech_support[keep]) else NA_character_
   )
   out
 }
@@ -1450,6 +1501,9 @@ dnmb_header_group_for_column <- function(column_name) {
   if (grepl("^AcrFinder_", column_name)) {
     return("AcrFinder")
   }
+  if (grepl("^Promotech_", column_name)) {
+    return("Promotech")
+  }
   if (grepl("^PADLOC_", column_name)) {
     return("PADLOC")
   }
@@ -1538,6 +1592,14 @@ dnmb_header_group_styles <- function() {
       valign = "center",
       border = "Bottom",
       borderColour = "#3B8F72"
+    ),
+    Promotech = openxlsx::createStyle(
+      fgFill = "#EAF3D8",
+      textDecoration = "bold",
+      halign = "center",
+      valign = "center",
+      border = "Bottom",
+      borderColour = "#7B9B38"
     ),
     PADLOC = openxlsx::createStyle(
       fgFill = "#FDE9D9",

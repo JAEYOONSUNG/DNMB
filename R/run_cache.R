@@ -161,6 +161,9 @@
   if ("AcrFinder" %in% module_aliases) {
     signatures$AcrFinder <- .dnmb_db_manifest_identity("acrfinder", current_version, cache_root = module_cache_root)
   }
+  if ("Promotech" %in% module_aliases) {
+    signatures$Promotech <- .dnmb_db_manifest_identity("promotech", current_version, cache_root = module_cache_root)
+  }
   if ("PADLOC" %in% module_aliases) {
     signatures$PADLOC <- .dnmb_db_manifest_identity("padloc", current_version, cache_root = module_cache_root)
   }
@@ -210,6 +213,14 @@
                                          module_asset_urls = NULL,
                                          module_DefenseFinder_antidefense = TRUE,
                                          module_Prophage_backend = .dnmb_run_default_prophage_backend(),
+                                         promotech_predictions = NULL,
+                                         promotech_model = "RF-HOT",
+                                         promotech_threshold = 0.5,
+                                         promotech_max_distance = 300L,
+                                         promotech_test_samples = NULL,
+                                         promotech_python = "python3",
+                                         promotech_download_model = TRUE,
+                                         promotech_model_base_url = .dnmb_promotech_default_model_base_url(),
                                          iselement_analysis_depth = "full",
                                          iselement_related_genbanks = NULL,
                                          iselement_related_metadata = NULL,
@@ -217,6 +228,18 @@
                                          iselement_max_related = 5L) {
   aliases <- sort(unique(as.character(module_aliases)))
   aliases <- aliases[nzchar(aliases)]
+  promotech_asset_urls <- if (is.list(module_asset_urls) && "Promotech" %in% names(module_asset_urls)) {
+    module_asset_urls[["Promotech"]]
+  } else {
+    module_asset_urls
+  }
+  promotech_asset_predictions <- character()
+  if (is.list(promotech_asset_urls)) {
+    prediction_names <- intersect(names(promotech_asset_urls), c("predictions", "predictions_path", "prediction_csv"))
+    if (length(prediction_names)) {
+      promotech_asset_predictions <- unlist(promotech_asset_urls[prediction_names], use.names = FALSE)
+    }
+  }
 
   list(
     signature_version = 1L,
@@ -229,11 +252,19 @@
       module_asset_urls = module_asset_urls,
       module_DefenseFinder_antidefense = isTRUE(module_DefenseFinder_antidefense),
       module_Prophage_backend = as.character(module_Prophage_backend)[1],
+      promotech_model = as.character(promotech_model)[1],
+      promotech_threshold = as.numeric(promotech_threshold)[1],
+      promotech_max_distance = as.integer(promotech_max_distance)[1],
+      promotech_test_samples = if (is.null(promotech_test_samples)) NULL else as.integer(promotech_test_samples)[1],
+      promotech_python = as.character(promotech_python)[1],
+      promotech_download_model = isTRUE(promotech_download_model),
+      promotech_model_base_url = as.character(promotech_model_base_url)[1],
       iselement_analysis_depth = as.character(iselement_analysis_depth)[1],
       iselement_auto_discover_related = isTRUE(iselement_auto_discover_related),
       iselement_max_related = as.integer(iselement_max_related)[1]
     ),
     related_inputs = list(
+      promotech_predictions = .dnmb_file_signature(c(promotech_predictions, promotech_asset_predictions)),
       iselement_related_genbanks = .dnmb_file_signature(iselement_related_genbanks),
       iselement_related_metadata = .dnmb_file_signature(iselement_related_metadata)
     ),
@@ -278,6 +309,14 @@
     AcrFinder = list(
       mode = "any",
       paths = c(file.path(wd, "dnmb_module_acrfinder", "acrfinder_homology.tsv"))
+    ),
+    Promotech = list(
+      mode = "all",
+      paths = c(
+        file.path(wd, "dnmb_module_promotech", "promotech_predictions.tsv"),
+        file.path(wd, "dnmb_module_promotech", "promotech_mapped_hits.tsv"),
+        file.path(wd, "dnmb_module_promotech", "promotech_promoter_feature_for_gb")
+      )
     ),
     PADLOC = list(
       mode = "all",

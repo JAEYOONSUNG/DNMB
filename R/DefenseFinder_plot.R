@@ -24,7 +24,7 @@
 #' - Barplot fill color (`bar_color`).
 #' - Font sizes and line aesthetics (`line_width`, `line_col`).
 #'
-#' The function requires `ComplexHeatmap`, `circlize`, `grid`, `reshape2`, and `tidyverse` packages.
+#' The function requires `ComplexHeatmap`, `circlize`, `grid`, `reshape2`, `dplyr`, and `tidyr` packages.
 #'
 #' @examples
 #' # Generate a heatmap using default settings:
@@ -37,7 +37,7 @@
 #'     debug = FALSE
 #' )
 #'
-#' @import ComplexHeatmap circlize grid reshape2 tidyverse
+#' @import ComplexHeatmap circlize grid reshape2
 #' @export
 
 DefenseFinder_Heatmap <- function(
@@ -105,16 +105,16 @@ DefenseFinder_Heatmap <- function(
   }
 
   # data.frame
-  defense_finder_df <- defense_finder %>% tibble::enframe(name="File") %>% unnest(cols=dplyr::everything())
+  defense_finder_df <- defense_finder %>% tibble::enframe(name="File") %>% tidyr::unnest(cols=dplyr::everything())
 
   # calculate diversity
-  subtype_list <- defense_finder_df %>% dplyr::select(`subtype`) %>% dplyr::distinct() %>% pull()
+  subtype_list <- defense_finder_df %>% dplyr::select(`subtype`) %>% dplyr::distinct() %>% dplyr::pull()
 
   # re-organize
   defense_finder_df <- defense_finder_df %>% reshape2::dcast(., formula = File ~ `subtype`, fun.aggregate = length, value.var = "subtype")
 
   # matrix
-  defense_finder_df <- defense_finder_df %>% dplyr::mutate(diversity=rowSums(select(., -File) != 0))
+  defense_finder_df <- defense_finder_df %>% dplyr::mutate(diversity=rowSums(dplyr::select(., -File) != 0))
   defense_finder_df <- defense_finder_df %>% dplyr::mutate(diversity_ratio = diversity / length(subtype_list))
 
   # database link to genbank feature
@@ -213,7 +213,7 @@ DefenseFinder_Heatmap <- function(
   heatmap_gradient <- grDevices::colorRampPalette(color_palette)(gradient_length)
 
   # ComplexHeatmap
-  mat <- as.matrix(defense_finder_df %>% select(sort(subtype_list)))
+  mat <- as.matrix(defense_finder_df %>% dplyr::select(sort(subtype_list)))
   rownames(mat) <- defense_finder_df$SOURCE
 
   max_size <- max(mat, na.rm = TRUE)

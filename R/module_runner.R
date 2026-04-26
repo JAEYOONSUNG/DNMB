@@ -348,10 +348,10 @@
 #' supplied gene table and returns per-module results or a merged locus-level
 #' table.
 #'
-#' Live execution is currently implemented for `dbCAN`, `MEROPS`, `CLEAN`, `PAZy`, `GapMind`, `DefenseFinder`, `dbAPIS`, `AcrFinder`, `PADLOC`, `DefensePredictor`, `ISelement`, and `Prophage`.
+#' Live execution is currently implemented for `dbCAN`, `MEROPS`, `CLEAN`, `PAZy`, `GapMind`, `DefenseFinder`, `dbAPIS`, `AcrFinder`, `Promotech`, `PADLOC`, `DefensePredictor`, `ISelement`, and `Prophage`.
 #'
 #' @param db Optional character vector of module names to run.
-#' @param module_dbCAN,module_MEROPS,module_CLEAN,module_PAZy,module_GapMind,module_DefenseFinder,module_dbAPIS,module_AcrFinder,module_PADLOC,module_DefensePredictor,module_ISelement,module_Prophage Logical toggles used when
+#' @param module_dbCAN,module_MEROPS,module_CLEAN,module_PAZy,module_GapMind,module_DefenseFinder,module_dbAPIS,module_AcrFinder,module_Promotech,module_PADLOC,module_DefensePredictor,module_ISelement,module_Prophage Logical toggles used when
 #'   `db` is not supplied.
 #' @param module_Prophage_backend Character backend for `Prophage`; one of
 #'   `phispy`, `virsorter2`, or `pide`.
@@ -368,6 +368,21 @@
 #' @param module_DefenseFinder_antidefense Logical; when `TRUE`, run
 #'   DefenseFinder with AntiDefenseFinder enabled so anti-defense systems are
 #'   collected alongside canonical defense systems.
+#' @param promotech_predictions Optional precomputed Promotech
+#'   `genome_predictions.csv`/TSV path. Supplying this avoids live model
+#'   execution.
+#' @param promotech_model Promotech model name (`RF-HOT`, `RF-TETRA`, `GRU`,
+#'   or `LSTM`) used for live execution.
+#' @param promotech_threshold Numeric Promotech probability threshold.
+#' @param promotech_max_distance Maximum upstream distance, in bp, used to map
+#'   promoter windows to genes.
+#' @param promotech_test_samples Optional Promotech test-sample size for short
+#'   smoke runs.
+#' @param promotech_python Python executable for live Promotech execution.
+#' @param promotech_download_model Logical; when live Promotech execution is
+#'   requested, download the selected model into the DNMB cache if it is
+#'   missing.
+#' @param promotech_model_base_url Base URL for upstream Promotech model files.
 #' @param module_cpu Integer thread count for external tools.
 #' @param merge Logical; when `TRUE`, return a merged locus-level table instead
 #'   of a list of per-module runs.
@@ -385,6 +400,7 @@ run_module_set <- function(db = NULL,
                            module_DefenseFinder = TRUE,
                            module_dbAPIS = TRUE,
                            module_AcrFinder = TRUE,
+                           module_Promotech = FALSE,
                            module_DefenseFinder_antidefense = TRUE,
                            module_PADLOC = TRUE,
                            module_DefensePredictor = TRUE,
@@ -407,6 +423,14 @@ run_module_set <- function(db = NULL,
                            module_cpu = .dnmb_default_cpu(),
                            merge = FALSE,
                            verbose = TRUE,
+                           promotech_predictions = NULL,
+                           promotech_model = "RF-HOT",
+                           promotech_threshold = 0.5,
+                           promotech_max_distance = 300L,
+                           promotech_test_samples = NULL,
+                           promotech_python = "python3",
+                           promotech_download_model = TRUE,
+                           promotech_model_base_url = .dnmb_promotech_default_model_base_url(),
                            iselement_analysis_depth = "standard",
                            iselement_related_genbanks = NULL,
                            iselement_related_metadata = NULL,
@@ -442,6 +466,7 @@ run_module_set <- function(db = NULL,
       DefenseFinder = isTRUE(module_DefenseFinder),
       dbAPIS = isTRUE(module_dbAPIS),
       AcrFinder = isTRUE(module_AcrFinder),
+      Promotech = isTRUE(module_Promotech),
       PADLOC = isTRUE(module_PADLOC),
       DefensePredictor = isTRUE(module_DefensePredictor),
       REBASEfinder = isTRUE(module_REBASEfinder),
@@ -498,10 +523,10 @@ run_module_set <- function(db = NULL,
     return(list())
   }
 
-  unsupported <- setdiff(db, c("dbCAN", "MEROPS", "CLEAN", "PAZy", "GapMindAA", "GapMindCarbon", "DefenseFinder", "dbAPIS", "AcrFinder", "PADLOC", "DefensePredictor", "REBASEfinder", "ISelement", "PhiSpy", "VirSorter2", "PIDE", "EggNOG"))
+  unsupported <- setdiff(db, c("dbCAN", "MEROPS", "CLEAN", "PAZy", "GapMindAA", "GapMindCarbon", "DefenseFinder", "dbAPIS", "AcrFinder", "Promotech", "PADLOC", "DefensePredictor", "REBASEfinder", "ISelement", "PhiSpy", "VirSorter2", "PIDE", "EggNOG"))
   if (length(unsupported)) {
     stop(
-      "Live module execution is currently implemented only for dbCAN, MEROPS, CLEAN, PAZy, GapMind, DefenseFinder, dbAPIS, AcrFinder, PADLOC, DefensePredictor, ISelement, PhiSpy, VirSorter2, PIDE, and EggNOG. Unsupported module(s): ",
+      "Live module execution is currently implemented only for dbCAN, MEROPS, CLEAN, PAZy, GapMind, DefenseFinder, dbAPIS, AcrFinder, Promotech, PADLOC, DefensePredictor, ISelement, PhiSpy, VirSorter2, PIDE, and EggNOG. Unsupported module(s): ",
       paste(unsupported, collapse = ", "),
       call. = FALSE
     )
@@ -519,6 +544,7 @@ run_module_set <- function(db = NULL,
       DefenseFinder = list(module = "defensefinder", version = module_version %||% "current"),
       dbAPIS = list(module = "dbapis", version = module_version %||% "current"),
       AcrFinder = list(module = "acrfinder", version = module_version %||% "current"),
+      Promotech = list(module = "promotech", version = module_version %||% "current"),
       PADLOC = list(module = "padloc", version = module_version %||% "current"),
       DefensePredictor = list(module = "defensepredictor", version = module_version %||% "current"),
       GapMindAA = list(module = "gapmind", version = "aa"),
@@ -715,6 +741,50 @@ run_module_set <- function(db = NULL,
           output_table = acrfinder_result$output_table %||% .dnmb_acrfinder_output_table(genes = genes, hits = acrfinder_result$hits),
           hits = acrfinder_result$hits,
           module_result = acrfinder_result
+        ),
+        class = "dnmb_module_run"
+      )
+    }
+  }
+
+  ## --- 3ad. Promotech ---
+  if ("Promotech" %in% db) {
+    if (isTRUE(verbose)) {
+      message("[DNMB] ── Promotech ──")
+    }
+    promotech_result <- .dnmb_module_try_run("Promotech", function() {
+      dnmb_run_promotech_module(
+        genes = genes,
+        output_dir = .dnmb_module_output_dir("Promotech", output_dir = output_dir),
+        version = module_version %||% .dnmb_promotech_default_version(),
+        cache_root = module_cache_root,
+        install = isTRUE(module_install),
+        repo_url = .dnmb_promotech_default_repo_url(),
+        asset_urls = if (is.list(module_asset_urls) && "Promotech" %in% names(module_asset_urls)) module_asset_urls[["Promotech"]] else module_asset_urls,
+        genbank = genbank,
+        predictions = promotech_predictions,
+        model = promotech_model,
+        threshold = promotech_threshold,
+        max_distance = promotech_max_distance,
+        test_samples = promotech_test_samples,
+        python = promotech_python,
+        download_model = promotech_download_model,
+        model_base_url = promotech_model_base_url
+      )
+    })
+    if (!isTRUE(promotech_result$ok)) {
+      warning(
+        "Promotech module execution failed: ",
+        .dnmb_module_status_detail(promotech_result$status) %||% "unknown error",
+        call. = FALSE
+      )
+    } else {
+      runs$Promotech <- structure(
+        list(
+          database = "Promotech",
+          output_table = promotech_result$output_table %||% .dnmb_promotech_output_table(genes = genes, hits = promotech_result$hits),
+          hits = promotech_result$hits,
+          module_result = promotech_result
         ),
         class = "dnmb_module_run"
       )

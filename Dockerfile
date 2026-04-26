@@ -71,10 +71,6 @@ COPY DESCRIPTION /tmp/dnmb-deps/DESCRIPTION
 
 RUN R -q -e "options(repos = c(CRAN = 'https://cloud.r-project.org')); install.packages(c('remotes', 'BiocManager')); BiocManager::install(c('Biostrings', 'ComplexHeatmap'), ask = FALSE, update = FALSE); remotes::install_deps('/tmp/dnmb-deps', dependencies = TRUE, upgrade = 'never')"
 
-COPY . /opt/DNMB
-
-RUN R -q -e "options(repos = c(CRAN = 'https://cloud.r-project.org')); remotes::install_local('/opt/DNMB', dependencies = FALSE, upgrade = 'never')"
-
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       clustalw \
@@ -115,6 +111,10 @@ ENV DNMB_DEFENSEFINDER_CASFINDER_DIR=/opt/macsyfinder/models/CasFinder \
 RUN git clone --depth 1 https://github.com/HaidYi/acrfinder.git /opt/vendor/acrfinder
 RUN git clone --depth 1 --filter=blob:none --sparse https://github.com/BioinformaticsLabAtMUN/Promotech.git /opt/vendor/promotech && \
     git -C /opt/vendor/promotech sparse-checkout set promotech.py genome core models sequences
+
+COPY . /opt/DNMB
+
+RUN R -q -e "options(repos = c(CRAN = 'https://cloud.r-project.org')); remotes::install_local('/opt/DNMB', dependencies = FALSE, upgrade = 'never')"
 
 COPY --from=dnmb_cache /opt/dnmb-cache/db_modules/defensefinder/current /opt/dnmb-cache/db_modules/defensefinder/current
 

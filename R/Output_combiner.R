@@ -580,6 +580,10 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "rbs_motif",
       "rbs_spacer",
       "rbs_score",
+      "anti_sd_sequence",
+      "duplex_energy",
+      "duplex_score",
+      "duplex_motif",
       "start_codon",
       "start_codon_score",
       "early_k_score",
@@ -588,7 +592,11 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "fold_score",
       "rbs_unpaired_fraction",
       "start_unpaired_fraction",
+      "rbs_plfold_unpaired_probability",
+      "start_plfold_unpaired_probability",
+      "plfold_accessibility_score",
       "accessibility_score",
+      "accessibility_method",
       "support"
     ),
     PADLOC = c(
@@ -932,15 +940,18 @@ dnmb_module_details_mrnacal <- function(genbank_table, base_cols) {
   out$significance <- dnmb_detail_key_value("TIR_score", genbank_table$mRNAcal_tir_score[keep], digits = 2)
   out$score_summary <- dnmb_detail_join(
     dnmb_detail_key_value("RBS", if ("mRNAcal_rbs_score" %in% names(genbank_table)) genbank_table$mRNAcal_rbs_score[keep] else NA, digits = 1),
+    dnmb_detail_key_value("antiSD", if ("mRNAcal_duplex_score" %in% names(genbank_table)) genbank_table$mRNAcal_duplex_score[keep] else NA, digits = 1),
     dnmb_detail_key_value("access", if ("mRNAcal_accessibility_score" %in% names(genbank_table)) genbank_table$mRNAcal_accessibility_score[keep] else NA, digits = 1),
     dnmb_detail_key_value("MFE", if ("mRNAcal_fold_mfe" %in% names(genbank_table)) genbank_table$mRNAcal_fold_mfe[keep] else NA, digits = 2)
   )
   out$alignment_summary <- dnmb_detail_join(
     dnmb_detail_key_value("spacer", if ("mRNAcal_rbs_spacer" %in% names(genbank_table)) genbank_table$mRNAcal_rbs_spacer[keep] else NA, digits = 0),
+    dnmb_detail_key_value("duplex_dG", if ("mRNAcal_duplex_energy" %in% names(genbank_table)) genbank_table$mRNAcal_duplex_energy[keep] else NA, digits = 2),
     if ("mRNAcal_start_codon" %in% names(genbank_table)) paste0("start=", as.character(genbank_table$mRNAcal_start_codon[keep])) else NA_character_,
     if ("mRNAcal_second_codon" %in% names(genbank_table)) paste0("second=", as.character(genbank_table$mRNAcal_second_codon[keep])) else NA_character_
   )
   out$context_summary <- dnmb_detail_join(
+    if ("mRNAcal_accessibility_method" %in% names(genbank_table)) paste0("access_method=", as.character(genbank_table$mRNAcal_accessibility_method[keep])) else NA_character_,
     if ("mRNAcal_early_codons" %in% names(genbank_table)) paste0("early_codons=", as.character(genbank_table$mRNAcal_early_codons[keep])) else NA_character_,
     if ("mRNAcal_support" %in% names(genbank_table)) as.character(genbank_table$mRNAcal_support[keep]) else NA_character_
   )

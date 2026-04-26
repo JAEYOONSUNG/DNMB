@@ -386,7 +386,32 @@
 .dnmb_mrnacal_find_tool <- function(path = NULL, tool = "RNAfold") {
   if (!base::is.null(path) && base::nzchar(base::as.character(path)[1])) {
     path <- base::path.expand(base::as.character(path)[1])
-    if (base::file.exists(path) || base::nzchar(Sys.which(path))) {
+    if (base::dir.exists(path)) {
+      candidate <- base::file.path(path, tool)
+      if (base::file.exists(candidate)) {
+        return(candidate)
+      }
+    }
+    if (base::file.exists(path)) {
+      if (base::identical(base::basename(path), tool)) {
+        return(path)
+      }
+      sibling <- base::file.path(base::dirname(path), tool)
+      if (base::file.exists(sibling)) {
+        return(sibling)
+      }
+    }
+    found_path <- Sys.which(path)
+    if (base::nzchar(found_path)) {
+      if (base::identical(base::basename(found_path), tool)) {
+        return(found_path)
+      }
+      sibling <- base::file.path(base::dirname(found_path), tool)
+      if (base::file.exists(sibling)) {
+        return(sibling)
+      }
+    }
+    if (base::identical(base::basename(path), tool)) {
       return(path)
     }
   }
@@ -473,6 +498,284 @@
   list(ok = TRUE, table = parsed, file = out_path, tool = tool)
 }
 
+.dnmb_mrnacal_fasta_lines <- function(ids, seqs) {
+  lines <- character()
+  for (i in base::seq_along(ids)) {
+    lines <- c(lines, base::paste0(">", ids[[i]]), base::as.character(seqs[[i]]))
+  }
+  lines
+}
+
+.dnmb_mrnacal_parse_lunp_file <- function(path) {
+  if (!base::file.exists(path)) {
+    return(data.frame())
+  }
+  lines <- base::readLines(path, warn = FALSE)
+  lines <- lines[base::nzchar(base::trimws(lines))]
+  data_lines <- lines[!base::startsWith(base::trimws(lines), "#")]
+  if (!base::length(data_lines)) {
+    return(data.frame())
+  }
+  tbl <- tryCatch(
+    utils::read.table(
+      text = base::paste(data_lines, collapse = "\n"),
+      header = FALSE,
+      fill = TRUE,
+      stringsAsFactors = FALSE
+    ),
+    error = function(e) data.frame()
+  )
+  if (!base::nrow(tbl) || base::ncol(tbl) < 2L) {
+    return(data.frame())
+  }
+  names(tbl) <- c("position", base::paste0("l", base::seq_len(base::ncol(tbl) - 1L)))
+  tbl$position <- suppressWarnings(base::as.integer(tbl$position))
+  for (col in base::setdiff(base::names(tbl), "position")) {
+    tbl[[col]] <- suppressWarnings(base::as.numeric(tbl[[col]]))
+  }
+  tbl
+}
+
+.dnmb_mrnacal_lunp_region <- function(lunp, start, end) {
+  if (!base::is.data.frame(lunp) || !base::nrow(lunp)) {
+    return(NA_real_)
+  }
+  start <- suppressWarnings(base::as.integer(start)[1])
+  end <- suppressWarnings(base::as.integer(end)[1])
+  if (base::is.na(start) || base::is.na(end) || end < start) {
+    return(NA_real_)
+  }
+  start <- base::max(1L, start)
+  region_len <- end - start + 1L
+  col <- base::paste0("l", region_len)
+  if (col %in% base::names(lunp)) {
+    idx <- base::match(end, lunp$position)
+    if (!base::is.na(idx)) {
+      val <- suppressWarnings(base::as.numeric(lunp[[col]][[idx]]))
+      if (!base::is.na(val)) {
+        return(val)
+      }
+    }
+  }
+
+  max_l <- suppressWarnings(base::as.integer(base::sub("^l", "", base::grep("^l[0-9]+$", base::names(lunp), value = TRUE))))
+  max_l <- max_l[!base::is.na(max_l)]
+  if (!base::length(max_l)) {
+    return(NA_real_)
+  }
+  k <- base::max(max_l[max_l <= region_len], na.rm = TRUE)
+  if (base::is.infinite(k) || base::is.na(k) || k < 1L) {
+    return(NA_real_)
+  }
+  col <- base::paste0("l", k)
+  ends <- base::seq.int(start + k - 1L, end)
+  idx <- base::match(ends, lunp$position)
+  vals <- suppressWarnings(base::as.numeric(lunp[[col]][idx[!base::is.na(idx)]]))
+  vals <- vals[!base::is.na(vals)]
+  if (!base::length(vals)) {
+    return(NA_real_)
+  }
+  base::mean(vals)
+}
+
+.dnmb_mrnacal_run_rnaplfold_batch <- function(tbl,
+                                              output_dir,
+                                              rnaplfold_path = NULL,
+                                              rnafold_path = NULL,
+                                              window = 70L,
+                                              span = 40L,
+                                              ulength = 20L) {
+  tool <- .dnmb_mrnacal_find_tool(rnaplfold_path %||% rnafold_path, "RNAplfold")
+  if (!base::nzchar(tool)) {
+    return(list(ok = FALSE, error = "RNAplfold not found in PATH.", table = data.frame()))
+  }
+  if (!base::nrow(tbl)) {
+    return(list(ok = TRUE, table = data.frame(), tool = tool))
+  }
+
+  ids <- base::sprintf("MRNACAL_%06d", base::seq_len(base::nrow(tbl)))
+  names(ids) <- tbl$locus_tag
+  id_map <- stats::setNames(tbl$locus_tag, ids)
+  work_dir <- base::file.path(output_dir, "mrnacal_rnaplfold")
+  base::dir.create(work_dir, recursive = TRUE, showWarnings = FALSE)
+
+  seq_len <- base::nchar(base::as.character(tbl$fold_sequence))
+  window <- suppressWarnings(base::as.integer(window)[1])
+  span <- suppressWarnings(base::as.integer(span)[1])
+  ulength <- suppressWarnings(base::as.integer(ulength)[1])
+  if (base::is.na(window) || window < 10L) window <- 70L
+  if (base::is.na(span) || span < 10L) span <- 40L
+  if (base::is.na(ulength) || ulength < 1L) ulength <- 20L
+  min_len <- base::max(10L, base::min(seq_len[seq_len >= 10L], na.rm = TRUE))
+  window <- base::min(window, min_len)
+  span <- base::min(span, window)
+  ulength <- base::min(ulength, window)
+
+  old_wd <- base::getwd()
+  on.exit(base::setwd(old_wd), add = TRUE)
+  base::setwd(work_dir)
+  run <- tryCatch(
+    base::system2(
+      tool,
+      args = c("--cutoff", "1.1", "-W", base::as.character(window), "-L", base::as.character(span), "-u", base::as.character(ulength)),
+      input = .dnmb_mrnacal_fasta_lines(ids, tbl$fold_sequence),
+      stdout = TRUE,
+      stderr = TRUE
+    ),
+    error = function(e) structure(character(), status = 1L, error = conditionMessage(e))
+  )
+  status_code <- attr(run, "status")
+  if (base::is.null(status_code)) {
+    status_code <- 0L
+  }
+  if (!base::identical(base::as.integer(status_code), 0L)) {
+    detail <- base::paste(run[base::nzchar(run)], collapse = "\n")
+    if (!base::nzchar(detail)) {
+      detail <- attr(run, "error") %||% "RNAplfold failed."
+    }
+    return(list(ok = FALSE, error = detail, table = data.frame(), tool = tool))
+  }
+
+  rows <- vector("list", base::nrow(tbl))
+  for (i in base::seq_len(base::nrow(tbl))) {
+    id <- ids[[i]]
+    lunp <- .dnmb_mrnacal_parse_lunp_file(base::file.path(work_dir, base::paste0(id, "_lunp")))
+    rbs_prob <- .dnmb_mrnacal_lunp_region(lunp, tbl$rbs_start[[i]], tbl$rbs_end[[i]])
+    start_prob <- .dnmb_mrnacal_lunp_region(lunp, tbl$start_access_start[[i]], tbl$start_access_end[[i]])
+    rows[[i]] <- data.frame(
+      fold_id = id,
+      locus_tag = id_map[[id]],
+      rbs_plfold_unpaired_probability = rbs_prob,
+      start_plfold_unpaired_probability = start_prob,
+      plfold_window = window,
+      plfold_span = span,
+      plfold_ulength = ulength,
+      stringsAsFactors = FALSE
+    )
+  }
+  out <- dplyr::bind_rows(rows)
+  out$plfold_accessibility_score <- base::round(100 * rowMeans(
+    cbind(out$rbs_plfold_unpaired_probability, out$start_plfold_unpaired_probability),
+    na.rm = TRUE
+  ), 2)
+  out$plfold_accessibility_score[base::is.nan(out$plfold_accessibility_score)] <- NA_real_
+  out_path <- base::file.path(output_dir, "mrnacal_plfold_results.tsv")
+  readr::write_tsv(out, out_path)
+  base::unlink(Sys.glob(base::file.path(work_dir, "*_dp.ps")), force = TRUE)
+  list(ok = TRUE, table = out, file = out_path, tool = tool)
+}
+
+.dnmb_mrnacal_parse_rnaduplex <- function(lines, tbl, ids, anti_sd_rna) {
+  rows <- vector("list", base::nrow(tbl))
+  for (i in base::seq_len(base::nrow(tbl))) {
+    line <- if (base::length(lines) >= i) base::trimws(lines[[i]]) else NA_character_
+    energy <- NA_real_
+    anti_from <- anti_to <- target_from <- target_to <- NA_integer_
+    structure <- NA_character_
+    if (!base::is.na(line) && base::nzchar(line)) {
+      energy_txt <- stringr::str_match(line, "\\(\\s*([-+]?[0-9]+\\.?[0-9]*)\\s*\\)\\s*$")[, 2]
+      energy <- suppressWarnings(base::as.numeric(energy_txt))
+      range <- stringr::str_match(line, "([0-9]+)\\s*,\\s*([0-9]+)\\s*:\\s*([0-9]+)\\s*,\\s*([0-9]+)")
+      anti_from <- suppressWarnings(base::as.integer(range[, 2]))
+      anti_to <- suppressWarnings(base::as.integer(range[, 3]))
+      target_from <- suppressWarnings(base::as.integer(range[, 4]))
+      target_to <- suppressWarnings(base::as.integer(range[, 5]))
+      structure <- base::strsplit(line, "\\s+")[[1]][[1]]
+    }
+    offset <- suppressWarnings(base::as.integer(tbl$duplex_target_offset[[i]]))
+    duplex_start <- if (!base::is.na(target_from) && !base::is.na(offset)) offset + target_from - 1L else NA_integer_
+    duplex_end <- if (!base::is.na(target_to) && !base::is.na(offset)) offset + target_to - 1L else NA_integer_
+    motif <- if (!base::is.na(duplex_start) && !base::is.na(duplex_end) && duplex_end >= duplex_start) {
+      base::substr(tbl$sequence_dna[[i]], duplex_start, duplex_end)
+    } else {
+      NA_character_
+    }
+    rows[[i]] <- data.frame(
+      fold_id = ids[[i]],
+      locus_tag = tbl$locus_tag[[i]],
+      anti_sd_sequence = anti_sd_rna,
+      duplex_structure = structure,
+      duplex_energy = energy,
+      duplex_anti_sd_start = anti_from,
+      duplex_anti_sd_end = anti_to,
+      duplex_target_start = duplex_start,
+      duplex_target_end = duplex_end,
+      duplex_motif = motif,
+      stringsAsFactors = FALSE
+    )
+  }
+  dplyr::bind_rows(rows)
+}
+
+.dnmb_mrnacal_duplex_score <- function(energy) {
+  energy <- suppressWarnings(base::as.numeric(energy))
+  if (base::is.na(energy)) {
+    return(NA_real_)
+  }
+  base::round(base::pmax(0, base::pmin(100, 100 * ((-energy) - 1.5) / 7.5)), 2)
+}
+
+.dnmb_mrnacal_run_rnaduplex_batch <- function(tbl,
+                                              output_dir,
+                                              sd_seed = "AGGAGG",
+                                              rnaduplex_path = NULL,
+                                              rnafold_path = NULL) {
+  tool <- .dnmb_mrnacal_find_tool(rnaduplex_path %||% rnafold_path, "RNAduplex")
+  if (!base::nzchar(tool)) {
+    return(list(ok = FALSE, error = "RNAduplex not found in PATH.", table = data.frame()))
+  }
+  if (!base::nrow(tbl)) {
+    return(list(ok = TRUE, table = data.frame(), tool = tool))
+  }
+
+  anti_sd_rna <- .dnmb_mrnacal_dna_to_rna(.dnmb_mrnacal_revcomp(sd_seed))
+  if (!base::nzchar(anti_sd_rna)) {
+    anti_sd_rna <- "CCUCCU"
+  }
+  ids <- base::sprintf("MRNACAL_%06d", base::seq_len(base::nrow(tbl)))
+  input <- character()
+  work <- base::as.data.frame(tbl, stringsAsFactors = FALSE)
+  work$duplex_target_offset <- NA_integer_
+  for (i in base::seq_len(base::nrow(work))) {
+    upstream_len <- suppressWarnings(base::as.integer(work$window_upstream[[i]]))
+    sequence <- .dnmb_mrnacal_normalize_dna(work$sequence_dna[[i]])
+    scan_left <- base::max(1L, upstream_len - 35L)
+    scan_right <- base::max(1L, upstream_len - 3L)
+    if (base::is.na(upstream_len) || upstream_len < 4L || scan_right < scan_left) {
+      target <- ""
+      scan_left <- 1L
+    } else {
+      target <- .dnmb_mrnacal_dna_to_rna(base::substr(sequence, scan_left, scan_right))
+    }
+    if (!base::nzchar(target)) {
+      target <- "A"
+    }
+    work$duplex_target_offset[[i]] <- scan_left
+    input <- c(input, anti_sd_rna, target)
+  }
+  run <- tryCatch(
+    base::system2(tool, input = input, stdout = TRUE, stderr = TRUE),
+    error = function(e) structure(character(), status = 1L, error = conditionMessage(e))
+  )
+  status_code <- attr(run, "status")
+  if (base::is.null(status_code)) {
+    status_code <- 0L
+  }
+  if (!base::identical(base::as.integer(status_code), 0L)) {
+    detail <- base::paste(run[base::nzchar(run)], collapse = "\n")
+    if (!base::nzchar(detail)) {
+      detail <- attr(run, "error") %||% "RNAduplex failed."
+    }
+    return(list(ok = FALSE, error = detail, table = data.frame(), tool = tool))
+  }
+
+  parsed <- .dnmb_mrnacal_parse_rnaduplex(run, work, ids = ids, anti_sd_rna = anti_sd_rna)
+  parsed$duplex_score <- vapply(parsed$duplex_energy, .dnmb_mrnacal_duplex_score, numeric(1))
+  out_path <- base::file.path(output_dir, "mrnacal_rnaduplex_results.tsv")
+  readr::write_tsv(parsed, out_path)
+  list(ok = TRUE, table = parsed, file = out_path, tool = tool)
+}
+
 .dnmb_mrnacal_pair_table <- function(structure) {
   structure <- base::as.character(structure)[1]
   if (base::is.na(structure) || !base::nzchar(structure)) {
@@ -551,7 +854,9 @@
     typing_eligible = !base::is.na(tbl$tir_score),
     tir_score = suppressWarnings(base::as.numeric(tbl$tir_score)),
     rbs_score = suppressWarnings(base::as.numeric(tbl$rbs_score)),
+    duplex_score = suppressWarnings(base::as.numeric(tbl$duplex_score)),
     accessibility_score = suppressWarnings(base::as.numeric(tbl$accessibility_score)),
+    plfold_accessibility_score = suppressWarnings(base::as.numeric(tbl$plfold_accessibility_score)),
     fold_mfe = suppressWarnings(base::as.numeric(tbl$fold_mfe)),
     stringsAsFactors = FALSE
   )
@@ -568,12 +873,17 @@
   cols <- c(
     "family_id", "hit_label", "tir_score", "tir_score_band",
     "rbs_motif", "rbs_seed", "rbs_mismatches", "rbs_spacer", "rbs_start", "rbs_end", "rbs_score",
+    "anti_sd_sequence", "duplex_structure", "duplex_energy", "duplex_score",
+    "duplex_target_start", "duplex_target_end", "duplex_motif",
     "start_codon", "start_codon_score", "early_k_score",
     "second_codon", "early_codons", "lysine_codon_count_2_8",
     "aaa_count_2_8", "basic_aa_count_2_8", "skik_like",
     "fold_mfe", "fold_mfe_per_nt", "fold_score",
     "rbs_unpaired_fraction", "start_unpaired_fraction",
-    "accessibility_score", "fold_structure", "fold_sequence",
+    "rbs_plfold_unpaired_probability", "start_plfold_unpaired_probability",
+    "plfold_accessibility_score", "accessibility_score", "accessibility_method",
+    "plfold_window", "plfold_span", "plfold_ulength",
+    "fold_structure", "fold_sequence",
     "window_upstream", "window_downstream", "support"
   )
   for (col in cols) {
@@ -701,12 +1011,16 @@ dnmb_run_mrnacal_module <- function(genes,
     start_score <- .dnmb_mrnacal_start_score(win$start_codon)
     cds_dna <- base::substr(win$sequence_dna, win$upstream_len_observed + 1L, base::nchar(win$sequence_dna))
     early <- .dnmb_mrnacal_early_context(cds_dna, translation = if ("translation" %in% base::names(row)) row$translation[[1]] else NA_character_)
+    start_access_start <- base::max(1L, win$upstream_len_observed - 4L)
+    start_access_end <- base::min(base::nchar(win$sequence_dna), win$upstream_len_observed + 15L)
     base_rows[[i]] <- data.frame(
       locus_tag = row$locus_tag[[1]],
       fold_sequence = win$sequence_rna,
       sequence_dna = win$sequence_dna,
       window_upstream = win$upstream_len_observed,
       window_downstream = win$downstream_len_observed,
+      start_access_start = start_access_start,
+      start_access_end = start_access_end,
       start_codon = win$start_codon,
       start_codon_score = start_score,
       rbs_motif = rbs$motif,
@@ -766,23 +1080,75 @@ dnmb_run_mrnacal_module <- function(genes,
   results$fold_mfe_per_nt <- suppressWarnings(results$fold_mfe / base::nchar(results$fold_sequence))
   results$fold_score <- mapply(.dnmb_mrnacal_fold_score, results$fold_mfe, base::nchar(results$fold_sequence))
   results$rbs_unpaired_fraction <- mapply(.dnmb_mrnacal_unpaired_fraction, results$fold_structure, results$rbs_start, results$rbs_end)
-  start_left <- pmax(1L, results$window_upstream - 4L)
-  start_right <- pmin(base::nchar(results$fold_sequence), results$window_upstream + 15L)
-  results$start_unpaired_fraction <- mapply(.dnmb_mrnacal_unpaired_fraction, results$fold_structure, start_left, start_right)
-  results$accessibility_score <- base::round(100 * rowMeans(
+  results$start_unpaired_fraction <- mapply(.dnmb_mrnacal_unpaired_fraction, results$fold_structure, results$start_access_start, results$start_access_end)
+  structure_accessibility_score <- base::round(100 * rowMeans(
     cbind(results$rbs_unpaired_fraction, results$start_unpaired_fraction),
     na.rm = TRUE
   ), 2)
-  results$accessibility_score[base::is.nan(results$accessibility_score)] <- NA_real_
+  structure_accessibility_score[base::is.nan(structure_accessibility_score)] <- NA_real_
+
+  plfold <- .dnmb_mrnacal_run_rnaplfold_batch(
+    results[, c("locus_tag", "fold_sequence", "rbs_start", "rbs_end", "start_access_start", "start_access_end"), drop = FALSE],
+    output_dir = output_dir,
+    rnafold_path = rnafold_tool
+  )
+  if (base::isTRUE(plfold$ok)) {
+    status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("RNAplfold", "ok", plfold$tool %||% "RNAplfold")
+    results <- dplyr::left_join(
+      results,
+      plfold$table[, c("locus_tag", "rbs_plfold_unpaired_probability", "start_plfold_unpaired_probability", "plfold_accessibility_score", "plfold_window", "plfold_span", "plfold_ulength"), drop = FALSE],
+      by = "locus_tag"
+    )
+  } else {
+    status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("RNAplfold", "missing", plfold$error %||% "RNAplfold failed.")
+    results$rbs_plfold_unpaired_probability <- NA_real_
+    results$start_plfold_unpaired_probability <- NA_real_
+    results$plfold_accessibility_score <- NA_real_
+    results$plfold_window <- NA_integer_
+    results$plfold_span <- NA_integer_
+    results$plfold_ulength <- NA_integer_
+  }
+  results$accessibility_method <- ifelse(
+    !base::is.na(results$plfold_accessibility_score),
+    "RNAplfold_unpaired_probability",
+    ifelse(!base::is.na(structure_accessibility_score), "RNAfold_dotbracket_fraction", NA_character_)
+  )
+  results$accessibility_score <- ifelse(
+    !base::is.na(results$plfold_accessibility_score),
+    results$plfold_accessibility_score,
+    structure_accessibility_score
+  )
+
+  duplex <- .dnmb_mrnacal_run_rnaduplex_batch(
+    results[, c("locus_tag", "sequence_dna", "window_upstream"), drop = FALSE],
+    output_dir = output_dir,
+    sd_seed = seed,
+    rnafold_path = rnafold_tool
+  )
+  duplex_cols <- c(
+    "locus_tag", "anti_sd_sequence", "duplex_structure", "duplex_energy", "duplex_score",
+    "duplex_target_start", "duplex_target_end", "duplex_motif"
+  )
+  if (base::isTRUE(duplex$ok)) {
+    status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("RNAduplex", "ok", duplex$tool %||% "RNAduplex")
+    results <- dplyr::left_join(results, duplex$table[, duplex_cols, drop = FALSE], by = "locus_tag")
+  } else {
+    status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("RNAduplex", "missing", duplex$error %||% "RNAduplex failed.")
+    for (col in base::setdiff(duplex_cols, "locus_tag")) {
+      results[[col]] <- if (col %in% c("duplex_energy", "duplex_score", "duplex_target_start", "duplex_target_end")) NA_real_ else NA_character_
+    }
+  }
 
   fold_score_for_total <- ifelse(base::is.na(results$fold_score), 50, results$fold_score)
   accessibility_for_total <- ifelse(base::is.na(results$accessibility_score), 50, results$accessibility_score)
+  duplex_for_total <- ifelse(base::is.na(results$duplex_score), results$rbs_score, results$duplex_score)
   results$tir_score <- base::round(
-    0.35 * results$rbs_score +
-      0.30 * accessibility_for_total +
+    0.25 * results$rbs_score +
+      0.20 * duplex_for_total +
+      0.25 * accessibility_for_total +
       0.15 * results$start_codon_score +
       0.10 * results$early_k_score +
-      0.10 * fold_score_for_total,
+      0.05 * fold_score_for_total,
     2
   )
   results$tir_score_band <- .dnmb_mrnacal_band(results$tir_score)
@@ -791,8 +1157,10 @@ dnmb_run_mrnacal_module <- function(genes,
   results$support <- base::paste0(
     "window=-", results$window_upstream, "/+", results$window_downstream,
     "; sd_seed=", results$rbs_seed,
+    "; anti_sd=", results$anti_sd_sequence,
+    "; accessibility=", results$accessibility_method,
     "; fold=RNAfold_MFE",
-    "; score=0.35*RBS+0.30*accessibility+0.15*start+0.10*earlyK+0.10*MFE"
+    "; score=0.25*RBS+0.20*antiSD_duplex+0.25*RNAplfold_access+0.15*start+0.10*earlyK+0.05*MFE"
   )
 
   result_path <- base::file.path(output_dir, "mrnacal_translation_efficiency.tsv")
@@ -809,6 +1177,12 @@ dnmb_run_mrnacal_module <- function(genes,
   if (base::isTRUE(fold$ok) && !base::is.null(fold$file)) {
     files$fold_results <- fold$file
     files$fold_sequences <- base::file.path(output_dir, "mrnacal_fold_sequences.fa")
+  }
+  if (base::isTRUE(plfold$ok) && !base::is.null(plfold$file)) {
+    files$plfold_results <- plfold$file
+  }
+  if (base::isTRUE(duplex$ok) && !base::is.null(duplex$file)) {
+    files$duplex_results <- duplex$file
   }
 
   status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("mrnacal_results", "ok", base::paste0(base::nrow(results), " CDS windows scored"))
@@ -909,15 +1283,17 @@ dnmb_run_mrnacal_module <- function(genes,
 
   scatter_tbl <- tbl
   scatter_tbl$fold_mfe <- suppressWarnings(as.numeric(scatter_tbl$mRNAcal_fold_mfe))
-  p_scatter <- ggplot2::ggplot(scatter_tbl, ggplot2::aes(x = .data$fold_mfe, y = .data$tir_score, color = .data$tir_score_band)) +
+  scatter_tbl$duplex_energy <- if ("mRNAcal_duplex_energy" %in% names(scatter_tbl)) suppressWarnings(as.numeric(scatter_tbl$mRNAcal_duplex_energy)) else NA_real_
+  p_scatter <- ggplot2::ggplot(scatter_tbl, ggplot2::aes(x = .data$duplex_energy, y = .data$tir_score, color = .data$tir_score_band)) +
     ggplot2::geom_point(alpha = 0.72, size = 1.4, na.rm = TRUE) +
     ggplot2::scale_color_manual(values = band_cols, drop = FALSE, na.value = "#9CA3AF") +
-    ggplot2::labs(title = "MFE vs Score", x = "RNAfold MFE (kcal/mol)", y = "Composite score", color = NULL) +
+    ggplot2::labs(title = "Anti-SD Binding vs Score", x = "RNAduplex energy (kcal/mol)", y = "Composite score", color = NULL) +
     ggplot2::theme_bw(base_size = 10) +
     ggplot2::theme(panel.grid.minor = ggplot2::element_blank(), plot.title = ggplot2::element_text(face = "bold"))
 
   component_cols <- c(
     RBS = "mRNAcal_rbs_score",
+    AntiSD = "mRNAcal_duplex_score",
     Accessibility = "mRNAcal_accessibility_score",
     Start = "mRNAcal_start_codon_score",
     EarlyK = "mRNAcal_early_k_score",
@@ -942,7 +1318,7 @@ dnmb_run_mrnacal_module <- function(genes,
   p_comp <- ggplot2::ggplot(comp_tbl, ggplot2::aes(x = .data$score, y = .data$locus_tag, fill = .data$component)) +
     ggplot2::geom_col(position = "dodge", width = 0.78, na.rm = TRUE) +
     ggplot2::scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 25)) +
-    ggplot2::scale_fill_manual(values = c(RBS = "#16A34A", Accessibility = "#0891B2", Start = "#DC2626", EarlyK = "#9333EA", MFE = "#64748B")) +
+    ggplot2::scale_fill_manual(values = c(RBS = "#16A34A", AntiSD = "#0F766E", Accessibility = "#0891B2", Start = "#DC2626", EarlyK = "#9333EA", MFE = "#64748B")) +
     ggplot2::labs(title = "Top Gene Components", x = "Component score", y = NULL, fill = NULL) +
     ggplot2::theme_bw(base_size = 9) +
     ggplot2::theme(panel.grid.minor = ggplot2::element_blank(), plot.title = ggplot2::element_text(face = "bold"))

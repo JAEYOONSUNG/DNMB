@@ -10,7 +10,7 @@
 #' @param module_AcrFinder Logical, whether to run and append AcrFinder anti-CRISPR module results.
 #' @param module_Promotech Logical, whether to run and append Promotech promoter prediction results.
 #' @param module_mRNAcal Logical, whether to run and append translation
-#'   initiation efficiency and RNAfold results.
+#'   initiation efficiency plus ViennaRNA fold/accessibility results.
 #' @param module_DefenseFinder_antidefense Logical; when \code{TRUE},
 #'   DefenseFinder is run with AntiDefenseFinder enabled so anti-defense hits
 #'   are merged into the DefenseFinder module output.
@@ -65,7 +65,8 @@
 #' @param mrnacal_upstream,mrnacal_downstream Transcript-window lengths around
 #'   each start codon used by the mRNAcal module.
 #' @param mrnacal_rnafold_path Optional path to `RNAfold`; `NULL` auto-detects
-#'   from `PATH`.
+#'   from `PATH`. Sibling `RNAplfold` and `RNAduplex` binaries are used when
+#'   available.
 #' @param mrnacal_require_rnafold Logical; fail the mRNAcal module when
 #'   `RNAfold` is unavailable.
 #' @param mrnacal_sd_seed Optional Shine-Dalgarno seed override.

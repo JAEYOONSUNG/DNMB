@@ -386,7 +386,8 @@
 #' @param mrnacal_upstream,mrnacal_downstream Transcript-window lengths around
 #'   the start codon used by the mRNAcal translation-initiation module.
 #' @param mrnacal_rnafold_path Optional path to `RNAfold`; `NULL` auto-detects
-#'   from `PATH`.
+#'   from `PATH`. Sibling `RNAplfold` and `RNAduplex` binaries are used when
+#'   available.
 #' @param mrnacal_require_rnafold Logical; fail the module when `RNAfold` is
 #'   unavailable. Set `FALSE` for sequence-only smoke runs.
 #' @param mrnacal_sd_seed Optional Shine-Dalgarno seed override.

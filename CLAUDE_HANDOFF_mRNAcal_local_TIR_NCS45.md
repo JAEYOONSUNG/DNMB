@@ -314,7 +314,7 @@ docker push ghcr.io/jaeyoonsung/dnmbsuite:latest
 docker run --rm \
   --user "$(id -u):$(id -g)" \
   -v "$PWD/data:/data" \
-  -v "$HOME/.dnmb-cache:/opt/dnmb-cache" \
+  -v "$HOME/.dnmb-cache:/opt/dnmb/cache" \
   ghcr.io/jaeyoonsung/dnmbsuite:latest \
   Rscript -e 'library(DNMB); ... run mRNAcal smoke ...'
 ```

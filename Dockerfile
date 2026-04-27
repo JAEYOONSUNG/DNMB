@@ -8,7 +8,7 @@ ARG DNMB_PROMOTECH_MODEL_BASE_URL=https://www.cs.mun.ca/~lourdes/public/PromoTec
 ARG VIENNARNA_VERSION=2.7.2
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    DNMB_CACHE_ROOT=/opt/dnmb-cache \
+    DNMB_CACHE_ROOT=/opt/dnmb/cache \
     DNMB_DEFENSEFINDER_CASFINDER_DIR=/root/.macsyfinder/models/CasFinder \
     DNMB_DEFENSEFINDER_REPO_DIR=/opt/vendor/defense-finder
 
@@ -116,7 +116,10 @@ COPY . /opt/DNMB
 
 RUN R -q -e "options(repos = c(CRAN = 'https://cloud.r-project.org')); remotes::install_local('/opt/DNMB', dependencies = FALSE, upgrade = 'never')"
 
-COPY --from=dnmb_cache /opt/dnmb-cache/db_modules/defensefinder/current /opt/dnmb-cache/db_modules/defensefinder/current
+# Source path is the legacy dash form where the upstream cache image still
+# stores the data; destination is the canonical slash form. Once a fresh
+# cache image is pushed with the slash layout, both can use slash.
+COPY --from=dnmb_cache /opt/dnmb-cache/db_modules/defensefinder/current /opt/dnmb/cache/db_modules/defensefinder/current
 
 RUN Rscript /opt/DNMB/inst/scripts/prewarm_defensefinder_cache.R
 RUN Rscript -e 'cache_root <- Sys.getenv("DNMB_CACHE_ROOT"); result <- DNMB:::dnmb_acrfinder_install_module(cache_root = cache_root, install = TRUE, repo_url = "/opt/vendor/acrfinder", force = TRUE); print(result$status); stopifnot(isTRUE(result$ok))'

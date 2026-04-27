@@ -853,7 +853,7 @@ dnmb_resolve_module_results <- function(module_aliases,
 #' Deletes intermediate files produced by a previous \code{run_DNMB()} call so
 #' the next analysis starts from a clean slate.
 #' GenBank input files (\code{*.gbff}, \code{*.gb}, \code{*.gbk}) and the
-#' DB cache directory (\code{/opt/dnmb-cache} or \code{~/.dnmb-cache}) are
+#' DB cache directory (\code{/opt/dnmb/cache} or \code{~/.dnmb-cache}) are
 #' never touched.
 #'
 #' @param dry_run Logical. If \code{TRUE}, only prints what would be deleted

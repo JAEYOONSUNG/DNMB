@@ -2198,16 +2198,20 @@ dnmb_run_mrnacal_module <- function(genes,
     return(NULL)
   }
   tbl <- tbl[keep, , drop = FALSE]
-  tbl$tir_score_band <- factor(
-    as.character(tbl$mRNAcal_tir_score_band),
-    levels = c("high", "medium", "low", "poor")
+  tbl$expression_band <- factor(
+    if ("mRNAcal_expression_band" %in% names(tbl)) as.character(tbl$mRNAcal_expression_band) else NA_character_,
+    levels = c("very_high", "high", "moderate", "low", "very_low")
   )
-  band_cols <- c(high = "#15803D", medium = "#2563EB", low = "#D97706", poor = "#B91C1C")
-  p_hist <- ggplot2::ggplot(tbl, ggplot2::aes(x = .data$tir_score, fill = .data$tir_score_band)) +
-    ggplot2::geom_histogram(binwidth = 5, color = "white", linewidth = 0.2, boundary = 0) +
-    ggplot2::scale_fill_manual(values = band_cols, drop = FALSE, na.value = "#9CA3AF") +
-    ggplot2::scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 20)) +
-    ggplot2::labs(title = "Translation Initiation Score", x = "Composite score", y = "Genes", fill = NULL) +
+  expr_cols <- c(very_high = "#15803D", high = "#22C55E", moderate = "#FACC15", low = "#F97316", very_low = "#B91C1C")
+  tir_xrange <- base::range(tbl$tir_score, na.rm = TRUE) + c(-2, 2)
+  p_hist <- ggplot2::ggplot(tbl, ggplot2::aes(x = .data$tir_score, fill = .data$expression_band)) +
+    ggplot2::geom_histogram(binwidth = 2, color = "white", linewidth = 0.15, boundary = 0, na.rm = TRUE) +
+    ggplot2::scale_fill_manual(values = expr_cols, drop = FALSE, na.value = "#9CA3AF") +
+    ggplot2::coord_cartesian(xlim = tir_xrange) +
+    ggplot2::labs(
+      title = "Translation Initiation Score (tir_score)",
+      x = "tir_score (initiation, 0-100)", y = "Genes", fill = "expression_band"
+    ) +
     ggplot2::theme_bw(base_size = 10) +
     ggplot2::theme(panel.grid.minor = ggplot2::element_blank(), plot.title = ggplot2::element_text(face = "bold"))
 
@@ -2215,11 +2219,7 @@ dnmb_run_mrnacal_module <- function(genes,
   scatter_tbl$codon_eff <- if ("mRNAcal_codon_efficiency_score" %in% names(scatter_tbl)) suppressWarnings(as.numeric(scatter_tbl$mRNAcal_codon_efficiency_score)) else NA_real_
   scatter_tbl$cai <- if ("mRNAcal_cai" %in% names(scatter_tbl)) suppressWarnings(as.numeric(scatter_tbl$mRNAcal_cai)) else NA_real_
   scatter_tbl$tai <- if ("mRNAcal_tai" %in% names(scatter_tbl)) suppressWarnings(as.numeric(scatter_tbl$mRNAcal_tai)) else NA_real_
-  scatter_tbl$expr_band <- factor(
-    if ("mRNAcal_expression_band" %in% names(scatter_tbl)) as.character(scatter_tbl$mRNAcal_expression_band) else NA_character_,
-    levels = c("very_high", "high", "moderate", "low", "very_low")
-  )
-  expr_cols <- c(very_high = "#15803D", high = "#22C55E", moderate = "#FACC15", low = "#F97316", very_low = "#B91C1C")
+  scatter_tbl$expr_band <- tbl$expression_band
   p_scatter <- ggplot2::ggplot(
     scatter_tbl[!is.na(scatter_tbl$codon_eff), ],
     ggplot2::aes(x = .data$tir_score, y = .data$codon_eff, color = .data$expr_band)
@@ -2259,7 +2259,7 @@ dnmb_run_mrnacal_module <- function(genes,
     MFE = "mRNAcal_fold_score"
   )
   top_component <- tbl[order(-tbl$tir_score), , drop = FALSE]
-  top_component <- utils::head(top_component, min(20L, nrow(top_component)))
+  top_component <- utils::head(top_component, min(12L, nrow(top_component)))
   comp_rows <- list()
   for (nm in names(component_cols)) {
     col <- component_cols[[nm]]
@@ -2274,13 +2274,31 @@ dnmb_run_mrnacal_module <- function(genes,
   }
   comp_tbl <- if (length(comp_rows)) dplyr::bind_rows(comp_rows) else data.frame()
   comp_tbl$locus_tag <- factor(comp_tbl$locus_tag, levels = rev(unique(top_component$locus_tag)))
-  p_comp <- ggplot2::ggplot(comp_tbl, ggplot2::aes(x = .data$score, y = .data$locus_tag, fill = .data$component)) +
-    ggplot2::geom_col(position = "dodge", width = 0.78, na.rm = TRUE) +
-    ggplot2::scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 25)) +
-    ggplot2::scale_fill_manual(values = c(RBS = "#16A34A", AntiSD = "#0F766E", Accessibility = "#0891B2", UpstreamAU = "#CA8A04", Start = "#DC2626", EarlyK = "#9333EA", TIRcore = "#EC4899", NCSfold = "#F97316", CAI = "#7C3AED", tAI = "#0284C7", MFE = "#64748B")) +
-    ggplot2::labs(title = "Top Gene Components", x = "Component score", y = NULL, fill = NULL) +
-    ggplot2::theme_bw(base_size = 9) +
-    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(), plot.title = ggplot2::element_text(face = "bold"))
+  comp_tbl$component <- factor(comp_tbl$component, levels = names(component_cols))
+  p_comp <- ggplot2::ggplot(comp_tbl, ggplot2::aes(x = .data$component, y = .data$locus_tag, fill = .data$score)) +
+    ggplot2::geom_tile(color = "white", linewidth = 0.4, na.rm = TRUE) +
+    ggplot2::geom_text(
+      ggplot2::aes(label = base::sprintf("%.0f", .data$score)),
+      size = 2.6, color = "#1F2937", na.rm = TRUE
+    ) +
+    ggplot2::scale_fill_gradient2(
+      low = "#B91C1C", mid = "#FACC15", high = "#15803D",
+      midpoint = 50, limits = c(0, 100), na.value = "#E5E7EB",
+      name = "Component\nscore"
+    ) +
+    ggplot2::labs(
+      title = "Top Genes — Component Heatmap",
+      subtitle = "Color = component score (red 0 — yellow 50 — green 100). Numbers show exact value.",
+      x = NULL, y = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 9) +
+    ggplot2::theme(
+      axis.text.x = ggplot2::element_text(angle = 35, hjust = 1, size = 8),
+      axis.text.y = ggplot2::element_text(family = "mono", size = 8),
+      panel.grid = ggplot2::element_blank(),
+      plot.title = ggplot2::element_text(face = "bold", size = 11),
+      plot.subtitle = ggplot2::element_text(size = 8, color = "#475569")
+    )
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   summary_pdf <- file.path(plot_dir, "mRNAcal_translation_efficiency.pdf")

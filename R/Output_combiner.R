@@ -107,6 +107,7 @@ DNMB_table <- function(
 
   genbank_table <- dnmb_prepare_genbank_table_for_output(genbank_table)
   module_detail_table <- dnmb_build_module_details_table(genbank_table)
+  mrnacal_full_table <- dnmb_build_module_full_table(genbank_table, prefix = "mRNAcal")
   genbank_table <- dnmb_order_genbank_table_for_output(genbank_table)
 
   # Create a new workbook
@@ -146,6 +147,9 @@ DNMB_table <- function(
     openxlsx::addWorksheet(wb, "7.InterPro_site")
     openxlsx::writeData(wb, "7.InterPro_site", InterProScan_site, startRow = 1, startCol = 1)
     message("InterProScan_site sheet added (", nrow(InterProScan_site), " rows).")
+  } else {
+    dnmb_write_placeholder_sheet(wb, "7.InterPro_site",
+      "No InterProScan results — module not run for this genome.")
   }
 
   if (is.data.frame(module_detail_table) && nrow(module_detail_table)) {
@@ -164,6 +168,31 @@ DNMB_table <- function(
       gridExpand = TRUE,
       stack = TRUE
     )
+  } else {
+    dnmb_write_placeholder_sheet(wb, "8.Module_details",
+      "No module results — none of the per-gene modules produced detail rows.")
+  }
+
+  # mRNAcal full per-gene sheet
+  if (is.data.frame(mrnacal_full_table) && nrow(mrnacal_full_table) &&
+      base::any(grepl("^mRNAcal_", names(mrnacal_full_table)))) {
+    openxlsx::addWorksheet(wb, "12.mRNAcal_full")
+    openxlsx::writeData(wb, "12.mRNAcal_full", mrnacal_full_table, startRow = 1, startCol = 1)
+    mrnacal_header_style <- openxlsx::createStyle(
+      fgFill = "#E0F2F1", fontColour = "#0F172A",
+      textDecoration = "bold", halign = "center",
+      border = "Bottom", borderColour = "#94A3B8"
+    )
+    openxlsx::addStyle(wb, "12.mRNAcal_full", mrnacal_header_style,
+                       rows = 1, cols = seq_len(ncol(mrnacal_full_table)),
+                       gridExpand = TRUE)
+    openxlsx::freezePane(wb, "12.mRNAcal_full", firstActiveRow = 2, firstActiveCol = 2)
+    message("mRNAcal_full sheet added (",
+            nrow(mrnacal_full_table), " rows, ",
+            ncol(mrnacal_full_table), " cols).")
+  } else {
+    dnmb_write_placeholder_sheet(wb, "12.mRNAcal_full",
+      "No mRNAcal results — module not run for this genome.")
   }
 
   # Prophage summary sheet
@@ -184,6 +213,9 @@ DNMB_table <- function(
                        rows = 1, cols = seq_len(ncol(prophage_summary)), gridExpand = TRUE)
     openxlsx::setColWidths(wb, "9.Prophage_summary", cols = seq_len(ncol(prophage_summary)), widths = "auto")
     message("Prophage_summary sheet added (", nrow(prophage_summary), " regions).")
+  } else {
+    dnmb_write_placeholder_sheet(wb, "9.Prophage_summary",
+      "No prophage regions detected — Prophage module not run or no hits found.")
   }
 
   # IS element census sheet
@@ -203,6 +235,9 @@ DNMB_table <- function(
                        rows = 1, cols = seq_len(ncol(is_census)), gridExpand = TRUE)
     openxlsx::setColWidths(wb, "10.IS_census", cols = seq_len(ncol(is_census)), widths = "auto")
     message("IS_census sheet added (", nrow(is_census), " families).")
+  } else {
+    dnmb_write_placeholder_sheet(wb, "10.IS_census",
+      "No IS element census — ISelement module not run or no families detected.")
   }
 
   # Landing pad sheet
@@ -234,6 +269,9 @@ DNMB_table <- function(
       )
     }
     message("Landing_pads sheet added (", nrow(is_landing_pads), " pads).")
+  } else {
+    dnmb_write_placeholder_sheet(wb, "11.Landing_pads",
+      "No IS landing pads — ISelement module not run or no pads detected.")
   }
 
   # Construct the file name
@@ -346,6 +384,85 @@ dnmb_prepare_genbank_table_for_output <- function(genbank_table) {
   out
 }
 
+#' Curated subset of module columns kept in the GenBank_table sheet.
+#'
+#' For very wide modules (currently mRNAcal) we only surface the most useful
+#' columns on sheet 1 and emit the full block in a dedicated sheet. Returns
+#' NULL for modules where the full block should remain on sheet 1.
+#' Add a placeholder sheet stating that no results are available.
+#'
+#' Used for conditional sheets (InterPro, Prophage, IS, mRNAcal_full, …) so
+#' the user can tell at a glance that the module wasn't run, rather than the
+#' sheet silently disappearing.
+dnmb_write_placeholder_sheet <- function(wb, name, msg) {
+  openxlsx::addWorksheet(wb, name)
+  payload <- data.frame(status = base::as.character(msg), stringsAsFactors = FALSE)
+  openxlsx::writeData(wb, name, payload, startRow = 1, startCol = 1)
+  header_style <- openxlsx::createStyle(
+    fgFill = "#F1F5F9", fontColour = "#475569",
+    textDecoration = "bold", halign = "left",
+    border = "Bottom", borderColour = "#CBD5E1"
+  )
+  body_style <- openxlsx::createStyle(
+    fgFill = "#F8FAFC", fontColour = "#64748B",
+    textDecoration = "italic", halign = "left"
+  )
+  openxlsx::addStyle(wb, name, header_style, rows = 1, cols = 1)
+  openxlsx::addStyle(wb, name, body_style, rows = 2, cols = 1)
+  openxlsx::setColWidths(wb, name, cols = 1, widths = 60)
+  invisible(wb)
+}
+
+#' Full per-gene table for one module prefix, intended for a dedicated sheet.
+#'
+#' Returns base identifier columns followed by every column matching
+#' `<prefix>_*`. Empty data frame when the module hasn't been merged into
+#' `genbank_table`.
+dnmb_build_module_full_table <- function(genbank_table, prefix) {
+  if (!is.data.frame(genbank_table) || !nrow(genbank_table)) {
+    return(data.frame())
+  }
+  prefix <- as.character(prefix)[1]
+  block_pat <- paste0("^", prefix, "_")
+  module_cols <- grep(block_pat, names(genbank_table), value = TRUE)
+  module_cols <- setdiff(module_cols, paste0(prefix, "_SECTION"))
+  if (!length(module_cols)) {
+    return(data.frame())
+  }
+  base_cols <- intersect(
+    c("locus_tag", "old_locus_tag", "gene", "product", "protein_id",
+      "contig", "start", "end", "direction"),
+    names(genbank_table)
+  )
+  out <- as.data.frame(
+    genbank_table[, c(base_cols, module_cols), drop = FALSE],
+    stringsAsFactors = FALSE, check.names = FALSE
+  )
+  rownames(out) <- NULL
+  out
+}
+
+dnmb_module_core_columns <- function(prefix) {
+  switch(
+    as.character(prefix)[1],
+    mRNAcal = c(
+      "tir_score",
+      "tir_score_band",
+      "tir_score_percentile",
+      "rbs_motif",
+      "rbs_spacer",
+      "start_codon",
+      "fold_mfe",
+      "cai",
+      "tai",
+      "codon_efficiency_score",
+      "expression_potential_score",
+      "expression_band"
+    ),
+    NULL
+  )
+}
+
 dnmb_order_genbank_table_for_output <- function(genbank_table) {
   if (!is.data.frame(genbank_table) || !nrow(genbank_table)) {
     return(genbank_table)
@@ -356,6 +473,19 @@ dnmb_order_genbank_table_for_output <- function(genbank_table) {
   present_separators <- intersect(separator_cols, names(out))
   if (length(present_separators)) {
     out[present_separators] <- NULL
+  }
+
+  # Drop non-core columns for modules with a curated short list. Full data is
+  # written to a dedicated module sheet (see DNMB_table).
+  for (prefix in dnmb_supported_module_prefixes()) {
+    core <- dnmb_module_core_columns(prefix)
+    if (!length(core)) next
+    block_pat <- paste0("^", prefix, "_")
+    block_cols <- grep(block_pat, names(out), value = TRUE)
+    if (!length(block_cols)) next
+    keep <- paste0(prefix, "_", core)
+    drop <- setdiff(block_cols, keep)
+    if (length(drop)) out[drop] <- NULL
   }
 
   module_prefixes <- dnmb_module_prefix_order(out)
@@ -1591,7 +1721,10 @@ dnmb_apply_workbook_sheet_order <- function(wb) {
     "6.CRISPR_table",
     "7.InterPro_site",
     "8.Module_details",
-    "9.Prophage_summary"
+    "9.Prophage_summary",
+    "10.IS_census",
+    "11.Landing_pads",
+    "12.mRNAcal_full"
   )
   existing <- names(wb)
   ordered <- c(intersect(desired, existing), setdiff(existing, desired))

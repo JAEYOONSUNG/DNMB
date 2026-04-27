@@ -522,13 +522,13 @@ dnmb_export_translation_efficiency <- function(results,
   p1 <- density_hist_panel(
     "tir_score",
     "Initiation — tir_score",
-    "RBS strength + accessibility + start context  (Spearman vs PaxDB ≈ 0.06 — not abundance)",
+    "RBS strength + accessibility + start context (initiation rate proxy)",
     "tir_score (0–100)"
   )
   p2 <- density_hist_panel(
     "codon_efficiency_score",
     "Elongation — codon_efficiency_score",
-    "Mean of CAI and tAI  (Spearman vs PaxDB 0.34–0.58 across 3 species)",
+    "Mean of CAI and tAI (elongation rate proxy)",
     "codon_efficiency_score (0–100)"
   )
   p3 <- density_hist_panel(
@@ -561,14 +561,19 @@ dnmb_export_translation_efficiency <- function(results,
   rank_order <- base::order(-rank_key, na.last = NA)
   top_set <- scatter_d[utils::head(rank_order, top_n), , drop = FALSE]
   bottom_set <- scatter_d[utils::tail(rank_order, top_n), , drop = FALSE]
-  label_top <- utils::head(
-    top_set[!base::is.na(top_set$gene) & base::nzchar(top_set$gene), , drop = FALSE],
-    12L
-  )
-  label_bot <- utils::tail(
-    bottom_set[!base::is.na(bottom_set$gene) & base::nzchar(bottom_set$gene), , drop = FALSE],
-    8L
-  )
+  # Use gene name when present, fall back to locus_tag (or its numeric tail
+  # for compactness when locus_tag is long like 'QT235_RS00710').
+  fallback_label <- function(d) {
+    g <- if ("gene" %in% base::names(d)) base::as.character(d$gene) else base::rep(NA_character_, base::nrow(d))
+    lt <- base::as.character(d$locus_tag)
+    short_lt <- base::sub("^.*[_-](RS|G|GS|G[0-9])", "\\1", lt)
+    short_lt <- base::ifelse(base::nchar(short_lt) > 12L, base::substr(short_lt, 1L, 12L), short_lt)
+    base::ifelse(!base::is.na(g) & base::nzchar(g), g, short_lt)
+  }
+  top_set$plot_label <- fallback_label(top_set)
+  bottom_set$plot_label <- fallback_label(bottom_set)
+  label_top <- utils::head(top_set, 12L)
+  label_bot <- utils::tail(bottom_set, 8L)
   scatter_main <- ggplot2::ggplot(
     scatter_d,
     ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score, color = .data$expr_band)
@@ -614,7 +619,7 @@ dnmb_export_translation_efficiency <- function(results,
       scatter_main <- scatter_main +
         ggrepel::geom_text_repel(
           data = label_top,
-          ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score, label = .data$gene),
+          ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score, label = .data$plot_label),
           inherit.aes = FALSE,
           size = 2.6, fontface = "italic", color = "#0F766E",
           box.padding = 0.45, point.padding = 0.25, segment.color = "#0F766E",
@@ -626,7 +631,7 @@ dnmb_export_translation_efficiency <- function(results,
       scatter_main <- scatter_main +
         ggrepel::geom_text_repel(
           data = label_bot,
-          ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score, label = .data$gene),
+          ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score, label = .data$plot_label),
           inherit.aes = FALSE,
           size = 2.4, fontface = "italic", color = "#991B1B",
           box.padding = 0.45, point.padding = 0.25, segment.color = "#991B1B",
@@ -635,22 +640,8 @@ dnmb_export_translation_efficiency <- function(results,
         )
     }
   }
-  # Legend annotation describing the highlight markers
-  scatter_main <- scatter_main +
-    ggplot2::annotate("point", x = scatter_xlim[1] + 0.04 * base::diff(scatter_xlim),
-                      y = scatter_ylim[2] - 0.16 * base::diff(scatter_ylim),
-                      shape = 21, size = 1.6, fill = "#0F766E", color = "#0F172A", stroke = 0.5) +
-    ggplot2::annotate("text", x = scatter_xlim[1] + 0.06 * base::diff(scatter_xlim),
-                      y = scatter_ylim[2] - 0.16 * base::diff(scatter_ylim),
-                      label = base::sprintf("top %d", top_n),
-                      hjust = 0, size = 2.5, color = "#0F766E", fontface = "italic") +
-    ggplot2::annotate("point", x = scatter_xlim[1] + 0.04 * base::diff(scatter_xlim),
-                      y = scatter_ylim[2] - 0.20 * base::diff(scatter_ylim),
-                      shape = 23, size = 1.6, fill = "#991B1B", color = "#0F172A", stroke = 0.5) +
-    ggplot2::annotate("text", x = scatter_xlim[1] + 0.06 * base::diff(scatter_xlim),
-                      y = scatter_ylim[2] - 0.20 * base::diff(scatter_ylim),
-                      label = base::sprintf("bottom %d", top_n),
-                      hjust = 0, size = 2.5, color = "#991B1B", fontface = "italic")
+  # Note: top / bottom highlight markers are rendered in an external legend
+  # strip below the scatter (built alongside the expression_band legend).
 
   marginal_x <- ggplot2::ggplot(scatter_d, ggplot2::aes(x = .data$tir_score, fill = .data$expr_band)) +
     ggplot2::geom_density(alpha = 0.6, color = NA, na.rm = TRUE, position = "stack") +
@@ -676,23 +667,52 @@ dnmb_export_translation_efficiency <- function(results,
       x = 0.02, y = 0.30, hjust = 0, size = 8, color = "#475569"
     )
 
-  # Single shared horizontal legend (below scatter)
+  # Shared horizontal legends (below scatter): expression_band ordered
+  # very_low -> very_high (left to right), plus top/bottom highlight markers.
+  band_levels_lr <- c("very_low", "low", "moderate", "high", "very_high")
   legend_source <- ggplot2::ggplot(
     data.frame(
-      x = 1,
-      band = factor(base::names(expr_cols), levels = base::names(expr_cols))
+      x = base::seq_along(band_levels_lr),
+      band = factor(band_levels_lr, levels = band_levels_lr)
     ),
     ggplot2::aes(x = .data$x, y = .data$x, color = .data$band)
   ) +
     ggplot2::geom_point(size = 3) +
     ggplot2::scale_color_manual(values = expr_cols, drop = FALSE,
                                  name = NULL,
+                                 breaks = band_levels_lr,
                                  guide = ggplot2::guide_legend(nrow = 1, override.aes = list(size = 4))) +
     ggplot2::theme_void() +
     ggplot2::theme(legend.position = "bottom",
                    legend.text = ggplot2::element_text(size = 9, color = "#334155"),
                    legend.key = ggplot2::element_blank())
   shared_legend <- cowplot::get_legend(legend_source)
+
+  hl_labels <- c(base::sprintf("top %d", top_n), base::sprintf("bottom %d", top_n))
+  hl_source <- ggplot2::ggplot(
+    data.frame(
+      x = c(1, 2),
+      hl = factor(hl_labels, levels = hl_labels)
+    ),
+    ggplot2::aes(x = .data$x, y = .data$x, shape = .data$hl, fill = .data$hl)
+  ) +
+    ggplot2::geom_point(size = 3, color = "#0F172A", stroke = 0.5) +
+    ggplot2::scale_shape_manual(values = c(21, 23), name = NULL, breaks = hl_labels,
+                                 guide = ggplot2::guide_legend(nrow = 1,
+                                   override.aes = list(size = 4, color = "#0F172A",
+                                                       fill = c("#0F766E", "#991B1B")))) +
+    ggplot2::scale_fill_manual(values = c("#0F766E", "#991B1B"), name = NULL,
+                                breaks = hl_labels, guide = "none") +
+    ggplot2::theme_void() +
+    ggplot2::theme(legend.position = "bottom",
+                   legend.text = ggplot2::element_text(size = 9, color = "#334155"),
+                   legend.key = ggplot2::element_blank())
+  hl_legend <- cowplot::get_legend(hl_source)
+  # Push both legends toward the left with an empty spacer on the right.
+  combined_legend <- cowplot::plot_grid(
+    shared_legend, hl_legend, NULL,
+    ncol = 3, rel_widths = c(1.6, 0.9, 1.3)
+  )
   scatter_grid <- cowplot::plot_grid(
     marginal_x, NULL,
     scatter_main, marginal_y,
@@ -771,26 +791,13 @@ dnmb_export_translation_efficiency <- function(results,
     }), collapse = "  |  "
   )
 
-  organism_lc <- if (!base::is.null(organism)) base::tolower(organism) else ""
-  is_validated_organism <- base::grepl(
-    "(escherichia coli|bacillus subtilis|campylobacter jejuni)",
-    organism_lc
-  )
-  validation_note <- if (base::isTRUE(is_validated_organism)) {
-    "CAI/tAI cross-validated for this organism vs PaxDB (Spearman 0.34-0.58)"
-  } else {
-    "CAI/tAI algorithm validated on E. coli / B. subtilis / C. jejuni (PaxDB Spearman 0.34-0.58); applied here by extrapolation"
-  }
-
   hero <- cowplot::ggdraw() +
     cowplot::draw_label(
       base::paste0("Translation Efficiency Summary", org_label),
       x = 0.5, y = 0.74, fontface = "bold", size = 16, color = "#0F172A"
     ) +
     cowplot::draw_label(
-      base::paste0("n = ", base::nrow(slim), " CDS  •  ",
-                   validation_note,
-                   "  •  generated ", base::format(base::Sys.Date())),
+      base::paste0("n = ", base::nrow(slim), " CDS"),
       x = 0.5, y = 0.4, size = 8.5, color = "#475569"
     ) +
     cowplot::draw_label(
@@ -807,10 +814,10 @@ dnmb_export_translation_efficiency <- function(results,
     hero,
     hist_grid,
     scatter_block,
-    shared_legend,
+    combined_legend,
     table_grid,
     ncol = 1,
-    rel_heights = c(0.18, 1.55, 1.30, 0.07, table_rel_h)
+    rel_heights = c(0.18, 1.55, 1.30, 0.09, table_rel_h)
   )
   ggplot2::ggsave(path, full, width = 12, height = pdf_height, bg = "white", limitsize = FALSE)
   TRUE

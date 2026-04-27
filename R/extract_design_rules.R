@@ -94,19 +94,6 @@ dnmb_extract_design_rules <- function(results,
     }
   )
 
-  logo_path <- base::file.path(output_dir, "mrnacal_design_rbs_logo.pdf")
-  ok_logo <- tryCatch(
-    .dnmb_design_seqlogo_plot(
-      logo_path, rbs_pwm, organism = organism,
-      n_top = base::length(top_idx), n_bot = base::length(bot_idx),
-      cai_top = q_top, cai_bot = q_bot
-    ),
-    error = function(e) {
-      base::warning("Sequence logo plot failed: ", conditionMessage(e), call. = FALSE)
-      FALSE
-    }
-  )
-
   files <- list(
     summary = summary_path,
     codon_table = codon_path,
@@ -114,7 +101,6 @@ dnmb_extract_design_rules <- function(results,
     start = start_path
   )
   if (base::isTRUE(ok_plot)) files$plot <- pdf_path
-  if (base::isTRUE(ok_logo)) files$rbs_logo <- logo_path
 
   list(
     summary = summary_tbl,

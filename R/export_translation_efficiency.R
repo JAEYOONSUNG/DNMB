@@ -86,6 +86,7 @@ dnmb_export_translation_efficiency <- function(results,
 
   out <- data.frame(
     locus_tag = pull_chr("locus_tag"),
+    expression_potential_score = base::round(pull_num("expression_potential_score"), 2),
     tir_score = base::round(pull_num("tir_score"), 2),
     tir_score_percentile = base::round(pull_num("tir_score_percentile"), 1),
     codon_efficiency_score = base::round(pull_num("codon_efficiency_score"), 2),
@@ -123,7 +124,14 @@ dnmb_export_translation_efficiency <- function(results,
     }
   }
 
-  out <- out[base::order(-out$tir_score), , drop = FALSE]
+  # Sort by expression_potential_score (geometric mean of tir x codon_eff) so
+  # the slim sheet opens with the highest combined-flux genes at the top.
+  sort_key <- if (base::any(!base::is.na(out$expression_potential_score))) {
+    -out$expression_potential_score
+  } else {
+    -out$tir_score
+  }
+  out <- out[base::order(sort_key, na.last = TRUE), , drop = FALSE]
   base::row.names(out) <- NULL
   out
 }
@@ -231,7 +239,7 @@ dnmb_export_translation_efficiency <- function(results,
 
   # === Color gradient on key numeric columns (skip summary row) ===
   data_rows <- base::seq.int(3L, base::nrow(combined) + 1L)
-  for (col_name in c("tir_score", "tir_score_percentile",
+  for (col_name in c("expression_potential_score", "tir_score", "tir_score_percentile",
                      "codon_efficiency_score", "cai", "tai",
                      "rbs_score", "duplex_score", "accessibility_score")) {
     col_i <- base::which(base::names(combined) == col_name)
@@ -541,14 +549,23 @@ dnmb_export_translation_efficiency <- function(results,
   ce_med <- stats::median(scatter_d$codon_efficiency_score, na.rm = TRUE)
   scatter_xlim <- base::range(scatter_d$tir_score, na.rm = TRUE) + c(-2, 2)
   scatter_ylim <- base::range(scatter_d$codon_efficiency_score, na.rm = TRUE) + c(-2, 2)
-  ce_order <- base::order(-scatter_d$codon_efficiency_score)
-  top_set <- scatter_d[utils::head(ce_order, top_n), , drop = FALSE]
-  bottom_set <- scatter_d[utils::tail(ce_order, top_n), , drop = FALSE]
+  # Rank by expression_potential_score (geometric mean of tir x codon_eff) so
+  # the top/bottom set captures genes where BOTH axes are favourable, not
+  # just one. Falls back to codon_efficiency_score when potential is missing.
+  rank_key <- if ("expression_potential_score" %in% base::names(scatter_d) &&
+                  base::any(!base::is.na(scatter_d$expression_potential_score))) {
+    suppressWarnings(base::as.numeric(scatter_d$expression_potential_score))
+  } else {
+    suppressWarnings(base::as.numeric(scatter_d$codon_efficiency_score))
+  }
+  rank_order <- base::order(-rank_key, na.last = NA)
+  top_set <- scatter_d[utils::head(rank_order, top_n), , drop = FALSE]
+  bottom_set <- scatter_d[utils::tail(rank_order, top_n), , drop = FALSE]
   label_top <- utils::head(
     top_set[!base::is.na(top_set$gene) & base::nzchar(top_set$gene), , drop = FALSE],
     12L
   )
-  label_bot <- utils::head(
+  label_bot <- utils::tail(
     bottom_set[!base::is.na(bottom_set$gene) & base::nzchar(bottom_set$gene), , drop = FALSE],
     8L
   )
@@ -687,16 +704,25 @@ dnmb_export_translation_efficiency <- function(results,
     ncol = 1, rel_heights = c(0.07, 1)
   )
 
-  # Tables
-  top_idx <- base::order(-slim$codon_efficiency_score, na.last = NA)
+  # Tables — rank by expression_potential_score (tir x codon_eff geometric
+  # mean) so the lists reflect the multiplicative flux model. Fall back to
+  # codon_efficiency_score if potential isn't present.
+  rank_score <- if ("expression_potential_score" %in% base::names(slim) &&
+                    base::any(!base::is.na(slim$expression_potential_score))) {
+    suppressWarnings(base::as.numeric(slim$expression_potential_score))
+  } else {
+    suppressWarnings(base::as.numeric(slim$codon_efficiency_score))
+  }
+  top_idx <- base::order(-rank_score, na.last = NA)
   top_tbl <- slim[utils::head(top_idx, top_n), , drop = FALSE]
   bot_tbl <- slim[utils::tail(top_idx, top_n), , drop = FALSE]
-  bot_tbl <- bot_tbl[base::order(bot_tbl$codon_efficiency_score), , drop = FALSE]
+  bot_tbl <- bot_tbl[base::order(rank_score[base::match(bot_tbl$locus_tag, slim$locus_tag)]), , drop = FALSE]
 
   table_panel <- function(d, title) {
     cols <- base::intersect(
       c("locus_tag", "gene", "product",
-        "tir_score", "codon_efficiency_score", "expression_band"),
+        "tir_score", "codon_efficiency_score", "expression_potential_score",
+        "expression_band"),
       base::names(d)
     )
     if (!base::length(cols)) return(NULL)

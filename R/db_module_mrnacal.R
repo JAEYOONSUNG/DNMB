@@ -1458,14 +1458,15 @@
   ok <- !base::is.na(tir) & !base::is.na(ce)
   potential <- base::rep(NA_real_, base::length(tir))
   if (!base::any(ok)) return(potential)
-  # Standardise within genome (mean=0, sd=1) so the two scales contribute on
-  # equal footing. Sum captures that BOTH initiation and elongation push
-  # expression higher; the resulting score is continuous, so the downstream
-  # band cuts produce smooth diagonal boundaries on the 2D map rather than
-  # the rectangular quartile-rank grid the previous implementation produced.
-  tir_z <- (tir[ok] - base::mean(tir[ok])) / stats::sd(tir[ok])
-  ce_z <- (ce[ok] - base::mean(ce[ok])) / stats::sd(ce[ok])
-  potential[ok] <- base::round(tir_z + ce_z, 4)
+  # Geometric mean of tir_score and codon_efficiency_score. This is the
+  # multiplicative analogue of the arithmetic mean and matches the
+  # biological flux model (synthesis rate ∝ initiation × elongation): a gene
+  # with strong initiation but poor codon usage gets pulled down, and so
+  # does a gene with optimal codons but no SD. Both scores sit on a 0-100
+  # scale so the geometric mean stays on the same scale.
+  tir_pos <- base::pmax(0, tir[ok])
+  ce_pos  <- base::pmax(0, ce[ok])
+  potential[ok] <- base::round(base::sqrt(tir_pos * ce_pos), 2)
   potential
 }
 

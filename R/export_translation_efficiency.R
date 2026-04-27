@@ -26,7 +26,7 @@ dnmb_export_translation_efficiency <- function(results,
                                                gene_metadata = NULL,
                                                output_dir = NULL,
                                                organism = NULL,
-                                               top_n = 20L) {
+                                               top_n = 40L) {
   results <- .dnmb_validate_load_results(results)
   if (!base::nrow(results)) {
     stop("mRNAcal results are empty.", call. = FALSE)
@@ -563,14 +563,14 @@ dnmb_export_translation_efficiency <- function(results,
     ggplot2::scale_color_manual(values = expr_cols, drop = FALSE) +
     ggplot2::coord_cartesian(xlim = scatter_xlim, ylim = scatter_ylim, expand = FALSE) +
     ggplot2::labs(
-      title = "Initiation × Elongation map",
-      subtitle = "Each point is one CDS; colour = expression_band (5-level quartile sum). Dashed lines = within-genome medians.",
       x = "tir_score — initiation efficiency",
       y = "codon_efficiency_score — elongation efficiency",
       color = "expression_band"
     ) +
     refined_theme +
-    ggplot2::theme(legend.position = "right")
+    ggplot2::theme(legend.position = "right",
+                   plot.title = ggplot2::element_blank(),
+                   plot.subtitle = ggplot2::element_blank())
   if (ok_repel && base::nrow(label_d)) {
     scatter_main <- scatter_main +
       ggplot2::geom_point(data = label_d, ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score),
@@ -599,11 +599,24 @@ dnmb_export_translation_efficiency <- function(results,
     ggplot2::theme_void() +
     ggplot2::theme(legend.position = "none", plot.margin = ggplot2::margin(2, 2, 2, 0))
 
-  scatter_block <- cowplot::plot_grid(
+  scatter_title <- cowplot::ggdraw() +
+    cowplot::draw_label(
+      "Initiation × Elongation map",
+      x = 0.02, y = 0.78, hjust = 0, fontface = "bold", size = 11, color = "#0F172A"
+    ) +
+    cowplot::draw_label(
+      "Each point is one CDS; colour = expression_band (5-level quartile sum). Dashed lines = within-genome medians.",
+      x = 0.02, y = 0.30, hjust = 0, size = 8, color = "#475569"
+    )
+  scatter_grid <- cowplot::plot_grid(
     marginal_x, NULL,
     scatter_main, marginal_y,
     ncol = 2, nrow = 2,
     rel_widths = c(1, 0.18), rel_heights = c(0.18, 1)
+  )
+  scatter_block <- cowplot::plot_grid(
+    scatter_title, scatter_grid,
+    ncol = 1, rel_heights = c(0.07, 1)
   )
 
   # Tables
@@ -649,8 +662,8 @@ dnmb_export_translation_efficiency <- function(results,
   }
   ok_grid <- requireNamespace("gridExtra", quietly = TRUE) && requireNamespace("grid", quietly = TRUE)
   if (ok_grid) {
-    g_top <- table_panel(top_tbl, "Top 20 — codon_efficiency_score")
-    g_bot <- table_panel(bot_tbl, "Bottom 20 — codon_efficiency_score")
+    g_top <- table_panel(top_tbl, base::sprintf("Top %d — codon_efficiency_score", top_n))
+    g_bot <- table_panel(bot_tbl, base::sprintf("Bottom %d — codon_efficiency_score", top_n))
     table_grid <- cowplot::plot_grid(g_top, g_bot, ncol = 2, rel_widths = c(1, 1))
   } else {
     table_grid <- ggplot2::ggplot() + ggplot2::labs(title = "install gridExtra for tables")
@@ -682,14 +695,17 @@ dnmb_export_translation_efficiency <- function(results,
 
   hist_grid <- cowplot::plot_grid(p1, p2, p3, p4, ncol = 2, rel_heights = c(1, 1), align = "hv")
 
+  # Scale table block height by top_n (~0.07 inch per row + headroom)
+  table_rel_h <- 0.45 + 0.06 * top_n
+  pdf_height <- 8 + 1.2 * top_n / 4
   full <- cowplot::plot_grid(
     hero,
     hist_grid,
     scatter_block,
     table_grid,
     ncol = 1,
-    rel_heights = c(0.18, 1.55, 1.20, 1.45)
+    rel_heights = c(0.18, 1.55, 1.30, table_rel_h)
   )
-  ggplot2::ggsave(path, full, width = 12, height = 17, bg = "white", limitsize = FALSE)
+  ggplot2::ggsave(path, full, width = 12, height = pdf_height, bg = "white", limitsize = FALSE)
   TRUE
 }

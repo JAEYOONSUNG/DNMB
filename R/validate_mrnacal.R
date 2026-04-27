@@ -363,6 +363,8 @@ dnmb_validate_mrnacal <- function(results,
     "tir_core_a_fraction", "tir_core_g_fraction",
     "internal_sd_count", "internal_sd_penalty",
     "fold_mfe", "fold_mfe_per_nt", "fold_score",
+    "ncs_mfe_dg", "ncs_mfe_per_nt", "ncs_fold_score",
+    "tir_core_score",
     "cai", "cai_score", "tai", "tai_score", "codon_efficiency_score"
   )
   feats <- base::intersect(feature_candidates, base::names(merged))

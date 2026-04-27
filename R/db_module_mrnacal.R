@@ -771,6 +771,14 @@
   ncs_lysine_count <- base::sum(ncs_codons %in% c("AAA", "AAG"), na.rm = TRUE)
   ncs_aaa_count <- base::sum(ncs_codons %in% "AAA", na.rm = TRUE)
   ncs_aag_count <- base::sum(ncs_codons %in% "AAG", na.rm = TRUE)
+  # Lipońska & Boël 2025 NAR: A-rich + G-poor in 70S IC footprint boosts initiation.
+  tir_core_score_value <- if (base::length(tir_core_chars)) {
+    a_frac <- if (base::is.na(tir_core_a_fraction)) 0.5 else tir_core_a_fraction
+    g_frac <- if (base::is.na(tir_core_g_fraction)) 0.25 else tir_core_g_fraction
+    base::round(100 * (0.6 * a_frac + 0.4 * (1 - g_frac)), 2)
+  } else {
+    NA_real_
+  }
   lys_codons <- early %in% c("AAA", "AAG")
   aaa_codons <- early %in% "AAA"
   aag_codons <- early %in% "AAG"
@@ -827,6 +835,7 @@
     tir_core_sequence = if (base::nzchar(tir_core_sequence)) tir_core_sequence else NA_character_,
     tir_core_a_fraction = base::round(tir_core_a_fraction, 4),
     tir_core_g_fraction = base::round(tir_core_g_fraction, 4),
+    tir_core_score = tir_core_score_value,
     early_aaa_run = aaa_run,
     early_poly_a_run = early_poly_a_run,
     early_poly_a_penalty = base::round(poly_a_penalty, 2),
@@ -1030,16 +1039,28 @@
   dplyr::bind_rows(rows)
 }
 
-.dnmb_mrnacal_run_rnafold_batch <- function(tbl, output_dir, rnafold_path = NULL, cpu = 1L) {
+.dnmb_mrnacal_run_rnafold_batch <- function(tbl, output_dir, rnafold_path = NULL, cpu = 1L,
+                                            seq_col = "fold_sequence", prefix = "mrnacal_fold") {
   tool <- .dnmb_mrnacal_find_tool(rnafold_path, "RNAfold")
   if (!base::nzchar(tool)) {
     return(list(ok = FALSE, error = "RNAfold not found in PATH.", table = data.frame()))
   }
-  ids <- base::sprintf("MRNACAL_%06d", base::seq_len(base::nrow(tbl)))
-  names(ids) <- tbl$locus_tag
-  id_map <- stats::setNames(tbl$locus_tag, ids)
-  fasta <- base::file.path(output_dir, "mrnacal_fold_sequences.fa")
-  .dnmb_mrnacal_write_fasta(ids, tbl$fold_sequence, fasta)
+  if (!seq_col %in% base::names(tbl)) {
+    return(list(ok = FALSE, error = base::paste0("Column ", seq_col, " missing from input."), table = data.frame()))
+  }
+  seqs <- base::as.character(tbl[[seq_col]])
+  keep <- !base::is.na(seqs) & base::nchar(seqs) >= 6L
+  if (!base::any(keep)) {
+    return(list(ok = TRUE, table = data.frame(locus_tag = character(), fold_structure = character(), fold_mfe = numeric()),
+                file = NULL, tool = tool))
+  }
+  tbl_kept <- tbl[keep, , drop = FALSE]
+  seqs_kept <- seqs[keep]
+  ids <- base::sprintf("MRNACAL_%06d", base::seq_len(base::nrow(tbl_kept)))
+  names(ids) <- tbl_kept$locus_tag
+  id_map <- stats::setNames(tbl_kept$locus_tag, ids)
+  fasta <- base::file.path(output_dir, base::paste0(prefix, "_sequences.fa"))
+  .dnmb_mrnacal_write_fasta(ids, seqs_kept, fasta)
 
   cpu <- suppressWarnings(base::as.integer(cpu)[1])
   if (base::is.na(cpu) || cpu < 1L) {
@@ -1054,7 +1075,7 @@
     return(list(ok = FALSE, error = run$error %||% "RNAfold failed.", table = data.frame(), tool = tool))
   }
   parsed <- .dnmb_mrnacal_parse_rnafold(run$stdout, id_map = id_map)
-  out_path <- base::file.path(output_dir, "mrnacal_fold_results.tsv")
+  out_path <- base::file.path(output_dir, base::paste0(prefix, "_results.tsv"))
   readr::write_tsv(parsed, out_path)
   list(ok = TRUE, table = parsed, file = out_path, tool = tool)
 }
@@ -1424,6 +1445,29 @@
   )
 }
 
+.dnmb_mrnacal_expression_band <- function(tir_score, codon_eff) {
+  tir <- suppressWarnings(base::as.numeric(tir_score))
+  ce <- suppressWarnings(base::as.numeric(codon_eff))
+  band <- base::rep(NA_character_, base::length(tir))
+  ok <- !base::is.na(tir) & !base::is.na(ce)
+  if (!base::any(ok)) return(band)
+  tir_q <- stats::quantile(tir[ok], probs = c(0.25, 0.5, 0.75), na.rm = TRUE, names = FALSE)
+  ce_q <- stats::quantile(ce[ok], probs = c(0.25, 0.5, 0.75), na.rm = TRUE, names = FALSE)
+  rank_of <- function(v, q) {
+    base::cut(v, breaks = c(-Inf, q, Inf), labels = c(1L, 2L, 3L, 4L), right = TRUE)
+  }
+  tir_rank <- base::as.integer(rank_of(tir, tir_q))
+  ce_rank <- base::as.integer(rank_of(ce, ce_q))
+  combined <- tir_rank + ce_rank  # range 2..8
+  band[ok] <- base::cut(
+    combined[ok],
+    breaks = c(-Inf, 3, 4, 5, 6, Inf),
+    labels = c("very_low", "low", "moderate", "high", "very_high"),
+    right = TRUE
+  ) |> base::as.character()
+  band
+}
+
 .dnmb_mrnacal_normalize_hits <- function(results) {
   if (base::is.null(results) || !base::is.data.frame(results) || !base::nrow(results)) {
     return(.dnmb_module_empty_optional_long_table())
@@ -1469,7 +1513,7 @@
     "aaa_count_2_8", "aag_count_2_8", "early_coding_at_fraction",
     "ncs_sequence", "ncs_at_fraction", "ncs_lysine_codon_count",
     "ncs_aaa_count", "ncs_aag_count",
-    "tir_core_sequence", "tir_core_a_fraction", "tir_core_g_fraction",
+    "tir_core_sequence", "tir_core_a_fraction", "tir_core_g_fraction", "tir_core_score",
     "early_aaa_run", "early_poly_a_run", "early_poly_a_penalty",
     "basic_aa_count_2_8", "skik_like",
     "upstream20_sequence", "upstream20_at_fraction", "upstream20_score",
@@ -1483,11 +1527,17 @@
     "plfold_accessibility_score", "accessibility_score", "accessibility_method",
     "plfold_window", "plfold_span", "plfold_ulength",
     "plfold_local_upstream", "plfold_local_downstream",
+    "start_access_start", "start_access_end",
+    "tir_access_start", "tir_access_end",
+    "downstream_access_start", "downstream_access_end",
+    "standby_start", "standby_end",
     "fold_structure", "fold_sequence",
+    "ncs_fold_sequence", "ncs_fold_structure", "ncs_mfe_dg", "ncs_mfe_per_nt", "ncs_fold_score",
     "internal_sd_count", "internal_sd_motifs", "internal_sd_min_position", "internal_sd_penalty",
     "tir_score_percentile",
     "cai", "cai_score", "tai", "tai_score",
-    "codon_efficiency_score", "cai_reference_set", "cai_reference_size",
+    "codon_efficiency_score", "expression_band",
+    "cai_reference_set", "cai_reference_size",
     "trna_total_gcn", "informative_codon_count",
     "window_upstream", "window_downstream", "support"
   )
@@ -1669,6 +1719,11 @@ dnmb_run_mrnacal_module <- function(genes,
       downstream_access_start <- NA_integer_
       downstream_access_end <- NA_integer_
     }
+    # NCS-specific fold window: +1..+30 from AUG (Kudla 2009)
+    ncs_fold_dna <- if (!base::is.na(downstream_access_start) && !base::is.na(downstream_access_end)) {
+      base::substr(win$sequence_dna, downstream_access_start, downstream_access_end)
+    } else ""
+    ncs_fold_rna <- .dnmb_mrnacal_dna_to_rna(ncs_fold_dna)
     if (!base::is.na(rbs$rbs_start) && rbs$rbs_start > 1L) {
       standby_start <- base::max(1L, rbs$rbs_start - 8L)
       standby_end <- rbs$rbs_start - 1L
@@ -1683,6 +1738,7 @@ dnmb_run_mrnacal_module <- function(genes,
     base_rows[[i]] <- data.frame(
       locus_tag = row$locus_tag[[1]],
       fold_sequence = win$sequence_rna,
+      ncs_fold_sequence = ncs_fold_rna,
       plfold_sequence = local$sequence_rna,
       plfold_offset = local$offset,
       plfold_local_upstream = local$upstream_len,
@@ -1732,6 +1788,7 @@ dnmb_run_mrnacal_module <- function(genes,
       tir_core_sequence = early$tir_core_sequence,
       tir_core_a_fraction = early$tir_core_a_fraction,
       tir_core_g_fraction = early$tir_core_g_fraction,
+      tir_core_score = early$tir_core_score,
       early_aaa_run = early$early_aaa_run,
       early_poly_a_run = early$early_poly_a_run,
       early_poly_a_penalty = early$early_poly_a_penalty,
@@ -1797,6 +1854,29 @@ dnmb_run_mrnacal_module <- function(genes,
     fold_tbl <- fold$table
   }
   results <- dplyr::left_join(results, fold_tbl[, c("locus_tag", "fold_structure", "fold_mfe"), drop = FALSE], by = "locus_tag")
+
+  # NCS-specific RNAfold ΔG over the +1..+30 window (Kudla et al. 2009)
+  ncs_fold <- .dnmb_mrnacal_run_rnafold_batch(
+    results[, c("locus_tag", "ncs_fold_sequence"), drop = FALSE],
+    output_dir, rnafold_path = rnafold_tool, cpu = cpu,
+    seq_col = "ncs_fold_sequence", prefix = "mrnacal_ncs_fold"
+  )
+  if (base::isTRUE(ncs_fold$ok) && base::nrow(ncs_fold$table)) {
+    status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("RNAfold_NCS", "ok", base::paste0(base::nrow(ncs_fold$table), " NCS windows"))
+    ncs_tbl <- ncs_fold$table[, c("locus_tag", "fold_structure", "fold_mfe"), drop = FALSE]
+    base::names(ncs_tbl) <- c("locus_tag", "ncs_fold_structure", "ncs_mfe_dg")
+    results <- dplyr::left_join(results, ncs_tbl, by = "locus_tag")
+  } else {
+    status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("RNAfold_NCS", "missing", ncs_fold$error %||% "skipped")
+    results$ncs_fold_structure <- NA_character_
+    results$ncs_mfe_dg <- NA_real_
+  }
+  # NCS fold score: lower (more negative) MFE → less unfolded → lower score
+  ncs_len <- base::nchar(results$ncs_fold_sequence)
+  results$ncs_mfe_per_nt <- suppressWarnings(results$ncs_mfe_dg / ncs_len)
+  results$ncs_fold_score <- suppressWarnings(base::round(
+    base::pmax(0, base::pmin(100, 100 + 25 * results$ncs_mfe_per_nt)), 2
+  ))
   results$fold_mfe_per_nt <- suppressWarnings(results$fold_mfe / base::nchar(results$fold_sequence))
   results$fold_score <- mapply(.dnmb_mrnacal_fold_score, results$fold_mfe, base::nchar(results$fold_sequence))
   results$rbs_unpaired_fraction <- mapply(.dnmb_mrnacal_unpaired_fraction, results$fold_structure, results$rbs_start, results$rbs_end)
@@ -1883,12 +1963,16 @@ dnmb_run_mrnacal_module <- function(genes,
   duplex_for_total <- ifelse(base::is.na(results$duplex_score), results$rbs_score, results$duplex_score)
   upstream_au_for_total <- ifelse(base::is.na(results$upstream_au_score), 50, results$upstream_au_score)
   internal_sd_penalty_for_total <- ifelse(base::is.na(results$internal_sd_penalty), 0, results$internal_sd_penalty)
-  raw_tir_score <- 0.20 * results$rbs_score +
+  tir_core_for_total <- ifelse(base::is.na(results$tir_core_score), 50, results$tir_core_score)
+  # Component weights sum to 1.00. tir_core gets 0.05 carved out of RBS (0.20 -> 0.18)
+  # and accessibility (0.32 -> 0.29) to keep dominant signals stable.
+  raw_tir_score <- 0.18 * results$rbs_score +
     0.18 * duplex_for_total +
-    0.32 * accessibility_for_total +
+    0.29 * accessibility_for_total +
     0.10 * upstream_au_for_total +
     0.10 * results$start_codon_score +
     0.07 * results$early_k_score +
+    0.05 * tir_core_for_total +
     0.03 * fold_score_for_total -
     internal_sd_penalty_for_total
   results$tir_score <- base::round(base::pmin(100, base::pmax(0, raw_tir_score)), 2)
@@ -1907,6 +1991,12 @@ dnmb_run_mrnacal_module <- function(genes,
     na.rm = TRUE
   ), 2)
   results$codon_efficiency_score[base::is.nan(results$codon_efficiency_score)] <- NA_real_
+  # Integrated expression band: quartile combination of initiation (tir_score)
+  # and elongation (codon_efficiency_score). Conservative — uses within-genome
+  # quartiles, no fitted weights.
+  results$expression_band <- .dnmb_mrnacal_expression_band(
+    results$tir_score, results$codon_efficiency_score
+  )
   results$support <- base::paste0(
     "window=-", results$window_upstream, "/+", results$window_downstream,
     "; sd_seed=", results$rbs_seed,
@@ -1919,16 +2009,19 @@ dnmb_run_mrnacal_module <- function(genes,
     "; earlyK=", results$lysine_codon_count_2_8,
     "; NCS_K=", results$ncs_lysine_codon_count,
     "; tir_core_A=", results$tir_core_a_fraction,
+    "; tir_core_score=", results$tir_core_score,
     "; internal_SD=", results$internal_sd_count,
     "; CAI=", base::round(results$cai, 3),
     "; tAI=", base::round(results$tai, 3),
     "; codon_eff=", results$codon_efficiency_score,
+    "; expression_band=", results$expression_band,
+    "; ncs_dG=", results$ncs_mfe_dg,
     "; cai_ref=", results$cai_reference_set,
     "; tRNA_GCN=", results$trna_total_gcn,
     "; SKIK_like=", results$skik_like,
     "; pct=", results$tir_score_percentile,
     "; fold=RNAfold_MFE",
-    "; score=0.20*RBS+0.18*antiSD_duplex+0.32*local_RNAplfold_access+0.10*upstreamAU+0.10*start+0.07*earlyK+0.03*MFE-internal_SD_penalty (CAI/tAI reported separately)"
+    "; score=0.18*RBS+0.18*antiSD_duplex+0.29*local_RNAplfold_access+0.10*upstreamAU+0.10*start+0.07*earlyK+0.05*tir_core+0.03*MFE-internal_SD_penalty (CAI/tAI reported separately)"
   )
 
   result_path <- base::file.path(output_dir, "mrnacal_translation_efficiency.tsv")
@@ -1972,57 +2065,126 @@ dnmb_run_mrnacal_module <- function(genes,
   }
   n <- base::nchar(sequence)
   chars <- base::strsplit(sequence, "", fixed = TRUE)[[1]]
+  up <- suppressWarnings(base::as.integer(row$window_upstream[[1]]))
+  if (base::is.na(up)) up <- 0L
+  # AUG-anchored coordinate: aug_pos = 0
+  to_aug <- function(x) suppressWarnings(base::as.integer(x)) - up - 1L
   pos <- data.frame(
-    x = base::seq_len(n),
-    y = 0,
+    x = base::seq_len(n) - up - 1L,
     nt = chars,
-    region = "UTR",
     stringsAsFactors = FALSE
   )
-  up <- base::as.integer(row$window_upstream[[1]])
-  if (!base::is.na(up) && up < n) {
-    pos$region[pos$x > up] <- "CDS"
-    pos$region[pos$x >= up + 1L & pos$x <= base::min(n, up + 3L)] <- "start"
+
+  # Build region rectangles (AUG-anchored)
+  bands <- list()
+  add_band <- function(name, start_col, end_col, ymin, ymax) {
+    s <- to_aug(row[[start_col]][[1]])
+    e <- to_aug(row[[end_col]][[1]])
+    if (base::is.na(s) || base::is.na(e) || e < s) return(NULL)
+    bands[[base::length(bands) + 1L]] <<- data.frame(
+      region = name, xmin = s - 0.5, xmax = e + 0.5, ymin = ymin, ymax = ymax,
+      stringsAsFactors = FALSE
+    )
   }
-  rbs_start <- suppressWarnings(base::as.integer(row$rbs_start[[1]]))
-  rbs_end <- suppressWarnings(base::as.integer(row$rbs_end[[1]]))
-  if (!base::is.na(rbs_start) && !base::is.na(rbs_end)) {
-    pos$region[pos$x >= rbs_start & pos$x <= rbs_end] <- "RBS"
-  }
+  add_band("standby", "standby_start", "standby_end", 1.30, 1.55)
+  add_band("RBS",     "rbs_start",     "rbs_end",     1.00, 1.25)
+  add_band("TIR(-18..+10)", "tir_access_start", "tir_access_end", 0.70, 0.95)
+  add_band("start(-5..+14)", "start_access_start", "start_access_end", 0.40, 0.65)
+  add_band("downstream(+1..+30)", "downstream_access_start", "downstream_access_end", 0.10, 0.35)
+  band_df <- if (base::length(bands)) dplyr::bind_rows(bands) else data.frame()
+
+  # AUG marker
+  aug_df <- data.frame(xmin = -0.5, xmax = 2.5, ymin = -0.10, ymax = 1.65, region = "AUG", stringsAsFactors = FALSE)
+
   pairs <- .dnmb_mrnacal_pair_table(structure)
-  title <- base::paste0(
-    row$locus_tag[[1]],
-    " | score=", base::round(base::as.numeric(row$tir_score[[1]]), 1),
-    " | MFE=", base::round(base::as.numeric(row$fold_mfe[[1]]), 1)
+  pairs$i_a <- pairs$i - up - 1L
+  pairs$j_a <- pairs$j - up - 1L
+
+  scores_txt <- function(name, val, digits = 1) {
+    v <- suppressWarnings(base::as.numeric(val))
+    if (base::is.na(v)) return("")
+    base::paste0(name, "=", base::format(base::round(v, digits), nsmall = digits))
+  }
+  title <- base::paste0(row$locus_tag[[1]],
+    " | tir=", scores_txt("", row$tir_score[[1]]),
+    " | codon_eff=", scores_txt("", row$codon_efficiency_score[[1]] %||% NA),
+    " | band=", base::as.character(row$expression_band[[1]] %||% NA)
   )
-  ggplot2::ggplot() +
+  subtitle <- base::paste0(
+    "RBS=", scores_txt("", row$rbs_score[[1]]),
+    " | antiSD=", scores_txt("", row$duplex_score[[1]] %||% NA),
+    " | access=", scores_txt("", row$accessibility_score[[1]] %||% NA),
+    " | tir_core=", scores_txt("", row$tir_core_score[[1]] %||% NA),
+    " | CAI=", scores_txt("", row$cai[[1]] %||% NA, 3),
+    " | tAI=", scores_txt("", row$tai[[1]] %||% NA, 3),
+    " | NCS_dG=", scores_txt("", row$ncs_mfe_dg[[1]] %||% NA)
+  )
+
+  band_cols <- c(
+    `standby` = "#FCD34D",
+    `RBS` = "#16A34A",
+    `TIR(-18..+10)` = "#0EA5E9",
+    `start(-5..+14)` = "#A855F7",
+    `downstream(+1..+30)` = "#F97316",
+    `AUG` = "#DC2626"
+  )
+
+  p <- ggplot2::ggplot()
+  if (base::nrow(band_df)) {
+    p <- p +
+      ggplot2::geom_rect(
+        data = band_df,
+        ggplot2::aes(xmin = .data$xmin, xmax = .data$xmax, ymin = .data$ymin, ymax = .data$ymax, fill = .data$region),
+        alpha = 0.55,
+        color = NA
+      ) +
+      ggplot2::geom_text(
+        data = band_df,
+        ggplot2::aes(x = (.data$xmin + .data$xmax) / 2, y = (.data$ymin + .data$ymax) / 2, label = .data$region),
+        size = 2.3, color = "#1F2937"
+      )
+  }
+  p <- p +
+    ggplot2::geom_rect(
+      data = aug_df,
+      ggplot2::aes(xmin = .data$xmin, xmax = .data$xmax, ymin = .data$ymin, ymax = .data$ymax),
+      fill = NA, color = "#DC2626", linewidth = 0.5, linetype = "dashed"
+    ) +
     ggplot2::geom_curve(
       data = pairs,
-      ggplot2::aes(x = .data$i, xend = .data$j, y = 0, yend = 0),
+      ggplot2::aes(x = .data$i_a, xend = .data$j_a, y = -0.05, yend = -0.05),
       curvature = -0.45,
-      linewidth = 0.25,
-      alpha = 0.38,
+      linewidth = 0.22,
+      alpha = 0.35,
       color = "#4B5563",
       inherit.aes = FALSE
     ) +
     ggplot2::geom_point(
       data = pos,
-      ggplot2::aes(x = .data$x, y = .data$y, fill = .data$region),
-      shape = 21,
-      size = 1.65,
-      color = "white",
-      stroke = 0.15
+      ggplot2::aes(x = .data$x, y = -0.05),
+      shape = 16, size = 0.7, color = "#374151"
     ) +
-    ggplot2::scale_fill_manual(values = c(UTR = "#94A3B8", CDS = "#64748B", RBS = "#16A34A", start = "#DC2626")) +
-    ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0.01, 0.01))) +
-    ggplot2::coord_cartesian(ylim = c(-0.12, 1.0), clip = "off") +
-    ggplot2::labs(title = title, x = NULL, y = NULL) +
-    ggplot2::theme_void(base_size = 9) +
+    ggplot2::geom_vline(xintercept = 0, color = "#DC2626", linewidth = 0.3, alpha = 0.5) +
+    ggplot2::scale_fill_manual(values = band_cols) +
+    ggplot2::scale_x_continuous(
+      breaks = seq(-60, 60, by = 20),
+      expand = ggplot2::expansion(mult = c(0.01, 0.01))
+    ) +
+    ggplot2::coord_cartesian(ylim = c(-0.15, 1.7), clip = "off") +
+    ggplot2::labs(title = title, subtitle = subtitle, x = "Position relative to AUG (nt)", y = NULL) +
+    ggplot2::theme_minimal(base_size = 8) +
     ggplot2::theme(
       legend.position = "none",
-      plot.title = ggplot2::element_text(face = "bold", size = 8, hjust = 0),
-      plot.margin = ggplot2::margin(3, 3, 3, 3)
+      panel.grid.major.y = ggplot2::element_blank(),
+      panel.grid.minor.y = ggplot2::element_blank(),
+      panel.grid.minor.x = ggplot2::element_blank(),
+      axis.text.y = ggplot2::element_blank(),
+      axis.ticks.y = ggplot2::element_blank(),
+      plot.title = ggplot2::element_text(face = "bold", size = 8.5, hjust = 0),
+      plot.subtitle = ggplot2::element_text(size = 7, color = "#475569", hjust = 0),
+      plot.margin = ggplot2::margin(4, 4, 4, 4)
     )
+  p
 }
 
 .dnmb_plot_mrnacal_module <- function(genbank_table, output_dir = getwd(), top_n = 12L) {
@@ -2050,13 +2212,36 @@ dnmb_run_mrnacal_module <- function(genes,
     ggplot2::theme(panel.grid.minor = ggplot2::element_blank(), plot.title = ggplot2::element_text(face = "bold"))
 
   scatter_tbl <- tbl
-  scatter_tbl$fold_mfe <- suppressWarnings(as.numeric(scatter_tbl$mRNAcal_fold_mfe))
-  scatter_tbl$duplex_energy <- if ("mRNAcal_duplex_energy" %in% names(scatter_tbl)) suppressWarnings(as.numeric(scatter_tbl$mRNAcal_duplex_energy)) else NA_real_
-  scatter_tbl$local_accessibility <- if ("mRNAcal_accessibility_score" %in% names(scatter_tbl)) suppressWarnings(as.numeric(scatter_tbl$mRNAcal_accessibility_score)) else NA_real_
-  p_scatter <- ggplot2::ggplot(scatter_tbl, ggplot2::aes(x = .data$local_accessibility, y = .data$tir_score, color = .data$tir_score_band)) +
-    ggplot2::geom_point(alpha = 0.72, size = 1.4, na.rm = TRUE) +
-    ggplot2::scale_color_manual(values = band_cols, drop = FALSE, na.value = "#9CA3AF") +
-    ggplot2::labs(title = "Local Accessibility vs Score", x = "RNAplfold/local accessibility score", y = "Composite score", color = NULL) +
+  scatter_tbl$codon_eff <- if ("mRNAcal_codon_efficiency_score" %in% names(scatter_tbl)) suppressWarnings(as.numeric(scatter_tbl$mRNAcal_codon_efficiency_score)) else NA_real_
+  scatter_tbl$cai <- if ("mRNAcal_cai" %in% names(scatter_tbl)) suppressWarnings(as.numeric(scatter_tbl$mRNAcal_cai)) else NA_real_
+  scatter_tbl$tai <- if ("mRNAcal_tai" %in% names(scatter_tbl)) suppressWarnings(as.numeric(scatter_tbl$mRNAcal_tai)) else NA_real_
+  scatter_tbl$expr_band <- factor(
+    if ("mRNAcal_expression_band" %in% names(scatter_tbl)) as.character(scatter_tbl$mRNAcal_expression_band) else NA_character_,
+    levels = c("very_high", "high", "moderate", "low", "very_low")
+  )
+  expr_cols <- c(very_high = "#15803D", high = "#22C55E", moderate = "#FACC15", low = "#F97316", very_low = "#B91C1C")
+  p_scatter <- ggplot2::ggplot(
+    scatter_tbl[!is.na(scatter_tbl$codon_eff), ],
+    ggplot2::aes(x = .data$tir_score, y = .data$codon_eff, color = .data$expr_band)
+  ) +
+    ggplot2::geom_point(alpha = 0.65, size = 1.0, na.rm = TRUE) +
+    ggplot2::scale_color_manual(values = expr_cols, drop = FALSE, na.value = "#9CA3AF") +
+    ggplot2::labs(
+      title = "Translation Initiation vs Codon Efficiency",
+      x = "tir_score (initiation, 0-100)",
+      y = "codon_efficiency_score (elongation, mean of CAI/tAI)",
+      color = "expression_band"
+    ) +
+    ggplot2::theme_bw(base_size = 10) +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(), plot.title = ggplot2::element_text(face = "bold"))
+
+  p_codon_hist <- ggplot2::ggplot(
+    scatter_tbl[!is.na(scatter_tbl$codon_eff), ],
+    ggplot2::aes(x = .data$codon_eff, fill = .data$expr_band)
+  ) +
+    ggplot2::geom_histogram(binwidth = 2, color = "white", linewidth = 0.2, boundary = 0, na.rm = TRUE) +
+    ggplot2::scale_fill_manual(values = expr_cols, drop = FALSE, na.value = "#9CA3AF") +
+    ggplot2::labs(title = "Codon Efficiency Distribution", x = "codon_efficiency_score", y = "Genes", fill = NULL) +
     ggplot2::theme_bw(base_size = 10) +
     ggplot2::theme(panel.grid.minor = ggplot2::element_blank(), plot.title = ggplot2::element_text(face = "bold"))
 
@@ -2067,6 +2252,10 @@ dnmb_run_mrnacal_module <- function(genes,
     UpstreamAU = "mRNAcal_upstream_au_score",
     Start = "mRNAcal_start_codon_score",
     EarlyK = "mRNAcal_early_k_score",
+    TIRcore = "mRNAcal_tir_core_score",
+    NCSfold = "mRNAcal_ncs_fold_score",
+    CAI = "mRNAcal_cai_score",
+    tAI = "mRNAcal_tai_score",
     MFE = "mRNAcal_fold_score"
   )
   top_component <- tbl[order(-tbl$tir_score), , drop = FALSE]
@@ -2088,15 +2277,19 @@ dnmb_run_mrnacal_module <- function(genes,
   p_comp <- ggplot2::ggplot(comp_tbl, ggplot2::aes(x = .data$score, y = .data$locus_tag, fill = .data$component)) +
     ggplot2::geom_col(position = "dodge", width = 0.78, na.rm = TRUE) +
     ggplot2::scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 25)) +
-    ggplot2::scale_fill_manual(values = c(RBS = "#16A34A", AntiSD = "#0F766E", Accessibility = "#0891B2", UpstreamAU = "#CA8A04", Start = "#DC2626", EarlyK = "#9333EA", MFE = "#64748B")) +
+    ggplot2::scale_fill_manual(values = c(RBS = "#16A34A", AntiSD = "#0F766E", Accessibility = "#0891B2", UpstreamAU = "#CA8A04", Start = "#DC2626", EarlyK = "#9333EA", TIRcore = "#EC4899", NCSfold = "#F97316", CAI = "#7C3AED", tAI = "#0284C7", MFE = "#64748B")) +
     ggplot2::labs(title = "Top Gene Components", x = "Component score", y = NULL, fill = NULL) +
     ggplot2::theme_bw(base_size = 9) +
     ggplot2::theme(panel.grid.minor = ggplot2::element_blank(), plot.title = ggplot2::element_text(face = "bold"))
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   summary_pdf <- file.path(plot_dir, "mRNAcal_translation_efficiency.pdf")
-  summary_plot <- cowplot::plot_grid(p_hist, p_scatter, p_comp, ncol = 1, rel_heights = c(0.86, 0.86, 1.2))
-  ggplot2::ggsave(summary_pdf, summary_plot, width = 10, height = 13, bg = "white")
+  top_row <- cowplot::plot_grid(p_hist, p_codon_hist, ncol = 2, rel_widths = c(1, 1))
+  summary_plot <- cowplot::plot_grid(
+    top_row, p_scatter, p_comp,
+    ncol = 1, rel_heights = c(0.85, 0.95, 1.2)
+  )
+  ggplot2::ggsave(summary_pdf, summary_plot, width = 11, height = 14, bg = "white")
 
   fold_pdf <- NULL
   if (all(c("mRNAcal_fold_structure", "mRNAcal_fold_sequence") %in% names(tbl))) {
@@ -2104,6 +2297,7 @@ dnmb_run_mrnacal_module <- function(genes,
     if (nrow(fold_tbl)) {
       fold_tbl <- fold_tbl[order(-fold_tbl$tir_score), , drop = FALSE]
       fold_tbl <- utils::head(fold_tbl, min(as.integer(top_n), nrow(fold_tbl)))
+      pull <- function(col) if (col %in% names(fold_tbl)) fold_tbl[[col]] else NA
       local_rows <- data.frame(
         locus_tag = fold_tbl$locus_tag,
         fold_sequence = fold_tbl$mRNAcal_fold_sequence,
@@ -2111,8 +2305,25 @@ dnmb_run_mrnacal_module <- function(genes,
         tir_score = fold_tbl$mRNAcal_tir_score,
         fold_mfe = fold_tbl$mRNAcal_fold_mfe,
         window_upstream = fold_tbl$mRNAcal_window_upstream,
-        rbs_start = fold_tbl$mRNAcal_rbs_start %||% NA,
-        rbs_end = fold_tbl$mRNAcal_rbs_end %||% NA,
+        rbs_start = pull("mRNAcal_rbs_start"),
+        rbs_end = pull("mRNAcal_rbs_end"),
+        start_access_start = pull("mRNAcal_start_access_start"),
+        start_access_end = pull("mRNAcal_start_access_end"),
+        tir_access_start = pull("mRNAcal_tir_access_start"),
+        tir_access_end = pull("mRNAcal_tir_access_end"),
+        downstream_access_start = pull("mRNAcal_downstream_access_start"),
+        downstream_access_end = pull("mRNAcal_downstream_access_end"),
+        standby_start = pull("mRNAcal_standby_start"),
+        standby_end = pull("mRNAcal_standby_end"),
+        rbs_score = pull("mRNAcal_rbs_score"),
+        duplex_score = pull("mRNAcal_duplex_score"),
+        accessibility_score = pull("mRNAcal_accessibility_score"),
+        tir_core_score = pull("mRNAcal_tir_core_score"),
+        codon_efficiency_score = pull("mRNAcal_codon_efficiency_score"),
+        cai = pull("mRNAcal_cai"),
+        tai = pull("mRNAcal_tai"),
+        ncs_mfe_dg = pull("mRNAcal_ncs_mfe_dg"),
+        expression_band = pull("mRNAcal_expression_band"),
         stringsAsFactors = FALSE
       )
       fold_plots <- lapply(seq_len(nrow(local_rows)), function(i) .dnmb_mrnacal_arc_plot(local_rows[i, , drop = FALSE]))

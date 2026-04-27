@@ -305,7 +305,7 @@
       mrnacal_require_rnafold = isTRUE(mrnacal_require_rnafold),
       mrnacal_sd_seed = if (is.null(mrnacal_sd_seed)) NULL else as.character(mrnacal_sd_seed)[1],
       mrnacal_top_folds = as.integer(mrnacal_top_folds)[1],
-      mrnacal_algorithm = if ("mRNAcal" %in% aliases) "rnaplfold_local_tir_ncs30_tircore_intsd_caitai_v7" else NULL,
+      mrnacal_algorithm = if ("mRNAcal" %in% aliases) "rnaplfold_local_tir_ncs30_tircore_ncsdG_band_v8" else NULL,
       iselement_analysis_depth = as.character(iselement_analysis_depth)[1],
       iselement_auto_discover_related = isTRUE(iselement_auto_discover_related),
       iselement_max_related = as.integer(iselement_max_related)[1]

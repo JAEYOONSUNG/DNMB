@@ -584,6 +584,8 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "anti_sd_sequence",
       "duplex_energy",
       "duplex_score",
+      "duplex_anti_sd_start",
+      "duplex_anti_sd_end",
       "duplex_motif",
       "start_codon",
       "start_codon_score",

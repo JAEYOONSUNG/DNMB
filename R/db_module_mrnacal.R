@@ -1510,6 +1510,7 @@
     "family_id", "hit_label", "tir_score", "tir_score_band",
     "rbs_motif", "rbs_seed", "rbs_mismatches", "rbs_spacer", "rbs_start", "rbs_end", "rbs_score",
     "anti_sd_sequence", "duplex_structure", "duplex_energy", "duplex_score",
+    "duplex_anti_sd_start", "duplex_anti_sd_end",
     "duplex_target_start", "duplex_target_end", "duplex_motif",
     "start_codon", "start_codon_score", "early_k_score",
     "second_codon", "early_codons", "lysine_codon_count_2_8",
@@ -1949,6 +1950,7 @@ dnmb_run_mrnacal_module <- function(genes,
   )
   duplex_cols <- c(
     "locus_tag", "anti_sd_sequence", "duplex_structure", "duplex_energy", "duplex_score",
+    "duplex_anti_sd_start", "duplex_anti_sd_end",
     "duplex_target_start", "duplex_target_end", "duplex_motif"
   )
   if (base::isTRUE(duplex$ok)) {
@@ -1957,7 +1959,7 @@ dnmb_run_mrnacal_module <- function(genes,
   } else {
     status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("RNAduplex", "missing", duplex$error %||% "RNAduplex failed.")
     for (col in base::setdiff(duplex_cols, "locus_tag")) {
-      results[[col]] <- if (col %in% c("duplex_energy", "duplex_score", "duplex_target_start", "duplex_target_end")) NA_real_ else NA_character_
+      results[[col]] <- if (col %in% c("duplex_energy", "duplex_score", "duplex_anti_sd_start", "duplex_anti_sd_end", "duplex_target_start", "duplex_target_end")) NA_real_ else NA_character_
     }
   }
 

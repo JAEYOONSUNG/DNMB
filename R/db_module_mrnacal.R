@@ -2102,8 +2102,37 @@ dnmb_run_mrnacal_module <- function(genes,
   add_band("downstream(+1..+30)", "downstream_access_start", "downstream_access_end", 0.10, 0.35)
   band_df <- if (base::length(bands)) dplyr::bind_rows(bands) else data.frame()
 
+  # anti-SD pairing — captured for subtitle and as a slim bracket above the bands
+  antiSD_seg <- NULL
+  antiSD_label <- NULL
+  antiSD_text <- ""
+  if (all(c("duplex_target_start","duplex_target_end","duplex_anti_sd_start","duplex_anti_sd_end","anti_sd_sequence") %in% base::names(row))) {
+    t_start <- to_aug(row$duplex_target_start[[1]])
+    t_end   <- to_aug(row$duplex_target_end[[1]])
+    a_start <- suppressWarnings(base::as.integer(row$duplex_anti_sd_start[[1]]))
+    a_end   <- suppressWarnings(base::as.integer(row$duplex_anti_sd_end[[1]]))
+    anti_seq_full <- base::as.character(row$anti_sd_sequence[[1]])
+    if (!base::is.na(t_start) && !base::is.na(t_end) && !base::is.na(a_start) && !base::is.na(a_end) &&
+        !base::is.na(anti_seq_full) && base::nzchar(anti_seq_full)) {
+      antiSD_used <- base::substr(anti_seq_full, a_start, a_end)
+      antiSD_text <- base::sprintf("anti-SD pos %d-%d (%s of 9-nt %s)",
+                                    a_start, a_end, antiSD_used, anti_seq_full)
+      # bracket above the mRNA SD region
+      antiSD_seg <- data.frame(
+        x = t_start - 0.5, xend = t_end + 0.5,
+        y = 1.65, yend = 1.65,
+        stringsAsFactors = FALSE
+      )
+      antiSD_label <- data.frame(
+        x = (t_start + t_end) / 2, y = 1.78,
+        label = base::sprintf("anti-SD %d-%d : %s", a_start, a_end, antiSD_used),
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+
   # AUG marker
-  aug_df <- data.frame(xmin = -0.5, xmax = 2.5, ymin = -0.10, ymax = 1.65, region = "AUG", stringsAsFactors = FALSE)
+  aug_df <- data.frame(xmin = -0.5, xmax = 2.5, ymin = -0.10, ymax = 1.90, region = "AUG", stringsAsFactors = FALSE)
 
   pairs <- .dnmb_mrnacal_pair_table(structure)
   pairs$i_a <- pairs$i - up - 1L
@@ -2153,6 +2182,35 @@ dnmb_run_mrnacal_module <- function(genes,
         size = 2.3, color = "#1F2937"
       )
   }
+  # anti-SD pairing bracket + label above the bands
+  if (!base::is.null(antiSD_seg)) {
+    p <- p +
+      ggplot2::geom_segment(
+        data = antiSD_seg,
+        ggplot2::aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$yend),
+        color = "#0F766E", linewidth = 1.2, lineend = "round",
+        inherit.aes = FALSE
+      ) +
+      ggplot2::geom_segment(
+        data = antiSD_seg,
+        ggplot2::aes(x = .data$x, xend = .data$x, y = .data$y, yend = .data$y - 0.06),
+        color = "#0F766E", linewidth = 0.6, inherit.aes = FALSE
+      ) +
+      ggplot2::geom_segment(
+        data = antiSD_seg,
+        ggplot2::aes(x = .data$xend, xend = .data$xend, y = .data$y, yend = .data$y - 0.06),
+        color = "#0F766E", linewidth = 0.6, inherit.aes = FALSE
+      ) +
+      ggplot2::geom_label(
+        data = antiSD_label,
+        ggplot2::aes(x = .data$x, y = .data$y, label = .data$label),
+        size = 2.5, color = "#0F172A", fill = "#FFFFFF",
+        label.padding = ggplot2::unit(0.12, "lines"),
+        label.r = ggplot2::unit(0.08, "lines"),
+        label.size = 0.25,
+        inherit.aes = FALSE
+      )
+  }
   p <- p +
     ggplot2::geom_rect(
       data = aug_df,
@@ -2179,7 +2237,7 @@ dnmb_run_mrnacal_module <- function(genes,
       breaks = seq(-60, 60, by = 20),
       expand = ggplot2::expansion(mult = c(0.01, 0.01))
     ) +
-    ggplot2::coord_cartesian(ylim = c(-0.15, 1.7), clip = "off") +
+    ggplot2::coord_cartesian(ylim = c(-0.15, 1.95), clip = "off") +
     ggplot2::labs(title = title, subtitle = subtitle, x = "Position relative to AUG (nt)", y = NULL) +
     ggplot2::theme_minimal(base_size = 8) +
     ggplot2::theme(
@@ -2351,6 +2409,11 @@ dnmb_run_mrnacal_module <- function(genes,
         tai = pull("mRNAcal_tai"),
         ncs_mfe_dg = pull("mRNAcal_ncs_mfe_dg"),
         expression_band = pull("mRNAcal_expression_band"),
+        anti_sd_sequence = pull("mRNAcal_anti_sd_sequence"),
+        duplex_anti_sd_start = pull("mRNAcal_duplex_anti_sd_start"),
+        duplex_anti_sd_end = pull("mRNAcal_duplex_anti_sd_end"),
+        duplex_target_start = pull("mRNAcal_duplex_target_start"),
+        duplex_target_end = pull("mRNAcal_duplex_target_end"),
         stringsAsFactors = FALSE
       )
       fold_plots <- lapply(seq_len(nrow(local_rows)), function(i) .dnmb_mrnacal_arc_plot(local_rows[i, , drop = FALSE]))

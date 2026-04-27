@@ -94,6 +94,19 @@ dnmb_extract_design_rules <- function(results,
     }
   )
 
+  logo_path <- base::file.path(output_dir, "mrnacal_design_rbs_logo.pdf")
+  ok_logo <- tryCatch(
+    .dnmb_design_seqlogo_plot(
+      logo_path, rbs_pwm, organism = organism,
+      n_top = base::length(top_idx), n_bot = base::length(bot_idx),
+      cai_top = q_top, cai_bot = q_bot
+    ),
+    error = function(e) {
+      base::warning("Sequence logo plot failed: ", conditionMessage(e), call. = FALSE)
+      FALSE
+    }
+  )
+
   files <- list(
     summary = summary_path,
     codon_table = codon_path,
@@ -101,6 +114,7 @@ dnmb_extract_design_rules <- function(results,
     start = start_path
   )
   if (base::isTRUE(ok_plot)) files$plot <- pdf_path
+  if (base::isTRUE(ok_logo)) files$rbs_logo <- logo_path
 
   list(
     summary = summary_tbl,
@@ -276,8 +290,76 @@ dnmb_extract_design_rules <- function(results,
     }
     base::sweep(mat, 2, base::pmax(1L, base::colSums(mat)), "/")
   }
-  list(top = build_pwm(extract(top_idx)), bottom = build_pwm(extract(bot_idx)),
-       positions = base::seq.int(win_left, win_right))
+  top_seqs <- extract(top_idx)
+  bot_seqs <- extract(bot_idx)
+  list(
+    top = build_pwm(top_seqs),
+    bottom = build_pwm(bot_seqs),
+    top_seqs = top_seqs,
+    bottom_seqs = bot_seqs,
+    positions = base::seq.int(win_left, win_right),
+    win_left = win_left,
+    win_right = win_right
+  )
+}
+
+.dnmb_design_seqlogo_plot <- function(path, rbs_pwm, organism = NULL, n_top = NA, n_bot = NA, cai_top = NA, cai_bot = NA) {
+  if (!requireNamespace("ggseqlogo", quietly = TRUE)) {
+    return(FALSE)
+  }
+  if (base::is.null(rbs_pwm) || base::is.null(rbs_pwm$top_seqs) || !base::length(rbs_pwm$top_seqs)) {
+    return(FALSE)
+  }
+  positions <- rbs_pwm$positions
+  org_label <- if (!base::is.null(organism)) base::paste0(" — ", organism) else ""
+  pos_breaks <- positions
+  pos_labels <- base::as.character(positions)
+  pos_labels[positions == 0] <- "AUG"
+
+  cs <- ggseqlogo::make_col_scheme(
+    chars = c("A", "T", "C", "G"),
+    cols = c("#16A34A", "#DC2626", "#2563EB", "#F59E0B")
+  )
+
+  build_logo <- function(seqs, label, n) {
+    p <- ggseqlogo::ggseqlogo(seqs, method = "bits", col_scheme = cs) +
+      ggplot2::scale_x_continuous(breaks = base::seq_along(positions),
+                                  labels = pos_labels, expand = ggplot2::expansion(add = 0.1)) +
+      ggplot2::geom_vline(xintercept = base::which(positions == 0),
+                          color = "#DC2626", linetype = "dashed", linewidth = 0.5) +
+      ggplot2::labs(title = label, x = "Position relative to AUG", y = "Bits") +
+      ggplot2::theme_minimal(base_size = 9) +
+      ggplot2::theme(
+        plot.title = ggplot2::element_text(face = "bold", size = 10, color = "#0F172A"),
+        axis.text.x = ggplot2::element_text(size = 7),
+        panel.grid.minor = ggplot2::element_blank(),
+        panel.grid.major.x = ggplot2::element_blank()
+      )
+    p
+  }
+
+  p_top <- build_logo(rbs_pwm$top_seqs, base::sprintf("Top-CAI set (n=%d, CAI >= %.3f)", n_top, cai_top))
+  p_bot <- if (base::length(rbs_pwm$bottom_seqs)) {
+    build_logo(rbs_pwm$bottom_seqs, base::sprintf("Bottom-CAI set (n=%d, CAI <= %.3f)", n_bot, cai_bot))
+  } else NULL
+
+  hero <- cowplot::ggdraw() +
+    cowplot::draw_label(
+      base::paste0("RBS sequence logo", org_label),
+      fontface = "bold", size = 13, color = "#0F172A", x = 0.5, y = 0.6
+    ) +
+    cowplot::draw_label(
+      "Bits at each position; 2 bits = perfectly conserved. Compare top-CAI (preferred) vs bottom-CAI to read organism's natural SD pattern.",
+      size = 8, color = "#475569", x = 0.5, y = 0.2
+    )
+
+  combined <- if (!base::is.null(p_bot)) {
+    cowplot::plot_grid(hero, p_top, p_bot, ncol = 1, rel_heights = c(0.18, 1, 1))
+  } else {
+    cowplot::plot_grid(hero, p_top, ncol = 1, rel_heights = c(0.2, 1))
+  }
+  ggplot2::ggsave(path, combined, width = 10, height = if (!base::is.null(p_bot)) 7 else 4.5, bg = "white")
+  TRUE
 }
 
 .dnmb_design_summary_plot <- function(path, summary_tbl, codon_table, spacer_tbl,

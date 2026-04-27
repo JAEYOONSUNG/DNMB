@@ -41,12 +41,17 @@ dnmb_export_translation_efficiency <- function(results,
   }
 
   slim <- .dnmb_te_build_slim(results, gene_metadata)
+  rbs_detail <- .dnmb_te_build_rbs_detail(results, gene_metadata)
 
   xlsx_path <- base::file.path(output_dir, "translation_efficiency_summary.xlsx")
   tsv_path <- base::file.path(output_dir, "translation_efficiency_summary.tsv")
+  rbs_tsv_path <- base::file.path(output_dir, "translation_efficiency_rbs_detail.tsv")
   readr::write_tsv(slim, tsv_path)
+  if (base::nrow(rbs_detail)) {
+    readr::write_tsv(rbs_detail, rbs_tsv_path)
+  }
   ok_xlsx <- tryCatch({
-    .dnmb_te_write_xlsx(slim, xlsx_path, organism = organism)
+    .dnmb_te_write_xlsx(slim, xlsx_path, organism = organism, rbs_detail = rbs_detail)
     TRUE
   }, error = function(e) {
     base::warning("Excel write failed (", conditionMessage(e), "); TSV is available.", call. = FALSE)
@@ -123,38 +128,171 @@ dnmb_export_translation_efficiency <- function(results,
   out
 }
 
-.dnmb_te_write_xlsx <- function(slim, path, organism = NULL) {
+.dnmb_te_build_rbs_detail <- function(results, gene_metadata) {
+  results <- base::as.data.frame(results, stringsAsFactors = FALSE)
+  pull_num <- function(col) {
+    if (col %in% base::names(results)) suppressWarnings(base::as.numeric(results[[col]]))
+    else base::rep(NA_real_, base::nrow(results))
+  }
+  pull_chr <- function(col) {
+    if (col %in% base::names(results)) base::as.character(results[[col]])
+    else base::rep(NA_character_, base::nrow(results))
+  }
+  upstream <- base::as.integer(pull_num("window_upstream"))
+  out <- data.frame(
+    locus_tag = pull_chr("locus_tag"),
+    rbs_motif = pull_chr("rbs_motif"),
+    rbs_seed = pull_chr("rbs_seed"),
+    rbs_spacer = base::as.integer(pull_num("rbs_spacer")),
+    rbs_mismatches = base::as.integer(pull_num("rbs_mismatches")),
+    rbs_score = base::round(pull_num("rbs_score"), 1),
+    anti_sd_sequence = pull_chr("anti_sd_sequence"),
+    duplex_anti_sd_start = base::as.integer(pull_num("duplex_anti_sd_start")),
+    duplex_anti_sd_end = base::as.integer(pull_num("duplex_anti_sd_end")),
+    duplex_motif = pull_chr("duplex_motif"),
+    duplex_energy = base::round(pull_num("duplex_energy"), 2),
+    duplex_score = base::round(pull_num("duplex_score"), 1),
+    duplex_structure = pull_chr("duplex_structure"),
+    sd_position_from_AUG = base::as.integer(pull_num("duplex_target_start")) - upstream - 1L,
+    sd_end_from_AUG = base::as.integer(pull_num("duplex_target_end")) - upstream - 1L,
+    start_codon = pull_chr("start_codon"),
+    tir_score = base::round(pull_num("tir_score"), 2),
+    expression_band = pull_chr("expression_band"),
+    stringsAsFactors = FALSE
+  )
+
+  if (base::is.data.frame(gene_metadata) && base::nrow(gene_metadata) &&
+      "locus_tag" %in% base::names(gene_metadata)) {
+    add_cols <- base::intersect(c("gene", "product"), base::names(gene_metadata))
+    if (base::length(add_cols)) {
+      meta <- base::as.data.frame(
+        gene_metadata[, c("locus_tag", add_cols), drop = FALSE],
+        stringsAsFactors = FALSE
+      )
+      meta$locus_tag <- base::as.character(meta$locus_tag)
+      meta <- meta[!base::duplicated(meta$locus_tag), , drop = FALSE]
+      idx <- base::match(out$locus_tag, meta$locus_tag)
+      for (col in add_cols) {
+        out[[col]] <- meta[[col]][idx]
+      }
+      first_cols <- base::intersect(c("locus_tag", "gene", "product"), base::names(out))
+      out <- out[, c(first_cols, base::setdiff(base::names(out), first_cols)), drop = FALSE]
+    }
+  }
+
+  out <- out[base::order(-out$rbs_score, out$duplex_energy), , drop = FALSE]
+  base::row.names(out) <- NULL
+  out
+}
+
+.dnmb_te_write_xlsx <- function(slim, path, organism = NULL, rbs_detail = NULL) {
   if (!requireNamespace("openxlsx", quietly = TRUE)) {
     stop("openxlsx package required for Excel output.", call. = FALSE)
   }
   wb <- openxlsx::createWorkbook()
-  openxlsx::addWorksheet(wb, "Translation_Efficiency")
-  openxlsx::writeData(wb, "Translation_Efficiency", slim, headerStyle = openxlsx::createStyle(textDecoration = "bold", fgFill = "#E5E7EB"))
 
-  band_col <- base::which(base::names(slim) == "expression_band")
+  # === Summary row ===
+  summary_row <- data.frame(
+    locus_tag = base::sprintf("[GENOME SUMMARY n=%d%s]", base::nrow(slim),
+                              if (!base::is.null(organism)) base::paste0(" — ", organism) else ""),
+    stringsAsFactors = FALSE
+  )
+  numeric_cols <- base::vapply(slim, base::is.numeric, logical(1))
+  for (col in base::names(slim)) {
+    if (col == "locus_tag") next
+    if (base::isTRUE(numeric_cols[[col]])) {
+      v <- slim[[col]]
+      summary_row[[col]] <- base::sprintf(
+        "median=%s  IQR=%s..%s",
+        base::format(stats::median(v, na.rm = TRUE), nsmall = 2),
+        base::format(stats::quantile(v, 0.25, na.rm = TRUE, names = FALSE), nsmall = 2),
+        base::format(stats::quantile(v, 0.75, na.rm = TRUE, names = FALSE), nsmall = 2)
+      )
+    } else if (col == "expression_band") {
+      tab <- base::table(slim[[col]])
+      summary_row[[col]] <- base::paste(base::sprintf("%s=%d", base::names(tab), tab), collapse = " / ")
+    } else {
+      summary_row[[col]] <- ""
+    }
+  }
+  combined <- base::rbind(summary_row, slim)
+
+  openxlsx::addWorksheet(wb, "Translation_Efficiency")
+  openxlsx::writeData(wb, "Translation_Efficiency", combined,
+                       headerStyle = openxlsx::createStyle(textDecoration = "bold", fgFill = "#1E293B", fontColour = "#FFFFFF"))
+
+  # Style summary row (row 2 = first data row, summary)
+  summary_style <- openxlsx::createStyle(fgFill = "#FEF3C7", textDecoration = "bold",
+                                          fontColour = "#1E3A8A", border = "Bottom")
+  openxlsx::addStyle(wb, "Translation_Efficiency",
+                     style = summary_style,
+                     rows = 2L, cols = base::seq_len(base::ncol(combined)),
+                     gridExpand = TRUE, stack = TRUE)
+
+  # === Color gradient on key numeric columns (skip summary row) ===
+  data_rows <- base::seq.int(3L, base::nrow(combined) + 1L)
+  for (col_name in c("tir_score", "tir_score_percentile",
+                     "codon_efficiency_score", "cai", "tai",
+                     "rbs_score", "duplex_score", "accessibility_score")) {
+    col_i <- base::which(base::names(combined) == col_name)
+    if (!base::length(col_i)) next
+    v <- suppressWarnings(base::as.numeric(slim[[col_name]]))
+    if (!base::any(!base::is.na(v))) next
+    rng <- base::range(v, na.rm = TRUE)
+    if (rng[2] - rng[1] < 1e-6) next
+    openxlsx::conditionalFormatting(
+      wb, "Translation_Efficiency",
+      cols = col_i, rows = data_rows,
+      style = c("#DC2626", "#FFFFFF", "#15803D"),
+      type = "colourScale",
+      rule = c(rng[1], (rng[1] + rng[2]) / 2, rng[2])
+    )
+  }
+  # NCS dG: more negative = better (more unfolded around AUG)
+  ncs_i <- base::which(base::names(combined) == "ncs_mfe_dg")
+  if (base::length(ncs_i)) {
+    v <- suppressWarnings(base::as.numeric(slim$ncs_mfe_dg))
+    if (base::any(!base::is.na(v))) {
+      openxlsx::conditionalFormatting(
+        wb, "Translation_Efficiency",
+        cols = ncs_i, rows = data_rows,
+        style = c("#DC2626", "#FFFFFF", "#15803D"),
+        type = "colourScale",
+        rule = c(base::min(v, na.rm = TRUE), 0, base::max(v, na.rm = TRUE))
+      )
+    }
+  }
+
+  # === expression_band cell coloring ===
+  band_col <- base::which(base::names(combined) == "expression_band")
   if (base::length(band_col)) {
     band_styles <- list(
-      very_high = openxlsx::createStyle(fgFill = "#15803D", fontColour = "#FFFFFF", textDecoration = "bold"),
-      high = openxlsx::createStyle(fgFill = "#22C55E"),
-      moderate = openxlsx::createStyle(fgFill = "#FACC15"),
-      low = openxlsx::createStyle(fgFill = "#F97316"),
-      very_low = openxlsx::createStyle(fgFill = "#B91C1C", fontColour = "#FFFFFF", textDecoration = "bold")
+      very_high = openxlsx::createStyle(fgFill = "#0F766E", fontColour = "#FFFFFF", textDecoration = "bold", halign = "center"),
+      high = openxlsx::createStyle(fgFill = "#14B8A6", fontColour = "#FFFFFF", halign = "center"),
+      moderate = openxlsx::createStyle(fgFill = "#F59E0B", halign = "center"),
+      low = openxlsx::createStyle(fgFill = "#EA580C", fontColour = "#FFFFFF", halign = "center"),
+      very_low = openxlsx::createStyle(fgFill = "#991B1B", fontColour = "#FFFFFF", textDecoration = "bold", halign = "center")
     )
     for (band in base::names(band_styles)) {
-      rows <- base::which(slim$expression_band == band)
-      if (base::length(rows)) {
+      # offset by 1 because summary row is now row 2; data starts at row 3
+      rows_match <- base::which(slim$expression_band == band) + 2L
+      if (base::length(rows_match)) {
         openxlsx::addStyle(wb, "Translation_Efficiency",
                            style = band_styles[[band]],
-                           rows = rows + 1L,
+                           rows = rows_match,
                            cols = band_col,
-                           gridExpand = TRUE)
+                           gridExpand = TRUE, stack = TRUE)
       }
     }
   }
+
   openxlsx::setColWidths(wb, "Translation_Efficiency",
-                         cols = base::seq_len(base::ncol(slim)),
+                         cols = base::seq_len(base::ncol(combined)),
                          widths = "auto")
-  openxlsx::freezePane(wb, "Translation_Efficiency", firstRow = TRUE, firstCol = TRUE)
+  openxlsx::freezePane(wb, "Translation_Efficiency", firstActiveRow = 3L, firstActiveCol = 2L)
+  # Auto-filter on header row
+  openxlsx::addFilter(wb, "Translation_Efficiency", row = 1L,
+                      cols = base::seq_len(base::ncol(combined)))
 
   # Interpretation sheet
   openxlsx::addWorksheet(wb, "Interpretation")
@@ -208,16 +346,97 @@ dnmb_export_translation_efficiency <- function(results,
   openxlsx::setColWidths(wb, "Interpretation", cols = 3, widths = 100)
   openxlsx::freezePane(wb, "Interpretation", firstRow = TRUE)
 
+  # === RBS_Detail sheet ===
+  if (!base::is.null(rbs_detail) && base::nrow(rbs_detail)) {
+    openxlsx::addWorksheet(wb, "RBS_Detail")
+    openxlsx::writeData(wb, "RBS_Detail", rbs_detail,
+                         headerStyle = openxlsx::createStyle(textDecoration = "bold",
+                                                             fgFill = "#1E293B",
+                                                             fontColour = "#FFFFFF"))
+    rbs_data_rows <- base::seq.int(2L, base::nrow(rbs_detail) + 1L)
+    # gradient on rbs_score (0-100, higher better)
+    if ("rbs_score" %in% base::names(rbs_detail)) {
+      ci <- base::which(base::names(rbs_detail) == "rbs_score")
+      openxlsx::conditionalFormatting(
+        wb, "RBS_Detail", cols = ci, rows = rbs_data_rows,
+        style = c("#DC2626", "#FFFFFF", "#15803D"), type = "colourScale",
+        rule = c(0, 50, 100)
+      )
+    }
+    # gradient on duplex_energy (negative = better)
+    if ("duplex_energy" %in% base::names(rbs_detail)) {
+      ci <- base::which(base::names(rbs_detail) == "duplex_energy")
+      v <- suppressWarnings(base::as.numeric(rbs_detail$duplex_energy))
+      if (base::any(!base::is.na(v))) {
+        openxlsx::conditionalFormatting(
+          wb, "RBS_Detail", cols = ci, rows = rbs_data_rows,
+          style = c("#15803D", "#FFFFFF", "#DC2626"), type = "colourScale",
+          rule = c(base::min(v, na.rm = TRUE), -3, 0)
+        )
+      }
+    }
+    # gradient on duplex_score
+    if ("duplex_score" %in% base::names(rbs_detail)) {
+      ci <- base::which(base::names(rbs_detail) == "duplex_score")
+      openxlsx::conditionalFormatting(
+        wb, "RBS_Detail", cols = ci, rows = rbs_data_rows,
+        style = c("#DC2626", "#FFFFFF", "#15803D"), type = "colourScale",
+        rule = c(0, 50, 100)
+      )
+    }
+    # spacer column: gradient with canonical 7 nt optimum at center
+    if ("rbs_spacer" %in% base::names(rbs_detail)) {
+      ci <- base::which(base::names(rbs_detail) == "rbs_spacer")
+      openxlsx::conditionalFormatting(
+        wb, "RBS_Detail", cols = ci, rows = rbs_data_rows,
+        style = c("#FECACA", "#86EFAC", "#FECACA"), type = "colourScale",
+        rule = c(3, 7, 13)
+      )
+    }
+    # band column coloring
+    if ("expression_band" %in% base::names(rbs_detail)) {
+      band_col_rbs <- base::which(base::names(rbs_detail) == "expression_band")
+      band_styles <- list(
+        very_high = openxlsx::createStyle(fgFill = "#0F766E", fontColour = "#FFFFFF", textDecoration = "bold", halign = "center"),
+        high = openxlsx::createStyle(fgFill = "#14B8A6", fontColour = "#FFFFFF", halign = "center"),
+        moderate = openxlsx::createStyle(fgFill = "#F59E0B", halign = "center"),
+        low = openxlsx::createStyle(fgFill = "#EA580C", fontColour = "#FFFFFF", halign = "center"),
+        very_low = openxlsx::createStyle(fgFill = "#991B1B", fontColour = "#FFFFFF", textDecoration = "bold", halign = "center")
+      )
+      for (band in base::names(band_styles)) {
+        rows_match <- base::which(rbs_detail$expression_band == band) + 1L
+        if (base::length(rows_match)) {
+          openxlsx::addStyle(wb, "RBS_Detail",
+                             style = band_styles[[band]],
+                             rows = rows_match,
+                             cols = band_col_rbs,
+                             gridExpand = TRUE, stack = TRUE)
+        }
+      }
+    }
+    openxlsx::setColWidths(wb, "RBS_Detail",
+                           cols = base::seq_len(base::ncol(rbs_detail)),
+                           widths = "auto")
+    openxlsx::freezePane(wb, "RBS_Detail", firstRow = TRUE, firstCol = TRUE)
+    openxlsx::addFilter(wb, "RBS_Detail", row = 1L,
+                        cols = base::seq_len(base::ncol(rbs_detail)))
+  }
+
   # README sheet
   openxlsx::addWorksheet(wb, "README")
   readme <- data.frame(
-    section = c("Source", "Methodology", "Validation", "How to use", "Caveats"),
+    section = c("Source", "Sheet: Translation_Efficiency", "Sheet: RBS_Detail",
+                "Sheet: Interpretation", "Methodology", "Validation",
+                "How to use", "Caveats"),
     content = c(
       base::sprintf("DNMB mRNAcal module%s.",
                     if (!base::is.null(organism)) base::paste0(" — ", organism) else ""),
+      "Per-gene translation efficiency. Row 2 is a yellow GENOME SUMMARY row with median/IQR for each numeric column. Subsequent rows are individual genes sorted by tir_score. Color gradient on tir_score, codon_efficiency_score, CAI, tAI, RBS, accessibility, NCS dG. Auto-filter on every column. expression_band cells are color-coded.",
+      "Per-gene SD/RBS detail. rbs_motif and rbs_spacer come from the mRNAcal multi-k-mer scan; duplex_motif, duplex_anti_sd_start/end, and duplex_energy come from RNAduplex thermodynamics against the species-specific 9-nt anti-SD probe. sd_position_from_AUG / sd_end_from_AUG show where the SD sits relative to the start codon (negative = upstream).",
+      "Per-column docstrings for every numeric / categorical field.",
       "Each gene's translation efficiency is decomposed into INITIATION (tir_score) and ELONGATION (codon_efficiency_score) signals. They are intentionally orthogonal because they capture different rate-limiting steps.",
       "Cross-validated against PaxDB integrated abundance on E. coli K-12 (n=4078 CDS, codon_efficiency Spearman 0.580), B. subtilis 168 (n=4004, 0.404), and C. jejuni NCTC 11168 (n=768, 0.384). The codon_efficiency_score is the single best abundance predictor.",
-      "Sort the Translation_Efficiency sheet by codon_efficiency_score for steady-state abundance ranking, by tir_score for initiation efficiency ranking, or by expression_band for a coarse 5-level overall classification.",
+      "Sort Translation_Efficiency by codon_efficiency_score for steady-state abundance ranking, by tir_score for initiation efficiency ranking, or by expression_band for a coarse 5-level overall classification. Use RBS_Detail for SD-region analysis (motif logos, spacer optimization, anti-SD pairing).",
       "tir_score on its own does NOT predict abundance well (Spearman ~0.05 in E. coli/B. subtilis); it captures initiation rate, which is one of many factors. For overall abundance, use codon_efficiency_score or expression_band."
     ),
     stringsAsFactors = FALSE

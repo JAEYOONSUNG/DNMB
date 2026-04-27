@@ -551,7 +551,10 @@
     if (base::nrow(rrna)) {
       seeds <- base::vapply(rrna$rearranged_nt_seq, function(x) {
         x <- .dnmb_mrnacal_normalize_dna(x)
-        tail <- base::substr(x, base::max(1L, base::nchar(x) - 11L), base::nchar(x))
+        # Last 9 nt of 16S rRNA — the canonical anti-SD core. Earlier
+        # versions used 12 nt which included flanking bases that don't
+        # actually pair with mRNA and produced spurious k-mer matches.
+        tail <- base::substr(x, base::max(1L, base::nchar(x) - 8L), base::nchar(x))
         .dnmb_mrnacal_revcomp(tail)
       }, character(1))
       seeds <- seeds[!base::is.na(seeds) & base::nzchar(seeds)]

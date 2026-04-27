@@ -232,86 +232,245 @@ dnmb_export_translation_efficiency <- function(results,
 
 .dnmb_te_distribution_plot <- function(slim, path, organism = NULL, top_n = 20L) {
   if (!base::nrow(slim)) return(FALSE)
-  expr_cols <- c(very_high = "#15803D", high = "#22C55E", moderate = "#FACC15",
-                 low = "#F97316", very_low = "#B91C1C")
+  expr_cols <- c(very_high = "#0F766E", high = "#14B8A6", moderate = "#F59E0B",
+                 low = "#EA580C", very_low = "#991B1B")
   slim$expr_band <- factor(slim$expression_band,
                            levels = c("very_high", "high", "moderate", "low", "very_low"))
   org_label <- if (!base::is.null(organism)) base::paste0(" — ", organism) else ""
+  ok_repel <- requireNamespace("ggrepel", quietly = TRUE)
 
-  hist_panel <- function(col, title, xlab) {
+  refined_theme <- ggplot2::theme_minimal(base_size = 9, base_family = "") +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold", size = 10, color = "#0F172A"),
+      plot.subtitle = ggplot2::element_text(size = 8, color = "#475569"),
+      axis.title = ggplot2::element_text(size = 8.5, color = "#334155"),
+      axis.text = ggplot2::element_text(size = 7.5, color = "#475569"),
+      panel.grid.major = ggplot2::element_line(color = "#E2E8F0", linewidth = 0.25),
+      panel.grid.minor = ggplot2::element_blank(),
+      panel.border = ggplot2::element_rect(color = "#CBD5E1", fill = NA, linewidth = 0.4),
+      legend.position = "right",
+      legend.title = ggplot2::element_text(size = 8, color = "#334155", face = "bold"),
+      legend.text = ggplot2::element_text(size = 7.5),
+      strip.text = ggplot2::element_text(face = "bold", color = "#0F172A")
+    )
+
+  density_hist_panel <- function(col, title, subtitle, xlab) {
     d <- data.frame(value = slim[[col]], band = slim$expr_band)
     d <- d[!base::is.na(d$value), , drop = FALSE]
     if (!base::nrow(d)) return(NULL)
-    rng <- base::range(d$value, na.rm = TRUE) + c(-1, 1) * base::diff(base::range(d$value, na.rm = TRUE)) * 0.04
-    bw <- base::max(base::diff(base::range(d$value, na.rm = TRUE)) / 40, 0.005)
-    ggplot2::ggplot(d, ggplot2::aes(x = .data$value, fill = .data$band)) +
-      ggplot2::geom_histogram(binwidth = bw, color = "white", linewidth = 0.15, na.rm = TRUE) +
-      ggplot2::scale_fill_manual(values = expr_cols, drop = FALSE, na.value = "#9CA3AF") +
-      ggplot2::coord_cartesian(xlim = rng) +
-      ggplot2::labs(title = title, x = xlab, y = "Genes", fill = "expression_band") +
-      ggplot2::theme_bw(base_size = 9) +
-      ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
-                     plot.title = ggplot2::element_text(face = "bold"))
+    rng <- base::range(d$value, na.rm = TRUE)
+    span <- base::max(rng[2] - rng[1], 1e-6)
+    bw <- base::max(span / 50, 0.005)
+    med <- stats::median(d$value, na.rm = TRUE)
+    p25 <- stats::quantile(d$value, 0.25, na.rm = TRUE, names = FALSE)
+    p75 <- stats::quantile(d$value, 0.75, na.rm = TRUE, names = FALSE)
+    stat_label <- base::sprintf("median %.2f  |  IQR %.2f – %.2f  |  n %d",
+                                med, p25, p75, base::nrow(d))
+    ggplot2::ggplot(d, ggplot2::aes(x = .data$value)) +
+      ggplot2::geom_histogram(
+        ggplot2::aes(y = ggplot2::after_stat(.data$density), fill = .data$band),
+        binwidth = bw, color = "white", linewidth = 0.12, na.rm = TRUE
+      ) +
+      ggplot2::stat_density(
+        geom = "line", color = "#0F172A", linewidth = 0.55,
+        adjust = 1.0, na.rm = TRUE
+      ) +
+      ggplot2::geom_vline(xintercept = c(p25, med, p75),
+                          color = c("#94A3B8", "#0F172A", "#94A3B8"),
+                          linetype = c("dotted", "dashed", "dotted"),
+                          linewidth = c(0.3, 0.45, 0.3)) +
+      ggplot2::annotate("text",
+                        x = rng[2] - 0.02 * span, y = Inf,
+                        label = stat_label,
+                        hjust = 1, vjust = 1.4, size = 2.5, color = "#475569",
+                        family = "mono") +
+      ggplot2::scale_fill_manual(values = expr_cols, drop = FALSE, na.value = "#94A3B8") +
+      ggplot2::coord_cartesian(xlim = rng + c(-0.02, 0.02) * span, expand = FALSE) +
+      ggplot2::labs(title = title, subtitle = subtitle, x = xlab, y = "Density",
+                    fill = "expression_band") +
+      refined_theme
   }
 
-  p1 <- hist_panel("tir_score", "Translation INITIATION (tir_score)", "tir_score (0-100)")
-  p2 <- hist_panel("codon_efficiency_score", "Translation ELONGATION (codon_efficiency_score)", "codon_efficiency_score (0-100)")
-  p3 <- hist_panel("cai", "CAI (Sharp & Li 1987)", "Codon Adaptation Index (0-1)")
-  p4 <- hist_panel("tai", "tAI (dos Reis 2004)", "tRNA Adaptation Index (0-1)")
+  p1 <- density_hist_panel(
+    "tir_score",
+    "Initiation — tir_score",
+    "RBS strength + accessibility + start context  (Spearman vs PaxDB ≈ 0.06 — not abundance)",
+    "tir_score (0–100)"
+  )
+  p2 <- density_hist_panel(
+    "codon_efficiency_score",
+    "Elongation — codon_efficiency_score",
+    "Mean of CAI and tAI  (Spearman vs PaxDB 0.34–0.58 across 3 species)",
+    "codon_efficiency_score (0–100)"
+  )
+  p3 <- density_hist_panel(
+    "cai",
+    "CAI — Sharp & Li 1987",
+    "Reference set: ribosomal proteins (auto-detected, fallback all_cds)",
+    "Codon Adaptation Index (0–1)"
+  )
+  p4 <- density_hist_panel(
+    "tai",
+    "tAI — dos Reis 2004",
+    "Reference: genome tRNA gene copy number with G·U / U·G wobble",
+    "tRNA Adaptation Index (0–1)"
+  )
 
   scatter_d <- slim[!base::is.na(slim$tir_score) & !base::is.na(slim$codon_efficiency_score), , drop = FALSE]
-  p_scatter <- ggplot2::ggplot(scatter_d, ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score, color = .data$expr_band)) +
-    ggplot2::geom_point(alpha = 0.55, size = 0.85, na.rm = TRUE) +
+  tir_med <- stats::median(scatter_d$tir_score, na.rm = TRUE)
+  ce_med <- stats::median(scatter_d$codon_efficiency_score, na.rm = TRUE)
+  scatter_xlim <- base::range(scatter_d$tir_score, na.rm = TRUE) + c(-2, 2)
+  scatter_ylim <- base::range(scatter_d$codon_efficiency_score, na.rm = TRUE) + c(-2, 2)
+  label_d <- scatter_d[base::order(-scatter_d$codon_efficiency_score), , drop = FALSE]
+  label_d <- utils::head(
+    label_d[!base::is.na(label_d$gene) & base::nzchar(label_d$gene), , drop = FALSE],
+    10L
+  )
+  scatter_main <- ggplot2::ggplot(
+    scatter_d,
+    ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score, color = .data$expr_band)
+  ) +
+    ggplot2::geom_hline(yintercept = ce_med, color = "#94A3B8", linetype = "dashed", linewidth = 0.3) +
+    ggplot2::geom_vline(xintercept = tir_med, color = "#94A3B8", linetype = "dashed", linewidth = 0.3) +
+    ggplot2::geom_point(alpha = 0.5, size = 0.7, na.rm = TRUE) +
+    ggplot2::annotate("text", x = scatter_xlim[2], y = scatter_ylim[2],
+                      label = "high init  +  high elong",
+                      hjust = 1, vjust = 1.5, size = 2.6, color = "#0F766E",
+                      fontface = "italic") +
+    ggplot2::annotate("text", x = scatter_xlim[1], y = scatter_ylim[1],
+                      label = "low init  +  low elong",
+                      hjust = 0, vjust = -0.6, size = 2.6, color = "#991B1B",
+                      fontface = "italic") +
     ggplot2::scale_color_manual(values = expr_cols, drop = FALSE) +
-    ggplot2::labs(title = "Initiation vs Elongation", x = "tir_score (initiation)", y = "codon_efficiency_score (elongation)", color = "expression_band") +
-    ggplot2::theme_bw(base_size = 9) +
-    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
-                   plot.title = ggplot2::element_text(face = "bold"))
+    ggplot2::coord_cartesian(xlim = scatter_xlim, ylim = scatter_ylim, expand = FALSE) +
+    ggplot2::labs(
+      title = "Initiation × Elongation map",
+      subtitle = "Each point is one CDS; colour = expression_band (5-level quartile sum). Dashed lines = within-genome medians.",
+      x = "tir_score — initiation efficiency",
+      y = "codon_efficiency_score — elongation efficiency",
+      color = "expression_band"
+    ) +
+    refined_theme +
+    ggplot2::theme(legend.position = "right")
+  if (ok_repel && base::nrow(label_d)) {
+    scatter_main <- scatter_main +
+      ggplot2::geom_point(data = label_d, ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score),
+                          inherit.aes = FALSE, color = "#0F172A", size = 1.2, shape = 21, fill = "white", stroke = 0.6) +
+      ggrepel::geom_text_repel(
+        data = label_d,
+        ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score, label = .data$gene),
+        inherit.aes = FALSE,
+        size = 2.6, fontface = "italic", color = "#0F172A",
+        box.padding = 0.45, point.padding = 0.25, segment.color = "#64748B",
+        segment.size = 0.25, max.overlaps = Inf, min.segment.length = 0
+      )
+  }
 
-  # Top / bottom 20 tables
+  marginal_x <- ggplot2::ggplot(scatter_d, ggplot2::aes(x = .data$tir_score, fill = .data$expr_band)) +
+    ggplot2::geom_density(alpha = 0.6, color = NA, na.rm = TRUE, position = "stack") +
+    ggplot2::scale_fill_manual(values = expr_cols, drop = FALSE) +
+    ggplot2::coord_cartesian(xlim = scatter_xlim, expand = FALSE) +
+    ggplot2::theme_void() +
+    ggplot2::theme(legend.position = "none", plot.margin = ggplot2::margin(2, 2, 0, 2))
+
+  marginal_y <- ggplot2::ggplot(scatter_d, ggplot2::aes(x = .data$codon_efficiency_score, fill = .data$expr_band)) +
+    ggplot2::geom_density(alpha = 0.6, color = NA, na.rm = TRUE, position = "stack") +
+    ggplot2::scale_fill_manual(values = expr_cols, drop = FALSE) +
+    ggplot2::coord_flip(xlim = scatter_ylim, expand = FALSE) +
+    ggplot2::theme_void() +
+    ggplot2::theme(legend.position = "none", plot.margin = ggplot2::margin(2, 2, 2, 0))
+
+  scatter_block <- cowplot::plot_grid(
+    marginal_x, NULL,
+    scatter_main, marginal_y,
+    ncol = 2, nrow = 2,
+    rel_widths = c(1, 0.18), rel_heights = c(0.18, 1)
+  )
+
+  # Tables
   top_idx <- base::order(-slim$codon_efficiency_score, na.last = NA)
   top_tbl <- slim[utils::head(top_idx, top_n), , drop = FALSE]
   bot_tbl <- slim[utils::tail(top_idx, top_n), , drop = FALSE]
   bot_tbl <- bot_tbl[base::order(bot_tbl$codon_efficiency_score), , drop = FALSE]
 
   table_panel <- function(d, title) {
-    cols <- base::intersect(c("locus_tag", "gene", "product",
-                              "tir_score", "codon_efficiency_score", "expression_band"),
-                            base::names(d))
+    cols <- base::intersect(
+      c("locus_tag", "gene", "product",
+        "tir_score", "codon_efficiency_score", "expression_band"),
+      base::names(d)
+    )
     if (!base::length(cols)) return(NULL)
     d2 <- d[, cols, drop = FALSE]
     if ("product" %in% base::names(d2)) {
       d2$product <- base::ifelse(
         base::is.na(d2$product), "",
-        base::substr(base::as.character(d2$product), 1L, 38L)
+        base::substr(base::as.character(d2$product), 1L, 36L)
       )
     }
-    gridExtra::tableGrob(d2, rows = NULL, theme = gridExtra::ttheme_minimal(base_size = 7))
+    if ("gene" %in% base::names(d2)) {
+      d2$gene <- base::ifelse(base::is.na(d2$gene) | !base::nzchar(d2$gene), "—", d2$gene)
+    }
+    base::names(d2) <- base::sub("_score", "", base::names(d2))
+    base::names(d2) <- base::sub("expression_band", "band", base::names(d2))
+    th <- gridExtra::ttheme_minimal(
+      base_size = 7,
+      core = list(
+        fg_params = list(fontfamily = "mono", col = "#0F172A"),
+        bg_params = list(fill = c("#FFFFFF", "#F8FAFC"))
+      ),
+      colhead = list(
+        fg_params = list(col = "#FFFFFF", fontface = "bold"),
+        bg_params = list(fill = "#1E293B")
+      )
+    )
+    g <- gridExtra::tableGrob(d2, rows = NULL, theme = th)
+    title_grob <- grid::textGrob(title, gp = grid::gpar(fontface = "bold", col = "#0F172A", fontsize = 9),
+                                 hjust = 0, x = grid::unit(0.01, "npc"))
+    gridExtra::arrangeGrob(title_grob, g, heights = grid::unit.c(grid::unit(1.2, "lines"), grid::unit(1, "null")))
   }
-  ok_grid <- requireNamespace("gridExtra", quietly = TRUE)
+  ok_grid <- requireNamespace("gridExtra", quietly = TRUE) && requireNamespace("grid", quietly = TRUE)
   if (ok_grid) {
-    g_top <- table_panel(top_tbl, "Top by codon_efficiency")
-    g_bot <- table_panel(bot_tbl, "Bottom by codon_efficiency")
+    g_top <- table_panel(top_tbl, "Top 20 — codon_efficiency_score")
+    g_bot <- table_panel(bot_tbl, "Bottom 20 — codon_efficiency_score")
+    table_grid <- cowplot::plot_grid(g_top, g_bot, ncol = 2, rel_widths = c(1, 1))
   } else {
-    g_top <- ggplot2::ggplot() + ggplot2::labs(title = "(install gridExtra to render top genes)")
-    g_bot <- g_top
+    table_grid <- ggplot2::ggplot() + ggplot2::labs(title = "install gridExtra for tables")
   }
 
-  hist_grid <- cowplot::plot_grid(p1, p2, p3, p4, ncol = 2, rel_heights = c(1, 1))
-  table_grid <- cowplot::plot_grid(g_top, g_bot, ncol = 2)
+  band_counts <- base::table(slim$expression_band)
+  band_summary <- base::paste(
+    base::sapply(base::names(expr_cols), function(b) {
+      n <- if (b %in% base::names(band_counts)) band_counts[[b]] else 0L
+      base::sprintf("%s=%d", b, n)
+    }), collapse = "  |  "
+  )
+
+  hero <- cowplot::ggdraw() +
+    cowplot::draw_label(
+      base::paste0("Translation Efficiency Summary", org_label),
+      x = 0.5, y = 0.74, fontface = "bold", size = 16, color = "#0F172A"
+    ) +
+    cowplot::draw_label(
+      base::paste0("n = ", base::nrow(slim),
+                   " CDS  •  CAI/tAI cross-validated against PaxDB on E. coli, B. subtilis, C. jejuni",
+                   "  •  generated ", base::format(base::Sys.Date())),
+      x = 0.5, y = 0.4, size = 8.5, color = "#475569"
+    ) +
+    cowplot::draw_label(
+      band_summary,
+      x = 0.5, y = 0.10, size = 8, color = "#0F172A", fontfamily = "mono"
+    )
+
+  hist_grid <- cowplot::plot_grid(p1, p2, p3, p4, ncol = 2, rel_heights = c(1, 1), align = "hv")
 
   full <- cowplot::plot_grid(
-    cowplot::ggdraw() + cowplot::draw_label(
-      base::paste0("Translation Efficiency Summary", org_label,
-                   " — n=", base::nrow(slim), " CDS"),
-      fontface = "bold", size = 12, hjust = 0.5
-    ),
+    hero,
     hist_grid,
-    p_scatter,
+    scatter_block,
     table_grid,
     ncol = 1,
-    rel_heights = c(0.07, 1.4, 1.0, 1.6)
+    rel_heights = c(0.18, 1.55, 1.20, 1.45)
   )
-  ggplot2::ggsave(path, full, width = 12, height = 16, bg = "white", limitsize = FALSE)
+  ggplot2::ggsave(path, full, width = 12, height = 17, bg = "white", limitsize = FALSE)
   TRUE
 }

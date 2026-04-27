@@ -771,14 +771,25 @@ dnmb_export_translation_efficiency <- function(results,
     }), collapse = "  |  "
   )
 
+  organism_lc <- if (!base::is.null(organism)) base::tolower(organism) else ""
+  is_validated_organism <- base::grepl(
+    "(escherichia coli|bacillus subtilis|campylobacter jejuni)",
+    organism_lc
+  )
+  validation_note <- if (base::isTRUE(is_validated_organism)) {
+    "CAI/tAI cross-validated for this organism vs PaxDB (Spearman 0.34-0.58)"
+  } else {
+    "CAI/tAI algorithm validated on E. coli / B. subtilis / C. jejuni (PaxDB Spearman 0.34-0.58); applied here by extrapolation"
+  }
+
   hero <- cowplot::ggdraw() +
     cowplot::draw_label(
       base::paste0("Translation Efficiency Summary", org_label),
       x = 0.5, y = 0.74, fontface = "bold", size = 16, color = "#0F172A"
     ) +
     cowplot::draw_label(
-      base::paste0("n = ", base::nrow(slim),
-                   " CDS  •  CAI/tAI cross-validated against PaxDB on E. coli, B. subtilis, C. jejuni",
+      base::paste0("n = ", base::nrow(slim), " CDS  •  ",
+                   validation_note,
                    "  •  generated ", base::format(base::Sys.Date())),
       x = 0.5, y = 0.4, size = 8.5, color = "#475569"
     ) +

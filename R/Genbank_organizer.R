@@ -462,13 +462,12 @@ for (genbank_file in gb_files) {
   undefined_gene_seq <- as.data.frame(lengths(base::regmatches(contig_final$nt_seq, base::gregexpr("n", contig_final$nt_seq, ignore.case = TRUE))))
   colnames(undefined_gene_seq)<-"N_number"
 
-  #reverse complementation
-  contig_final$nt_seq_rev_comp <- sapply(contig_final$nt_seq, function(x) as.character(Biostrings::reverseComplement(Biostrings::DNAString(x))))
-
-  contig_final <- contig_final %>% mutate(contig_final, "rearranged_nt_seq"=
-                                            case_when(grepl("\\-", `contig_final`$direction) ~ sapply(`contig_final`$nt_seq, function(x) as.character(Biostrings::reverseComplement(Biostrings::DNAString(x)))),
-                                                      grepl("\\+", `contig_final`$direction) ~ sapply(`contig_final`$nt_seq, function(x) as.character(Biostrings::DNAString(x))))
-  )
+  #reverse complementation (one pass, reused for nt_seq_rev_comp + rearranged_nt_seq)
+  nt_seq_chars <- as.character(contig_final$nt_seq)
+  rev_comp_all <- as.character(Biostrings::reverseComplement(Biostrings::DNAStringSet(nt_seq_chars)))
+  contig_final$nt_seq_rev_comp <- rev_comp_all
+  is_neg <- grepl("\\-", contig_final$direction)
+  contig_final$rearranged_nt_seq <- ifelse(is_neg, rev_comp_all, nt_seq_chars)
 
   contig_final <- contig_final %>% mutate(contig_final, "Mw"= Peptides::mw(.$translation))
   contig_final <- contig_final %>% mutate(contig_final, "pI"= Peptides::pI(.$translation))

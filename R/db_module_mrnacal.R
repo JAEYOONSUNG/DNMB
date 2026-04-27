@@ -2448,5 +2448,42 @@ dnmb_run_mrnacal_module <- function(genes,
   if (!is.null(fold_pdf)) {
     out$fold_pdf <- fold_pdf
   }
+
+  # Translation efficiency export (slim per-gene xlsx + curated distribution
+  # PDF) — writes artifacts to dnmb_module_mrnacal/ and copies the polished
+  # summary PDF into visualizations/ so it appears alongside other module
+  # overview figures.
+  te_dir <- file.path(output_dir, "dnmb_module_mrnacal")
+  dir.create(te_dir, recursive = TRUE, showWarnings = FALSE)
+  organism_label <- if ("organism" %in% names(genbank_table)) {
+    org_vals <- unique(stats::na.omit(as.character(genbank_table$organism)))
+    if (length(org_vals)) org_vals[1] else NULL
+  } else {
+    NULL
+  }
+  te_export <- tryCatch(
+    dnmb_export_translation_efficiency(
+      results = tbl,
+      gene_metadata = tbl,
+      output_dir = te_dir,
+      organism = organism_label,
+      top_n = 40L
+    ),
+    error = function(e) {
+      warning("Translation efficiency export failed: ", conditionMessage(e), call. = FALSE)
+      NULL
+    }
+  )
+  if (!is.null(te_export) && !is.null(te_export$files$pdf) &&
+      file.exists(te_export$files$pdf)) {
+    summary_pdf_viz <- file.path(plot_dir, "mRNAcal_translation_efficiency_summary.pdf")
+    ok_copy <- tryCatch(
+      file.copy(te_export$files$pdf, summary_pdf_viz, overwrite = TRUE),
+      error = function(e) FALSE
+    )
+    if (isTRUE(ok_copy)) {
+      out$summary_pdf <- summary_pdf_viz
+    }
+  }
   out
 }

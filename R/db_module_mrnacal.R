@@ -2100,24 +2100,24 @@ dnmb_run_mrnacal_module <- function(genes,
   pairs$i_a <- pairs$i - up - 1L
   pairs$j_a <- pairs$j - up - 1L
 
-  scores_txt <- function(name, val, digits = 1) {
+  fmt_num <- function(val, digits = 1) {
     v <- suppressWarnings(base::as.numeric(val))
-    if (base::is.na(v)) return("")
-    base::paste0(name, "=", base::format(base::round(v, digits), nsmall = digits))
+    if (base::is.na(v)) return("NA")
+    base::format(base::round(v, digits), nsmall = digits)
   }
   title <- base::paste0(row$locus_tag[[1]],
-    " | tir=", scores_txt("", row$tir_score[[1]]),
-    " | codon_eff=", scores_txt("", row$codon_efficiency_score[[1]] %||% NA),
+    " | tir=", fmt_num(row$tir_score[[1]]),
+    " | codon_eff=", fmt_num(row$codon_efficiency_score[[1]] %||% NA),
     " | band=", base::as.character(row$expression_band[[1]] %||% NA)
   )
   subtitle <- base::paste0(
-    "RBS=", scores_txt("", row$rbs_score[[1]]),
-    " | antiSD=", scores_txt("", row$duplex_score[[1]] %||% NA),
-    " | access=", scores_txt("", row$accessibility_score[[1]] %||% NA),
-    " | tir_core=", scores_txt("", row$tir_core_score[[1]] %||% NA),
-    " | CAI=", scores_txt("", row$cai[[1]] %||% NA, 3),
-    " | tAI=", scores_txt("", row$tai[[1]] %||% NA, 3),
-    " | NCS_dG=", scores_txt("", row$ncs_mfe_dg[[1]] %||% NA)
+    "RBS=", fmt_num(row$rbs_score[[1]]),
+    " | antiSD=", fmt_num(row$duplex_score[[1]] %||% NA),
+    " | access=", fmt_num(row$accessibility_score[[1]] %||% NA),
+    " | tir_core=", fmt_num(row$tir_core_score[[1]] %||% NA),
+    " | CAI=", fmt_num(row$cai[[1]] %||% NA, 3),
+    " | tAI=", fmt_num(row$tai[[1]] %||% NA, 3),
+    " | NCS_dG=", fmt_num(row$ncs_mfe_dg[[1]] %||% NA)
   )
 
   band_cols <- c(

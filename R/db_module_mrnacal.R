@@ -1351,7 +1351,11 @@
   for (i in base::seq_len(base::nrow(work))) {
     upstream_len <- suppressWarnings(base::as.integer(work$window_upstream[[i]]))
     sequence <- .dnmb_mrnacal_normalize_dna(work$sequence_dna[[i]])
-    scan_left <- base::max(1L, upstream_len - 35L)
+    # Canonical SD lies at -15..-3 from AUG (spacer 3-13 nt). A wider RNAduplex
+    # search window picked up thermodynamically strong but biologically
+    # implausible matches at -25..-35; constrain to the canonical SD range so
+    # duplex_motif reports the actual SD, not distal noise.
+    scan_left <- base::max(1L, upstream_len - 15L)
     scan_right <- base::max(1L, upstream_len - 3L)
     if (base::is.na(upstream_len) || upstream_len < 4L || scan_right < scan_left) {
       target <- ""

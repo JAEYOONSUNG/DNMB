@@ -642,6 +642,7 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "tai",
       "tai_score",
       "codon_efficiency_score",
+      "expression_potential_score",
       "expression_band",
       "cai_reference_set",
       "cai_reference_size",

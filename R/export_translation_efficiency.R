@@ -507,7 +507,8 @@ dnmb_export_translation_efficiency <- function(results,
       ggplot2::coord_cartesian(xlim = rng + c(-0.02, 0.02) * span, expand = FALSE) +
       ggplot2::labs(title = title, subtitle = subtitle, x = xlab, y = "Density",
                     fill = "expression_band") +
-      refined_theme
+      refined_theme +
+      ggplot2::theme(legend.position = "none")
   }
 
   p1 <- density_hist_panel(
@@ -574,7 +575,7 @@ dnmb_export_translation_efficiency <- function(results,
       color = "expression_band"
     ) +
     refined_theme +
-    ggplot2::theme(legend.position = "right",
+    ggplot2::theme(legend.position = "none",
                    plot.title = ggplot2::element_blank(),
                    plot.subtitle = ggplot2::element_blank())
   # Highlight every gene in the top_n list (filled circle, dark outline)
@@ -657,6 +658,24 @@ dnmb_export_translation_efficiency <- function(results,
       "Each point is one CDS; colour = expression_band (5-level quartile sum). Dashed lines = within-genome medians.",
       x = 0.02, y = 0.30, hjust = 0, size = 8, color = "#475569"
     )
+
+  # Single shared horizontal legend (below scatter)
+  legend_source <- ggplot2::ggplot(
+    data.frame(
+      x = 1,
+      band = factor(base::names(expr_cols), levels = base::names(expr_cols))
+    ),
+    ggplot2::aes(x = .data$x, y = .data$x, color = .data$band)
+  ) +
+    ggplot2::geom_point(size = 3) +
+    ggplot2::scale_color_manual(values = expr_cols, drop = FALSE,
+                                 name = NULL,
+                                 guide = ggplot2::guide_legend(nrow = 1, override.aes = list(size = 4))) +
+    ggplot2::theme_void() +
+    ggplot2::theme(legend.position = "bottom",
+                   legend.text = ggplot2::element_text(size = 9, color = "#334155"),
+                   legend.key = ggplot2::element_blank())
+  shared_legend <- cowplot::get_legend(legend_source)
   scatter_grid <- cowplot::plot_grid(
     marginal_x, NULL,
     scatter_main, marginal_y,
@@ -751,9 +770,10 @@ dnmb_export_translation_efficiency <- function(results,
     hero,
     hist_grid,
     scatter_block,
+    shared_legend,
     table_grid,
     ncol = 1,
-    rel_heights = c(0.18, 1.55, 1.30, table_rel_h)
+    rel_heights = c(0.18, 1.55, 1.30, 0.07, table_rel_h)
   )
   ggplot2::ggsave(path, full, width = 12, height = pdf_height, bg = "white", limitsize = FALSE)
   TRUE

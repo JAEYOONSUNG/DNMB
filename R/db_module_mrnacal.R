@@ -1452,23 +1452,34 @@
   )
 }
 
-.dnmb_mrnacal_expression_band <- function(tir_score, codon_eff) {
+.dnmb_mrnacal_expression_potential <- function(tir_score, codon_eff) {
   tir <- suppressWarnings(base::as.numeric(tir_score))
   ce <- suppressWarnings(base::as.numeric(codon_eff))
-  band <- base::rep(NA_character_, base::length(tir))
   ok <- !base::is.na(tir) & !base::is.na(ce)
-  if (!base::any(ok)) return(band)
-  tir_q <- stats::quantile(tir[ok], probs = c(0.25, 0.5, 0.75), na.rm = TRUE, names = FALSE)
-  ce_q <- stats::quantile(ce[ok], probs = c(0.25, 0.5, 0.75), na.rm = TRUE, names = FALSE)
-  rank_of <- function(v, q) {
-    base::cut(v, breaks = c(-Inf, q, Inf), labels = c(1L, 2L, 3L, 4L), right = TRUE)
+  potential <- base::rep(NA_real_, base::length(tir))
+  if (!base::any(ok)) return(potential)
+  # Standardise within genome (mean=0, sd=1) so the two scales contribute on
+  # equal footing. Sum captures that BOTH initiation and elongation push
+  # expression higher; the resulting score is continuous, so the downstream
+  # band cuts produce smooth diagonal boundaries on the 2D map rather than
+  # the rectangular quartile-rank grid the previous implementation produced.
+  tir_z <- (tir[ok] - base::mean(tir[ok])) / stats::sd(tir[ok])
+  ce_z <- (ce[ok] - base::mean(ce[ok])) / stats::sd(ce[ok])
+  potential[ok] <- base::round(tir_z + ce_z, 4)
+  potential
+}
+
+.dnmb_mrnacal_expression_band <- function(tir_score, codon_eff, potential = NULL) {
+  if (base::is.null(potential)) {
+    potential <- .dnmb_mrnacal_expression_potential(tir_score, codon_eff)
   }
-  tir_rank <- base::as.integer(rank_of(tir, tir_q))
-  ce_rank <- base::as.integer(rank_of(ce, ce_q))
-  combined <- tir_rank + ce_rank  # range 2..8
+  band <- base::rep(NA_character_, base::length(potential))
+  ok <- !base::is.na(potential)
+  if (!base::any(ok)) return(band)
+  qs <- stats::quantile(potential[ok], probs = c(0.2, 0.4, 0.6, 0.8), na.rm = TRUE, names = FALSE)
   band[ok] <- base::cut(
-    combined[ok],
-    breaks = c(-Inf, 3, 4, 5, 6, Inf),
+    potential[ok],
+    breaks = c(-Inf, qs, Inf),
     labels = c("very_low", "low", "moderate", "high", "very_high"),
     right = TRUE
   ) |> base::as.character()
@@ -1544,7 +1555,7 @@
     "internal_sd_count", "internal_sd_motifs", "internal_sd_min_position", "internal_sd_penalty",
     "tir_score_percentile",
     "cai", "cai_score", "tai", "tai_score",
-    "codon_efficiency_score", "expression_band",
+    "codon_efficiency_score", "expression_potential_score", "expression_band",
     "cai_reference_set", "cai_reference_size",
     "trna_total_gcn", "informative_codon_count",
     "window_upstream", "window_downstream", "support"
@@ -2000,11 +2011,17 @@ dnmb_run_mrnacal_module <- function(genes,
     na.rm = TRUE
   ), 2)
   results$codon_efficiency_score[base::is.nan(results$codon_efficiency_score)] <- NA_real_
-  # Integrated expression band: quartile combination of initiation (tir_score)
-  # and elongation (codon_efficiency_score). Conservative — uses within-genome
-  # quartiles, no fitted weights.
-  results$expression_band <- .dnmb_mrnacal_expression_band(
+  # Integrated expression potential: continuous z-score sum of initiation
+  # (tir_score) and elongation (codon_efficiency_score). Both contribute
+  # additively on a standardised footing. expression_band is the within-genome
+  # quintile of this continuous score so band boundaries form smooth diagonals
+  # in (tir, codon_eff) space instead of grid-step rectangles.
+  results$expression_potential_score <- .dnmb_mrnacal_expression_potential(
     results$tir_score, results$codon_efficiency_score
+  )
+  results$expression_band <- .dnmb_mrnacal_expression_band(
+    results$tir_score, results$codon_efficiency_score,
+    potential = results$expression_potential_score
   )
   results$support <- base::paste0(
     "window=-", results$window_upstream, "/+", results$window_downstream,

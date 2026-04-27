@@ -540,10 +540,16 @@ dnmb_export_translation_efficiency <- function(results,
   ce_med <- stats::median(scatter_d$codon_efficiency_score, na.rm = TRUE)
   scatter_xlim <- base::range(scatter_d$tir_score, na.rm = TRUE) + c(-2, 2)
   scatter_ylim <- base::range(scatter_d$codon_efficiency_score, na.rm = TRUE) + c(-2, 2)
-  label_d <- scatter_d[base::order(-scatter_d$codon_efficiency_score), , drop = FALSE]
-  label_d <- utils::head(
-    label_d[!base::is.na(label_d$gene) & base::nzchar(label_d$gene), , drop = FALSE],
-    10L
+  ce_order <- base::order(-scatter_d$codon_efficiency_score)
+  top_set <- scatter_d[utils::head(ce_order, top_n), , drop = FALSE]
+  bottom_set <- scatter_d[utils::tail(ce_order, top_n), , drop = FALSE]
+  label_top <- utils::head(
+    top_set[!base::is.na(top_set$gene) & base::nzchar(top_set$gene), , drop = FALSE],
+    12L
+  )
+  label_bot <- utils::head(
+    bottom_set[!base::is.na(bottom_set$gene) & base::nzchar(bottom_set$gene), , drop = FALSE],
+    8L
   )
   scatter_main <- ggplot2::ggplot(
     scatter_d,
@@ -571,19 +577,62 @@ dnmb_export_translation_efficiency <- function(results,
     ggplot2::theme(legend.position = "right",
                    plot.title = ggplot2::element_blank(),
                    plot.subtitle = ggplot2::element_blank())
-  if (ok_repel && base::nrow(label_d)) {
-    scatter_main <- scatter_main +
-      ggplot2::geom_point(data = label_d, ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score),
-                          inherit.aes = FALSE, color = "#0F172A", size = 1.2, shape = 21, fill = "white", stroke = 0.6) +
-      ggrepel::geom_text_repel(
-        data = label_d,
-        ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score, label = .data$gene),
-        inherit.aes = FALSE,
-        size = 2.6, fontface = "italic", color = "#0F172A",
-        box.padding = 0.45, point.padding = 0.25, segment.color = "#64748B",
-        segment.size = 0.25, max.overlaps = Inf, min.segment.length = 0
-      )
+  # Highlight every gene in the top_n list (filled circle, dark outline)
+  scatter_main <- scatter_main +
+    ggplot2::geom_point(
+      data = top_set,
+      ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score),
+      inherit.aes = FALSE, color = "#0F172A", size = 1.4, shape = 21,
+      fill = "#0F766E", stroke = 0.5, alpha = 0.85
+    ) +
+    ggplot2::geom_point(
+      data = bottom_set,
+      ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score),
+      inherit.aes = FALSE, color = "#0F172A", size = 1.4, shape = 23,
+      fill = "#991B1B", stroke = 0.5, alpha = 0.85
+    )
+  if (ok_repel && (base::nrow(label_top) || base::nrow(label_bot))) {
+    if (base::nrow(label_top)) {
+      scatter_main <- scatter_main +
+        ggrepel::geom_text_repel(
+          data = label_top,
+          ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score, label = .data$gene),
+          inherit.aes = FALSE,
+          size = 2.6, fontface = "italic", color = "#0F766E",
+          box.padding = 0.45, point.padding = 0.25, segment.color = "#0F766E",
+          segment.size = 0.25, max.overlaps = Inf, min.segment.length = 0,
+          force = 1.5, force_pull = 0.5
+        )
+    }
+    if (base::nrow(label_bot)) {
+      scatter_main <- scatter_main +
+        ggrepel::geom_text_repel(
+          data = label_bot,
+          ggplot2::aes(x = .data$tir_score, y = .data$codon_efficiency_score, label = .data$gene),
+          inherit.aes = FALSE,
+          size = 2.4, fontface = "italic", color = "#991B1B",
+          box.padding = 0.45, point.padding = 0.25, segment.color = "#991B1B",
+          segment.size = 0.25, max.overlaps = Inf, min.segment.length = 0,
+          force = 1.5, force_pull = 0.5
+        )
+    }
   }
+  # Legend annotation describing the highlight markers
+  scatter_main <- scatter_main +
+    ggplot2::annotate("point", x = scatter_xlim[1] + 0.04 * base::diff(scatter_xlim),
+                      y = scatter_ylim[2] - 0.16 * base::diff(scatter_ylim),
+                      shape = 21, size = 1.6, fill = "#0F766E", color = "#0F172A", stroke = 0.5) +
+    ggplot2::annotate("text", x = scatter_xlim[1] + 0.06 * base::diff(scatter_xlim),
+                      y = scatter_ylim[2] - 0.16 * base::diff(scatter_ylim),
+                      label = base::sprintf("top %d", top_n),
+                      hjust = 0, size = 2.5, color = "#0F766E", fontface = "italic") +
+    ggplot2::annotate("point", x = scatter_xlim[1] + 0.04 * base::diff(scatter_xlim),
+                      y = scatter_ylim[2] - 0.20 * base::diff(scatter_ylim),
+                      shape = 23, size = 1.6, fill = "#991B1B", color = "#0F172A", stroke = 0.5) +
+    ggplot2::annotate("text", x = scatter_xlim[1] + 0.06 * base::diff(scatter_xlim),
+                      y = scatter_ylim[2] - 0.20 * base::diff(scatter_ylim),
+                      label = base::sprintf("bottom %d", top_n),
+                      hjust = 0, size = 2.5, color = "#991B1B", fontface = "italic")
 
   marginal_x <- ggplot2::ggplot(scatter_d, ggplot2::aes(x = .data$tir_score, fill = .data$expr_band)) +
     ggplot2::geom_density(alpha = 0.6, color = NA, na.rm = TRUE, position = "stack") +

@@ -386,18 +386,16 @@ for (genbank_file in gb_files) {
     rm(list=ls(pattern="separated|remolten|molten|location|CDS|genenumber|contig_gbff_[0-9]{1,}"))
   }
 
-  #sink nt_seq
+  #sink nt_seq (vectorized substring over start/end)
   for(j in (1:nrow(contig_length))){
     if(!is.na(get(paste0("contig_start_",j)))){
       seq_top <- get(paste("contig",j,"seq","final",sep="_"))
       trimmed_tbl <- get(paste("trimmed",j,sep="_"))
       nt_tbl <- data.frame(
-        nt_seq = vapply(
-          seq_len(nrow(trimmed_tbl)),
-          function(i) substr(seq_top,
-                             as.integer(trimmed_tbl$start[i]),
-                             as.integer(trimmed_tbl$end[i])),
-          character(1)
+        nt_seq = substring(
+          seq_top,
+          as.integer(trimmed_tbl$start),
+          as.integer(trimmed_tbl$end)
         ),
         stringsAsFactors = FALSE
       )

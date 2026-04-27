@@ -747,17 +747,30 @@
   } else {
     character()
   }
-  ncs45_codons <- if (base::length(codons) >= 2L) {
-    codons[base::seq.int(2L, base::min(16L, base::length(codons)))]
+  # Tian et al. 2019 (Metab Eng) NCS = first 10 codons (30 nt) of CDS.
+  # We aggregate codons 2-10 (variable region after fixed M).
+  ncs_codons <- if (base::length(codons) >= 2L) {
+    codons[base::seq.int(2L, base::min(10L, base::length(codons)))]
   } else {
     character()
   }
-  ncs45_sequence <- base::paste(ncs45_codons, collapse = "")
-  ncs45_chars <- if (base::nzchar(ncs45_sequence)) base::strsplit(ncs45_sequence, "", fixed = TRUE)[[1]] else character()
-  ncs45_at_fraction <- if (base::length(ncs45_chars)) base::mean(ncs45_chars %in% c("A", "T")) else NA_real_
-  ncs45_lysine_count <- base::sum(ncs45_codons %in% c("AAA", "AAG"), na.rm = TRUE)
-  ncs45_aaa_count <- base::sum(ncs45_codons %in% "AAA", na.rm = TRUE)
-  ncs45_aag_count <- base::sum(ncs45_codons %in% "AAG", na.rm = TRUE)
+  ncs_sequence <- base::paste(ncs_codons, collapse = "")
+  ncs_chars <- if (base::nzchar(ncs_sequence)) base::strsplit(ncs_sequence, "", fixed = TRUE)[[1]] else character()
+  ncs_at_fraction <- if (base::length(ncs_chars)) base::mean(ncs_chars %in% c("A", "T")) else NA_real_
+  # Lipońska & Boël 2025 NAR: 70S IC footprint covers the first 6 codons
+  # (18 nt). High A / low G in this window boosts initiation.
+  tir_core_codons <- if (base::length(codons) >= 2L) {
+    codons[base::seq.int(2L, base::min(6L, base::length(codons)))]
+  } else {
+    character()
+  }
+  tir_core_sequence <- base::paste(tir_core_codons, collapse = "")
+  tir_core_chars <- if (base::nzchar(tir_core_sequence)) base::strsplit(tir_core_sequence, "", fixed = TRUE)[[1]] else character()
+  tir_core_a_fraction <- if (base::length(tir_core_chars)) base::mean(tir_core_chars == "A") else NA_real_
+  tir_core_g_fraction <- if (base::length(tir_core_chars)) base::mean(tir_core_chars == "G") else NA_real_
+  ncs_lysine_count <- base::sum(ncs_codons %in% c("AAA", "AAG"), na.rm = TRUE)
+  ncs_aaa_count <- base::sum(ncs_codons %in% "AAA", na.rm = TRUE)
+  ncs_aag_count <- base::sum(ncs_codons %in% "AAG", na.rm = TRUE)
   lys_codons <- early %in% c("AAA", "AAG")
   aaa_codons <- early %in% "AAA"
   aag_codons <- early %in% "AAG"
@@ -806,11 +819,14 @@
     aaa_count_2_8 = aaa_count,
     aag_count_2_8 = aag_count,
     early_coding_at_fraction = base::round(early_at_fraction, 4),
-    ncs45_sequence = if (base::nzchar(ncs45_sequence)) ncs45_sequence else NA_character_,
-    ncs45_at_fraction = base::round(ncs45_at_fraction, 4),
-    ncs45_lysine_codon_count = ncs45_lysine_count,
-    ncs45_aaa_count = ncs45_aaa_count,
-    ncs45_aag_count = ncs45_aag_count,
+    ncs_sequence = if (base::nzchar(ncs_sequence)) ncs_sequence else NA_character_,
+    ncs_at_fraction = base::round(ncs_at_fraction, 4),
+    ncs_lysine_codon_count = ncs_lysine_count,
+    ncs_aaa_count = ncs_aaa_count,
+    ncs_aag_count = ncs_aag_count,
+    tir_core_sequence = if (base::nzchar(tir_core_sequence)) tir_core_sequence else NA_character_,
+    tir_core_a_fraction = base::round(tir_core_a_fraction, 4),
+    tir_core_g_fraction = base::round(tir_core_g_fraction, 4),
     early_aaa_run = aaa_run,
     early_poly_a_run = early_poly_a_run,
     early_poly_a_penalty = base::round(poly_a_penalty, 2),
@@ -1451,8 +1467,9 @@
     "start_codon", "start_codon_score", "early_k_score",
     "second_codon", "early_codons", "lysine_codon_count_2_8",
     "aaa_count_2_8", "aag_count_2_8", "early_coding_at_fraction",
-    "ncs45_sequence", "ncs45_at_fraction", "ncs45_lysine_codon_count",
-    "ncs45_aaa_count", "ncs45_aag_count",
+    "ncs_sequence", "ncs_at_fraction", "ncs_lysine_codon_count",
+    "ncs_aaa_count", "ncs_aag_count",
+    "tir_core_sequence", "tir_core_a_fraction", "tir_core_g_fraction",
     "early_aaa_run", "early_poly_a_run", "early_poly_a_penalty",
     "basic_aa_count_2_8", "skik_like",
     "upstream20_sequence", "upstream20_at_fraction", "upstream20_score",
@@ -1707,11 +1724,14 @@ dnmb_run_mrnacal_module <- function(genes,
       aaa_count_2_8 = early$aaa_count_2_8,
       aag_count_2_8 = early$aag_count_2_8,
       early_coding_at_fraction = early$early_coding_at_fraction,
-      ncs45_sequence = early$ncs45_sequence,
-      ncs45_at_fraction = early$ncs45_at_fraction,
-      ncs45_lysine_codon_count = early$ncs45_lysine_codon_count,
-      ncs45_aaa_count = early$ncs45_aaa_count,
-      ncs45_aag_count = early$ncs45_aag_count,
+      ncs_sequence = early$ncs_sequence,
+      ncs_at_fraction = early$ncs_at_fraction,
+      ncs_lysine_codon_count = early$ncs_lysine_codon_count,
+      ncs_aaa_count = early$ncs_aaa_count,
+      ncs_aag_count = early$ncs_aag_count,
+      tir_core_sequence = early$tir_core_sequence,
+      tir_core_a_fraction = early$tir_core_a_fraction,
+      tir_core_g_fraction = early$tir_core_g_fraction,
       early_aaa_run = early$early_aaa_run,
       early_poly_a_run = early$early_poly_a_run,
       early_poly_a_penalty = early$early_poly_a_penalty,
@@ -1897,7 +1917,8 @@ dnmb_run_mrnacal_module <- function(genes,
     "; downstream_access=", base::round(100 * results$downstream_plfold_unpaired_probability, 1),
     "; upstream_AU=", results$upstream_au_score,
     "; earlyK=", results$lysine_codon_count_2_8,
-    "; NCS45_K=", results$ncs45_lysine_codon_count,
+    "; NCS_K=", results$ncs_lysine_codon_count,
+    "; tir_core_A=", results$tir_core_a_fraction,
     "; internal_SD=", results$internal_sd_count,
     "; CAI=", base::round(results$cai, 3),
     "; tAI=", base::round(results$tai, 3),

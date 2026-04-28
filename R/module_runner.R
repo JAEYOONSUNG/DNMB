@@ -319,6 +319,14 @@
   if (isTRUE(result$ok)) {
     n_hits <- if (!is.null(result$hits) && is.data.frame(result$hits)) nrow(result$hits) else 0L
     message("[DNMB module] ", module_name, " completed (", n_hits, " hits, ", elapsed, "s)")
+    # Drop a completion sentinel so the stage cache can recognize a
+    # successful run even when the module produced 0 hits (and
+    # therefore no per-module artifact file). The next run reuses
+    # cache$module_results without re-executing the module.
+    tryCatch(
+      .dnmb_module_write_completion_sentinel(module_name, n_hits = n_hits, elapsed = elapsed),
+      error = function(e) invisible(NULL)
+    )
   } else {
     fail_detail <- if (!is.null(result$status) && is.data.frame(result$status) && "detail" %in% names(result$status)) {
       paste(result$status$detail[nzchar(result$status$detail)], collapse = "; ")

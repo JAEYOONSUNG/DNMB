@@ -439,7 +439,43 @@
   alias
 }
 
+.dnmb_module_completion_sentinel_path <- function(alias, wd = getwd()) {
+  module_dir <- file.path(
+    normalizePath(wd, winslash = "/", mustWork = FALSE),
+    paste0("dnmb_module_", tolower(as.character(alias)[1]))
+  )
+  file.path(module_dir, paste0(".dnmb_", tolower(as.character(alias)[1]), "_complete"))
+}
+
+#' Write a small RDS sentinel marking that a module completed
+#' successfully. The stage cache reader treats the sentinel as
+#' first-class proof of completion, so 0-hit runs (no artifact files)
+#' still cache-hit on the next invocation.
+.dnmb_module_write_completion_sentinel <- function(alias, wd = getwd(),
+                                                   n_hits = NA_integer_,
+                                                   elapsed = NA_real_) {
+  path <- .dnmb_module_completion_sentinel_path(alias, wd = wd)
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  payload <- list(
+    alias = as.character(alias)[1],
+    n_hits = suppressWarnings(as.integer(n_hits)),
+    elapsed_s = suppressWarnings(as.numeric(elapsed)),
+    written_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+    sentinel_version = 1L
+  )
+  saveRDS(payload, path)
+  invisible(path)
+}
+
 .dnmb_module_stage_artifacts_exist <- function(alias, wd = getwd()) {
+  # Completion sentinel is sufficient — written at the end of every
+  # successful module run regardless of hit count.
+  if (file.exists(.dnmb_module_completion_sentinel_path(alias, wd = wd))) {
+    return(TRUE)
+  }
+
+  # Backwards compatibility: pre-sentinel runs are recognized via the
+  # original per-module artifact list.
   spec <- .dnmb_module_stage_expected_artifacts(alias, wd = wd)
   paths <- spec$paths %||% character()
   if (!length(paths)) {

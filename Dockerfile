@@ -89,7 +89,14 @@ RUN curl -fsSL "https://github.com/conda-forge/miniforge/releases/latest/downloa
         -c bioconda -c conda-forge \
         padloc && \
     /opt/miniforge/bin/conda clean -afy && \
-    rm -rf /opt/miniforge
+    rm -rf /opt/miniforge && \
+    # PADLOC's bin/padloc bash script unconditionally mkdir's bin/../data
+    # before honoring the --data flag, so non-root users (--user) hit
+    # "Permission denied" on a fresh run. Pre-create the dir as world-
+    # writable; the actual HMM data is served from the host-mounted
+    # /opt/dnmb-cache/db_modules/padloc/current/data via the --data flag.
+    mkdir -p /opt/biotools/envs/padloc/data && \
+    chmod -R a+rwX /opt/biotools/envs/padloc/data
 
 ENV PATH="/opt/biotools/bin:${PATH}"
 

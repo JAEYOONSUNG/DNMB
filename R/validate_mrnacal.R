@@ -150,7 +150,12 @@ dnmb_validate_mrnacal <- function(results,
   if (!"locus_tag" %in% base::names(x)) {
     stop("`results` must contain a locus_tag column.", call. = FALSE)
   }
-  if ("mRNAcal_tir_score" %in% base::names(x) && !"tir_score" %in% base::names(x)) {
+  # Add bare aliases for every mRNAcal_-prefixed column whose bare twin is
+  # missing. The previous gate required "mRNAcal_tir_score" without
+  # "tir_score" — that mis-fires when the caller has already pre-extracted
+  # tir_score (as the in-pipeline plotter does), leaving every other
+  # prefixed metric un-aliased and the downstream slim table NA-filled.
+  if (base::any(base::startsWith(base::names(x), "mRNAcal_"))) {
     drop_prefix <- function(name) base::sub("^mRNAcal_", "", name)
     candidates <- base::grep("^mRNAcal_", base::names(x), value = TRUE)
     for (col in candidates) {

@@ -904,11 +904,20 @@ dnmb_run_acrfinder_module <- function(genes,
     "--num_threads", base::as.character(base::as.integer(cpu)[1])
   )
   base::cat(base::paste0("[", base::Sys.time(), "] ", .dnmb_format_command(module$files$env_python, cmd), "\n"), file = trace_log, append = TRUE)
+  # Order: AcrFinder's own bin -> python venv bin -> system PATH ->
+  # CRISPRCasFinder bundled bin (last-resort fallback). The bundled
+  # CRISPRCasFinder/bin/ ships stripped Linux ELF binaries (perl, clustalw2,
+  # vmatch2, ...) baked against the original distro's @INC; if it precedes
+  # system PATH the bundled perl is picked even though it cannot see
+  # apt-installed Bio::SeqIO / Date::Calc / JSON::Parse modules. Putting
+  # system PATH first means Docker/containers with proper apt-installed
+  # tools win, while bare-metal users without system tools still fall back
+  # to the bundled binaries.
   acr_path_entries <- c(
     base::file.path(module$manifest$repo_dir, "bin"),
-    base::file.path(module$manifest$repo_dir, "dependencies", "CRISPRCasFinder", "bin"),
     base::dirname(module$files$env_python),
-    strsplit(base::Sys.getenv("PATH"), .Platform$path.sep, fixed = TRUE)[[1]]
+    strsplit(base::Sys.getenv("PATH"), .Platform$path.sep, fixed = TRUE)[[1]],
+    base::file.path(module$manifest$repo_dir, "dependencies", "CRISPRCasFinder", "bin")
   )
   acr_path_entries <- unique(acr_path_entries[base::nzchar(acr_path_entries) & base::file.exists(acr_path_entries)])
   dependency_status <- .dnmb_acrfinder_runtime_status(acr_path_entries)

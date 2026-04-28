@@ -844,11 +844,25 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
   path
 }
 
+#' Resolve a python interpreter that has the Promotech wheel deps
+#' (numpy / pandas / joblib / progressbar2 / scikit-learn / Biopython).
+#' Prefer the distro-managed system python because that is where the
+#' Dockerfile installs the deps via `python3 -m pip install`. Conda
+#' envs on PATH (e.g. /opt/biotools/bin/python3 from the eggnog-mapper
+#' env) typically lack pandas / progressbar and would shadow system
+#' python because /opt/biotools/bin is prepended to PATH.
+.dnmb_promotech_resolve_python <- function(python = "python3") {
+  for (cand in c("/usr/bin/python3", "/usr/local/bin/python3")) {
+    if (base::file.exists(cand)) return(cand)
+  }
+  base::unname(Sys.which(python))
+}
+
 .dnmb_promotech_python_status <- function(python = "python3",
                                           model = "RF-HOT",
                                           model_file = NULL) {
   rows <- list()
-  py_path <- Sys.which(python)
+  py_path <- .dnmb_promotech_resolve_python(python)
   if (!base::nzchar(py_path)) {
     rows[[length(rows) + 1L]] <- .dnmb_promotech_status_row("promotech_dependency_python", "missing", base::paste0(python, " not found in PATH."))
     return(dplyr::bind_rows(rows))
@@ -888,7 +902,7 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
                                      python = "python3") {
   input_fastas <- .dnmb_promotech_prepare_input_fasta(genbank, output_dir)
   runner <- .dnmb_promotech_write_runner(base::file.path(output_dir, "dnmb_promotech_runner.py"))
-  py_path <- Sys.which(python)
+  py_path <- .dnmb_promotech_resolve_python(python)
   combined <- list()
   run_results <- list()
   for (fasta in input_fastas) {

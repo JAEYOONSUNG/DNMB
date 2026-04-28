@@ -19,9 +19,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     diamond-aligner \
     git \
     libbio-perl-perl \
+    libdbd-sqlite3-perl \
+    libdbi-perl \
     ncbi-blast+ \
     prodigal \
     python3 \
+    python3-dev \
     python3-pip \
     python3-venv \
     libbz2-dev \
@@ -115,6 +118,11 @@ RUN git clone --depth 1 --filter=blob:none --sparse https://github.com/Bioinform
 COPY . /opt/DNMB
 
 RUN R -q -e "options(repos = c(CRAN = 'https://cloud.r-project.org')); remotes::install_local('/opt/DNMB', dependencies = FALSE, upgrade = 'never')"
+
+# Pre-install DefenseViz at image build time so REBASEfinder works under
+# `--user $(id -u):$(id -g)` (non-root users cannot write to
+# /usr/local/lib/R/site-library at runtime).
+RUN R -q -e "options(repos = c(CRAN = 'https://cloud.r-project.org')); remotes::install_github('JAEYOONSUNG/DefenseViz', upgrade = 'never', quiet = TRUE); stopifnot(requireNamespace('DefenseViz', quietly = TRUE))"
 
 COPY --from=dnmb_cache /opt/dnmb-cache/db_modules/defensefinder/current /opt/dnmb-cache/db_modules/defensefinder/current
 

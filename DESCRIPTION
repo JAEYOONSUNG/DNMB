@@ -26,6 +26,7 @@ Imports:
     grid,
     gridBase,
     gridExtra,
+    patchwork,
     jsonlite,
     openxlsx,
     plyr,

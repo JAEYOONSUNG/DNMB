@@ -96,7 +96,11 @@ ENV PATH="/opt/biotools/bin:${PATH}"
 RUN mkdir -p /tmp/dnmb-deps
 COPY DESCRIPTION /tmp/dnmb-deps/DESCRIPTION
 
-RUN R -q -e "options(repos = c(CRAN = 'https://cloud.r-project.org')); install.packages(c('remotes', 'BiocManager')); BiocManager::install(c('Biostrings', 'ComplexHeatmap'), ask = FALSE, update = FALSE); remotes::install_deps('/tmp/dnmb-deps', dependencies = TRUE, upgrade = 'never')"
+# cache-bust 2026-04-28: previous buildkit cache layers dropped the
+# libssl-dev / libcurl4-openssl-dev provided headers, leaving the
+# openssl R package compile broken. Tagged the RUN command with
+# explicit verification so a regression is loud, not silent.
+RUN R -q -e "options(repos = c(CRAN = 'https://cloud.r-project.org')); install.packages(c('remotes', 'BiocManager')); BiocManager::install(c('Biostrings', 'ComplexHeatmap'), ask = FALSE, update = FALSE); remotes::install_deps('/tmp/dnmb-deps', dependencies = TRUE, upgrade = 'never'); stopifnot(requireNamespace('Biostrings', quietly = TRUE), requireNamespace('ComplexHeatmap', quietly = TRUE))"
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libbio-perl-perl \
     libdbd-sqlite3-perl \
     libdbi-perl \
+    libwww-perl \
     ncbi-blast+ \
     prodigal \
     python3 \
@@ -83,8 +84,7 @@ RUN curl -fsSL "https://github.com/conda-forge/miniforge/releases/latest/downloa
         python=3.10 \
         eggnog-mapper \
         phispy \
-        entrez-direct \
-        perl-dbi perl-lwp-simple perl-dbd-sqlite && \
+        entrez-direct && \
     /opt/miniforge/bin/conda create -y -p /opt/biotools/envs/padloc \
         -c bioconda -c conda-forge \
         padloc && \

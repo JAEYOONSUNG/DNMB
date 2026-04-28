@@ -291,16 +291,48 @@ dnmb_db_check_freshness <- function(module, version, cache_root = NULL, verbose 
   if (isTRUE(verbose)) {
     local_ver <- manifest$version %||% version
     date_str <- if (!is.na(db_date)) format(db_date, "%Y-%m-%d") else "unknown"
+    ver_label <- .dnmb_db_manifest_version_label(manifest)
+    ver_suffix <- if (nzchar(ver_label)) paste0(" [", ver_label, "]") else ""
     if (!is.null(remote_info) && isTRUE(remote_info$update_available)) {
-      message("[DNMB] ", module, " (", local_ver, ", ", date_str, ") — update available (", remote_info$remote_version, ")")
+      message("[DNMB] ", module, " (", local_ver, ", ", date_str, ")", ver_suffix,
+              " — update available (", remote_info$remote_version, ")")
     } else if (!is.null(remote_info) && !isTRUE(remote_info$update_available)) {
-      message("[DNMB] ", module, " (", local_ver, ", ", date_str, ") — latest")
+      message("[DNMB] ", module, " (", local_ver, ", ", date_str, ")", ver_suffix, " — latest")
     } else {
-      message("[DNMB] ", module, " (", local_ver, ", ", date_str, ")")
+      message("[DNMB] ", module, " (", local_ver, ", ", date_str, ")", ver_suffix)
     }
   }
 
   is.null(remote_info) || !isTRUE(remote_info$update_available)
+}
+
+#' Build a short label summarizing tool / data versions stored in a
+#' module manifest, for display in [DNMB] status messages.
+#' Returns "" when no informative field is present.
+.dnmb_db_manifest_version_label <- function(manifest) {
+  if (!is.list(manifest)) return("")
+  fields <- c(
+    db_version              = "db",
+    db_release              = "db",
+    models_version          = "models",
+    casfinder_version       = "casfinder",
+    casfinder_model_version = "casfinder_models",
+    emapper_version         = "emapper",
+    resolved_release_version = "release",
+    dbcan_release_date      = "dbcan",
+    cazydb_release_date     = "cazydb",
+    model                   = "model",
+    mode                    = "mode"
+  )
+  parts <- character()
+  for (key in names(fields)) {
+    v <- manifest[[key]]
+    if (is.null(v) || !length(v)) next
+    val <- as.character(v)[1]
+    if (is.na(val) || !nzchar(val)) next
+    parts <- c(parts, paste0(fields[[key]], "=", val))
+  }
+  paste(parts, collapse = ", ")
 }
 
 .dnmb_db_check_remote_version <- function(module, manifest) {

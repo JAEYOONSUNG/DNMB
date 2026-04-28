@@ -264,6 +264,17 @@ dnmb_db_read_manifest <- function(module, version, cache_root = NULL, required =
 #' @param verbose Print messages.
 #' @return Logical; TRUE if up-to-date, FALSE if update available.
 dnmb_db_check_freshness <- function(module, version, cache_root = NULL, verbose = TRUE) {
+  # Embedded modules ship as pure R code in the DNMB package; there is
+  # no cache directory or manifest to verify. Surface that explicitly
+  # instead of the misleading "not installed — will be set up on first
+  # run" message.
+  if (identical(as.character(version)[1], "embedded")) {
+    if (isTRUE(verbose)) {
+      message("[DNMB] ", module, " (embedded — runs from R package, no cache install needed)")
+    }
+    return(TRUE)
+  }
+
   manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
 
   # If no manifest, check if module dir exists with files (e.g., eggnog, interproscan)

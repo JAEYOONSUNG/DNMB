@@ -59,10 +59,10 @@ tRNA_anticodon_counter <- function(target = NULL,
                                    transl_table = NULL,
                                    translation_domain = NULL,
                                    gb_path = NULL) {
-  library(dplyr)
-  library(stringr)
-  library(seqinr)
-  library(Biostrings)
+  suppressPackageStartupMessages(library(dplyr))
+  suppressPackageStartupMessages(library(stringr))
+  suppressPackageStartupMessages(library(seqinr))
+  suppressPackageStartupMessages(library(Biostrings))
 
   # If target is NULL, check if 'genbank_table' exists in the global environment
   if (is.null(target)) {

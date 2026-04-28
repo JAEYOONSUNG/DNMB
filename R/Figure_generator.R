@@ -8,9 +8,9 @@
 Figure_generator <- function(output_pdf = NULL,
                              pdf_width = 12, pdf_height = 12) {
 
-  library(gridExtra)
-  library(ComplexHeatmap)
-  library(grid)
+  suppressPackageStartupMessages(library(gridExtra))
+  suppressPackageStartupMessages(library(ComplexHeatmap))
+  suppressPackageStartupMessages(library(grid))
 
   # Default output to visualizations/ directory
   if (is.null(output_pdf)) {

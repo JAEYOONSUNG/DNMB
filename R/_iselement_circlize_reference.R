@@ -1,6 +1,6 @@
 suppressPackageStartupMessages({
-  library(dplyr); library(tibble); library(ggplot2); library(tidyr)
-  library(cowplot); library(circlize); library(ComplexHeatmap)
+  suppressPackageStartupMessages(library(dplyr)); suppressPackageStartupMessages(library(tibble)); suppressPackageStartupMessages(library(ggplot2)); suppressPackageStartupMessages(library(tidyr))
+  suppressPackageStartupMessages(library(cowplot)); suppressPackageStartupMessages(library(circlize)); suppressPackageStartupMessages(library(ComplexHeatmap))
 })
 pkg_dir <- "/Users/JaeYoon/Dropbox/0.Personal folder/5. Bioinformatics/DNMB"
 for (f in c("R/db_modules.R","R/module_api.R","R/Mobileome_pipeline.R",

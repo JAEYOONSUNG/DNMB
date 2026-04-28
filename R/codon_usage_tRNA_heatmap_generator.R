@@ -45,9 +45,9 @@ codon_usage_tRNA_heatmap_generator <- function(codon_usage = NULL,
                                                height = 10,
                                                save_pdf = FALSE) {
   # Load necessary libraries
-  library(ComplexHeatmap)
-  library(circlize)
-  library(dplyr)
+  suppressPackageStartupMessages(library(ComplexHeatmap))
+  suppressPackageStartupMessages(library(circlize))
+  suppressPackageStartupMessages(library(dplyr))
 
   # Fetch codon_usage and tRNA_distribution from the environment if they are NULL
   if (is.null(codon_usage)) {

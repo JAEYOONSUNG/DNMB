@@ -11,9 +11,9 @@
 # Load InterProScan
 InterProScan_annotations <- function(InterProScan_dir = NULL) {
   # Load necessary libraries
-  library(reshape2)
-  library(dplyr)
-  library(stringr)
+  suppressPackageStartupMessages(library(reshape2))
+  suppressPackageStartupMessages(library(dplyr))
+  suppressPackageStartupMessages(library(stringr))
 
   # If InterProScan_dir is NULL, use the current working directory
   if (is.null(InterProScan_dir)) {

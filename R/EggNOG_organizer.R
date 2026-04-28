@@ -8,9 +8,9 @@
 #'
 
 EggNOG_annotations <- function(EggNOG_dir = NULL, save_output = FALSE) {
-  library(dplyr)
-  library(stringr)
-  library(openxlsx)
+  suppressPackageStartupMessages(library(dplyr))
+  suppressPackageStartupMessages(library(stringr))
+  suppressPackageStartupMessages(library(openxlsx))
 
   # If EggNOG_dir is NULL, use the current working directory
   if (is.null(EggNOG_dir)) {

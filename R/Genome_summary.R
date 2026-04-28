@@ -10,11 +10,11 @@
 
 gb_info <- function(gb_dir = NULL) {
   # Load necessary libraries
-  library(dplyr)
-  library(readr)
-  library(tidyr)
-  library(openxlsx)
-  # NOTE: do NOT `library(plyr)` here. plyr is loaded last by R's search
+  suppressPackageStartupMessages(library(dplyr))
+  suppressPackageStartupMessages(library(readr))
+  suppressPackageStartupMessages(library(tidyr))
+  suppressPackageStartupMessages(library(openxlsx))
+  # NOTE: do NOT `suppressPackageStartupMessages(library(plyr))` here. plyr is loaded last by R's search
   # path rules and its `mutate`/`summarise`/`arrange`/`count`/... mask
   # the dplyr versions, which breaks any unqualified dplyr call made
   # later in the session — including the ISelement plot that uses

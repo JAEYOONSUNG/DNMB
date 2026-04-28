@@ -6,10 +6,10 @@
 #'
 
 Codon_usage_calculator <- function(target = NULL, save_output = NULL) {
-  library(dplyr)
-  library(Biostrings)
-  library(seqinr)
-  library(stringr)
+  suppressPackageStartupMessages(library(dplyr))
+  suppressPackageStartupMessages(library(Biostrings))
+  suppressPackageStartupMessages(library(seqinr))
+  suppressPackageStartupMessages(library(stringr))
 
   # If target is NULL, check if 'genbank_table' exists in the global environment
   if (is.null(target)) {

@@ -8,10 +8,10 @@
 
 genbank_fna_extractor <- function(gb_dir = NULL) {
 
-  library(dplyr)
-  library(tidyr)
-  library(stringr)
-  library(Biostrings)
+  suppressPackageStartupMessages(library(dplyr))
+  suppressPackageStartupMessages(library(tidyr))
+  suppressPackageStartupMessages(library(stringr))
+  suppressPackageStartupMessages(library(Biostrings))
   # Do NOT load plyr here — see the matching note in R/Genome_summary.R.
   # plyr masks dplyr's `mutate`/`summarise`/`count`/... when loaded after
   # dplyr, which breaks the ISelement comprehensive plot's `.data$fam`

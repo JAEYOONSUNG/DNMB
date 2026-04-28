@@ -422,11 +422,11 @@ RBS_extractor <- function(target = NULL,
                           plot_path = NULL,
                           translation_domain = NULL,
                           gb_path = NULL) {
-  library(dplyr)
-  library(Biostrings)
-  library(ggplot2)
-  library(ggseqlogo)
-  library(gridExtra)
+  suppressPackageStartupMessages(library(dplyr))
+  suppressPackageStartupMessages(library(Biostrings))
+  suppressPackageStartupMessages(library(ggplot2))
+  suppressPackageStartupMessages(library(ggseqlogo))
+  suppressPackageStartupMessages(library(gridExtra))
 
   # If target is NULL, check if 'genbank_table' exists in the global environment
   if (is.null(target)) {

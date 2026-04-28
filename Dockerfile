@@ -173,4 +173,4 @@ RUN DNMB_PROMOTECH_REPO_DIR=/opt/vendor/promotech \
 
 WORKDIR /data
 
-CMD ["Rscript", "-e", "library(DNMB); run_DNMB()"]
+CMD ["Rscript", "-e", "suppressWarnings(suppressPackageStartupMessages(library(DNMB))); run_DNMB()"]

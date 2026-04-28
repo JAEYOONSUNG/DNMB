@@ -9,7 +9,7 @@
 #'
 
 run_DNMB_combiner <- function(genbank_table = NULL, EggNOG_table = NULL, InterProScan_table = NULL) {
-  library(openxlsx)
+  suppressPackageStartupMessages(library(openxlsx))
 
     # Check if genbank_table is NULL and exists in the environment
   if (is.null(genbank_table)) {

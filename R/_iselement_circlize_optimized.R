@@ -1,7 +1,7 @@
 suppressPackageStartupMessages({
-  library(dplyr); library(tibble); library(ggplot2); library(tidyr)
-  library(cowplot); library(circlize); library(ComplexHeatmap)
-  library(grid); library(gridBase); library(gggenes)
+  suppressPackageStartupMessages(library(dplyr)); suppressPackageStartupMessages(library(tibble)); suppressPackageStartupMessages(library(ggplot2)); suppressPackageStartupMessages(library(tidyr))
+  suppressPackageStartupMessages(library(cowplot)); suppressPackageStartupMessages(library(circlize)); suppressPackageStartupMessages(library(ComplexHeatmap))
+  suppressPackageStartupMessages(library(grid)); suppressPackageStartupMessages(library(gridBase)); suppressPackageStartupMessages(library(gggenes))
 })
 dnmb_iselement_context <- get0("dnmb_iselement_context", inherits = TRUE, ifnotfound = list())
 .dnmb_iselement_ctx_get <- function(name, default = NULL) {

@@ -148,7 +148,7 @@ RUN R -q -e "options(repos = c(CRAN = 'https://cloud.r-project.org')); remotes::
 # /usr/local/lib/R/site-library at runtime). Verbose install + explicit
 # dependency resolution so any missing CRAN/Bioconductor dep surfaces in
 # the build log instead of being swallowed by quiet=TRUE.
-RUN R -q -e "options(repos = c(CRAN = 'https://cloud.r-project.org', BioCsoft = 'https://bioconductor.org/packages/release/bioc')); remotes::install_github('JAEYOONSUNG/DefenseViz', upgrade = 'never', dependencies = TRUE, quiet = FALSE); stopifnot(requireNamespace('DefenseViz', quietly = TRUE))"
+RUN R -q -e "options(repos = c(CRAN = 'https://cloud.r-project.org', BioCsoft = 'https://bioconductor.org/packages/release/bioc')); remotes::install_github('JAEYOONSUNG/DefenseViz', upgrade = 'never', quiet = FALSE); stopifnot(requireNamespace('DefenseViz', quietly = TRUE))"
 
 COPY --from=dnmb_cache /opt/dnmb-cache/db_modules/defensefinder/current /opt/dnmb-cache/db_modules/defensefinder/current
 

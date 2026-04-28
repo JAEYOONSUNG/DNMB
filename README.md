@@ -152,6 +152,73 @@ library(DNMB)
 run_DNMB()
 ```
 
+## Run via Docker
+
+The published image `ghcr.io/jaeyoonsung/dnmbsuite:latest` bundles every
+external binary the modules call (HMMER, BLAST, DIAMOND, Prodigal,
+ViennaRNA, eggnog-mapper, padloc, PhiSpy, defense-finder, AcrFinder,
+PromoTech, …) plus the DNMB R package. Run it from a directory that
+contains a single GenBank file (`*.gbff` / `*.gbk` / `*.gb`):
+
+```bash
+docker pull ghcr.io/jaeyoonsung/dnmbsuite:latest
+
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD:/data" \
+  -v "$HOME/.dnmb-cache:/opt/dnmb-cache" \
+  ghcr.io/jaeyoonsung/dnmbsuite:latest
+```
+
+- `-v "$PWD:/data"` — the per-genome working directory; outputs land
+  here under `dnmb_module_*/` and `visualizations/`.
+- `-v "$HOME/.dnmb-cache:/opt/dnmb-cache"` — persistent module cache.
+  HMM/sequence databases, PromoTech models, EggNOG data, PADLOC HMMs
+  etc. are downloaded into this directory once and reused across every
+  subsequent run on any machine that mounts the same path.
+- The container's `WORKDIR /data` and `CMD ["Rscript","-e","library(DNMB); run_DNMB()"]`
+  drive a full single-genome pipeline. To override flags, pass them
+  through:
+
+  ```bash
+  docker run --rm \
+    --user "$(id -u):$(id -g)" \
+    -v "$PWD:/data" \
+    -v "$HOME/.dnmb-cache:/opt/dnmb-cache" \
+    ghcr.io/jaeyoonsung/dnmbsuite:latest \
+    Rscript -e 'library(DNMB); run_DNMB(module_VirSorter2 = TRUE)'
+  ```
+
+### Module defaults inside the image
+
+`run_DNMB()` runs the following modules unconditionally on first call:
+
+| Default ON | Default OFF |
+|---|---|
+| dbCAN, MEROPS, PAZy, GapMind (AA + Carbon), DefenseFinder (+anti-defense), dbAPIS, AcrFinder, **Promotech**, **mRNAcal**, PADLOC, DefensePredictor, REBASEfinder, ISelement, PhiSpy, EggNOG, InterProScan | CLEAN, PIDE (CUDA-gated — see below), Prophage (legacy alias), VirSorter2 |
+
+Override any module with the `module_<Name> = TRUE/FALSE` argument.
+
+### Cache layout
+
+Each module owns a subdirectory of the cache:
+
+```
+~/.dnmb-cache/db_modules/
+├── defensefinder/current/      # CasFinder + DefenseFinder repo
+├── acrfinder/current/          # AcrFinder repo + python venv
+├── promotech/current/          # PromoTech repo + RF-HOT.model
+├── padloc/current/             # PADLOC HMMs + bin/padloc wrapper
+├── eggnog/data/                # EggNOG DB (~50 GB)
+├── gapmind/{aa,carbon}/        # GapMind PaperBLAST data
+├── dbcan/, merops/, pazy/, dbapis/, rebasefinder/cache/, …
+└── interproscan/, prophage/phispy/, iselement/
+```
+
+`current/manifest.rds` in each module dir tracks the installed version;
+DNMB skips re-download when the manifest matches. Sharing the cache
+across machines is just `rsync ~/.dnmb-cache/ host:.dnmb-cache/`.
+
 ### GPU-gated defaults (CLEAN and PIDE)
 
 `run_DNMB()` probes for an NVIDIA GPU via `nvidia-smi -L` at call time.

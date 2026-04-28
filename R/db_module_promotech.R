@@ -894,6 +894,30 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
   for (fasta in input_fastas) {
     contig_out <- base::file.path(output_dir, "promotech_runs", tools::file_path_sans_ext(base::basename(fasta)))
     base::dir.create(contig_out, recursive = TRUE, showWarnings = FALSE)
+    pred_path <- base::file.path(contig_out, "genome_predictions.csv")
+    # Per-contig cache reuse: if a previous run already produced
+    # genome_predictions.csv for this same FASTA (same content, same
+    # model) and the CSV is newer than the FASTA, skip the python
+    # invocation and reload the cached predictions. This makes
+    # repeated docker runs on the same genome essentially free for
+    # PromoTech and avoids regenerating the multi-GB intermediate
+    # RF-HOT / SEQS .data files.
+    fasta_mtime <- tryCatch(base::file.info(fasta)$mtime, error = function(e) NA)
+    pred_mtime <- if (base::file.exists(pred_path)) {
+      tryCatch(base::file.info(pred_path)$mtime, error = function(e) NA)
+    } else {
+      NA
+    }
+    cache_hit <- !is.na(pred_mtime) && !is.na(fasta_mtime) && pred_mtime >= fasta_mtime
+    if (isTRUE(cache_hit)) {
+      run_results[[length(run_results) + 1L]] <- list(ok = TRUE, cached = TRUE,
+                                                       contig = base::basename(contig_out))
+      pred <- .dnmb_promotech_read_predictions(pred_path, threshold = threshold)
+      if (base::nrow(pred)) {
+        combined[[length(combined) + 1L]] <- pred
+      }
+      next
+    }
     args <- c(
       runner,
       "--repo", module$files$repo_dir,
@@ -907,11 +931,22 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
     }
     run <- dnmb_run_external(py_path, args = args, required = FALSE, wd = module$files$repo_dir)
     run_results[[length(run_results) + 1L]] <- run
-    pred_path <- base::file.path(contig_out, "genome_predictions.csv")
     if (base::file.exists(pred_path)) {
       pred <- .dnmb_promotech_read_predictions(pred_path, threshold = threshold)
       if (base::nrow(pred)) {
         combined[[length(combined) + 1L]] <- pred
+      }
+      # Drop the multi-GB intermediate matrices (forward/reverse
+      # one-hot encoded sequences) once the predictions CSV is
+      # written. They aren't needed downstream and bloat the
+      # per-genome module dir by ~3.5 GB.
+      stale_files <- c("RF-HOT.data", "RF-HOT-INV.data",
+                       "SEQS.data", "SEQS-INV.data")
+      for (sf in stale_files) {
+        sp <- base::file.path(contig_out, sf)
+        if (base::file.exists(sp)) {
+          tryCatch(base::file.remove(sp), error = function(e) FALSE)
+        }
       }
     }
   }

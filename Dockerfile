@@ -69,6 +69,30 @@ RUN python3 -m pip install --no-cache-dir \
 
 RUN git clone --branch v2.0.1 --depth 1 https://github.com/mdmparis/defense-finder.git /opt/vendor/defense-finder
 
+# Conda env at /opt/biotools holds the bioinformatics binaries that
+# eggnog-mapper / padloc / phispy / GapMind expect on PATH. The cache lives
+# under DNMB_CACHE_ROOT (host bind-mounted) so model/HMM data is reused
+# across runs; only the executables need to be baked into the image. Once
+# the env is set up, /opt/biotools/bin is prepended to PATH so module
+# detect_runner functions find the tools.
+RUN curl -fsSL "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname -s)-$(uname -m).sh" -o /tmp/miniforge.sh && \
+    bash /tmp/miniforge.sh -b -p /opt/miniforge && \
+    rm /tmp/miniforge.sh && \
+    /opt/miniforge/bin/conda create -y -p /opt/biotools \
+        -c bioconda -c conda-forge \
+        python=3.10 \
+        eggnog-mapper \
+        phispy \
+        entrez-direct \
+        perl-dbi perl-lwp-simple perl-dbd-sqlite && \
+    /opt/miniforge/bin/conda create -y -p /opt/biotools/envs/padloc \
+        -c bioconda -c conda-forge \
+        padloc && \
+    /opt/miniforge/bin/conda clean -afy && \
+    rm -rf /opt/miniforge
+
+ENV PATH="/opt/biotools/bin:${PATH}"
+
 RUN mkdir -p /tmp/dnmb-deps
 COPY DESCRIPTION /tmp/dnmb-deps/DESCRIPTION
 

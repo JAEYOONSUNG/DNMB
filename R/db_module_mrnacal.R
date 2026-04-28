@@ -2386,7 +2386,12 @@ dnmb_run_mrnacal_module <- function(genes,
     )
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
-  summary_pdf <- file.path(plot_dir, "mRNAcal_translation_efficiency.pdf")
+  # Diagnostic genome-distribution PDF lives in the module directory now;
+  # only the polished translation-efficiency summary belongs in
+  # visualizations/ (see translation efficiency export wiring below).
+  module_dir_for_diag <- file.path(output_dir, "dnmb_module_mrnacal")
+  dir.create(module_dir_for_diag, recursive = TRUE, showWarnings = FALSE)
+  summary_pdf <- file.path(module_dir_for_diag, "mrnacal_genome_distribution.pdf")
   top_row <- cowplot::plot_grid(p_hist, p_codon_hist, ncol = 2, rel_widths = c(1, 1))
   summary_plot <- cowplot::plot_grid(
     top_row, p_scatter, p_comp,
@@ -2437,24 +2442,18 @@ dnmb_run_mrnacal_module <- function(genes,
       fold_plots <- lapply(seq_len(nrow(local_rows)), function(i) .dnmb_mrnacal_arc_plot(local_rows[i, , drop = FALSE]))
       fold_plots <- Filter(Negate(is.null), fold_plots)
       if (length(fold_plots)) {
-        fold_pdf <- file.path(plot_dir, "mRNAcal_top_folds.pdf")
+        # Per-gene arc plots are diagnostic; keep them in the module
+        # directory rather than visualizations/ to avoid clutter.
+        fold_pdf <- file.path(module_dir_for_diag, "mrnacal_top_folds.pdf")
         fold_grid <- cowplot::plot_grid(plotlist = fold_plots, ncol = 1)
         ggplot2::ggsave(fold_pdf, fold_grid, width = 12, height = max(6, min(32, length(fold_plots) * 1.15)), bg = "white")
       }
     }
   }
 
-  out <- list(pdf = summary_pdf)
-  if (!is.null(fold_pdf)) {
-    out$fold_pdf <- fold_pdf
-  }
-
   # Translation efficiency export (slim per-gene xlsx + curated distribution
   # PDF) — writes artifacts to dnmb_module_mrnacal/ and copies the polished
-  # summary PDF into visualizations/ so it appears alongside other module
-  # overview figures.
-  te_dir <- file.path(output_dir, "dnmb_module_mrnacal")
-  dir.create(te_dir, recursive = TRUE, showWarnings = FALSE)
+  # summary PDF into visualizations/ as the single mRNAcal overview figure.
   organism_label <- if ("organism" %in% names(genbank_table)) {
     org_vals <- unique(stats::na.omit(as.character(genbank_table$organism)))
     if (length(org_vals)) org_vals[1] else NULL
@@ -2465,7 +2464,7 @@ dnmb_run_mrnacal_module <- function(genes,
     dnmb_export_translation_efficiency(
       results = tbl,
       gene_metadata = tbl,
-      output_dir = te_dir,
+      output_dir = module_dir_for_diag,
       organism = organism_label,
       top_n = 40L
     ),
@@ -2474,6 +2473,11 @@ dnmb_run_mrnacal_module <- function(genes,
       NULL
     }
   )
+
+  # Build the result list: only the polished summary belongs in
+  # visualizations/. The diagnostic genome-distribution and per-gene fold
+  # PDFs stay in dnmb_module_mrnacal/ and are not surfaced as plot results.
+  out <- list()
   if (!is.null(te_export) && !is.null(te_export$files$pdf) &&
       file.exists(te_export$files$pdf)) {
     summary_pdf_viz <- file.path(plot_dir, "mRNAcal_translation_efficiency_summary.pdf")
@@ -2482,8 +2486,11 @@ dnmb_run_mrnacal_module <- function(genes,
       error = function(e) FALSE
     )
     if (isTRUE(ok_copy)) {
-      out$summary_pdf <- summary_pdf_viz
+      out$pdf <- summary_pdf_viz
     }
+  }
+  if (!length(out)) {
+    return(NULL)
   }
   out
 }

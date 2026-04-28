@@ -176,9 +176,12 @@ docker run --rm \
   HMM/sequence databases, PromoTech models, EggNOG data, PADLOC HMMs
   etc. are downloaded into this directory once and reused across every
   subsequent run on any machine that mounts the same path.
-- The container's `WORKDIR /data` and `CMD ["Rscript","-e","library(DNMB); run_DNMB()"]`
-  drive a full single-genome pipeline. To override flags, pass them
-  through:
+- The container's `WORKDIR /data` and
+  `CMD ["Rscript","-e","suppressWarnings(suppressPackageStartupMessages(library(DNMB))); run_DNMB()"]`
+  drive a full single-genome pipeline (the suppress wrappers keep the
+  `library()` attach banners and S4 dispatch warnings out of the run
+  log; `[DNMB] …` status messages are unaffected). To override flags,
+  pass them through:
 
   ```bash
   docker run --rm \
@@ -218,6 +221,50 @@ Each module owns a subdirectory of the cache:
 `current/manifest.rds` in each module dir tracks the installed version;
 DNMB skips re-download when the manifest matches. Sharing the cache
 across machines is just `rsync ~/.dnmb-cache/ host:.dnmb-cache/`.
+
+Each `[DNMB]` status line surfaces the live manifest version it
+resolved, so you can see at a glance which database/tool release the
+run is bound to, e.g.
+
+```
+[DNMB] eggnog (data, 2026-04-08) [db=5.0.2, emapper=2.1.12]
+[DNMB] padloc (current, 2026-04-07) [db=v2.0.0]
+[DNMB] defensefinder (current, 2026-04-25) [models=2.0.2, casfinder=3.1.0, casfinder_models=2.0]
+[DNMB] dbcan (current, 2026-04-01) [release=V14, dbcan=8/26/2025, cazydb=7/10/2025]
+[DNMB] promotech (current, 2026-04-25) [model=RF-HOT]
+[DNMB] mrnacal (embedded — runs from R package, no cache install needed)
+```
+
+### Re-run reuse
+
+Every successful module drops a `dnmb_module_<m>/.dnmb_<m>_complete`
+sentinel at the end of its run. The next invocation reads
+`<workdir>/.dnmb_module_stage_cache.rds` and skips any module whose
+sentinel + cached `module_results` are still present and whose
+genbank/db fingerprints have not changed:
+
+```
+[DNMB] Reusing existing module outputs for: dbAPIS, dbCAN, DefenseFinder,
+  DefensePredictor, EggNOG, GapMind, ISelement, MEROPS, mRNAcal,
+  PAZy, PhiSpy, REBASEfinder
+[DNMB] Running remaining modules: AcrFinder, Promotech, PADLOC
+```
+
+Modules that produced 0 hits also cache-hit because the sentinel is
+written regardless of hit count. PromoTech additionally skips its
+Python prediction step when `<workdir>/dnmb_module_promotech/promotech_runs/<contig>/genome_predictions.csv`
+is newer than the contig FASTA, and prunes the multi-GB
+`RF-HOT*.data` / `SEQS*.data` intermediates after each successful run.
+
+### Module outputs of note
+
+| Module | Headline file | Where |
+|---|---|---|
+| mRNAcal | `mRNAcal_translation_efficiency_summary.pdf` | `<workdir>/visualizations/` |
+| mRNAcal (full per-gene table) | `translation_efficiency_summary.xlsx`, `translation_efficiency_distribution.pdf`, `translation_efficiency_rbs_detail.tsv` | `<workdir>/dnmb_module_mrnacal/` |
+| ISelement | `ISelement_overview.pdf` | `<workdir>/visualizations/` |
+| REBASEfinder | `REBASE_overview.pdf`, `R-M_REBASE_analysis.xlsx` | `<workdir>/visualizations/`, `<workdir>/dnmb_module_rebasefinder/` |
+| Combined Excel | `*_total.xlsx` (one row per locus_tag, every module's columns + per-module sheets, mRNAcal_full sheet, IS_census, Landing_pads, …) | `<workdir>/` |
 
 ### GPU-gated defaults (CLEAN and PIDE)
 

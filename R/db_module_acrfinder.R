@@ -75,6 +75,13 @@
   runner_path <- base::file.path(repo_dir, "acr_aca_cri_runner.py")
   if (base::file.exists(runner_path)) {
     lines <- base::readLines(runner_path, warn = FALSE)
+    if (!base::any(lines == "from os import environ as os_environ")) {
+      import_anchor <- grep("^from os import path as os_path$", lines)
+      if (base::length(import_anchor)) {
+        lines <- append(lines, "from os import environ as os_environ", after = import_anchor[[1]])
+        changed <- TRUE
+      }
+    }
     if (!base::any(lines == "from shutil import which as shutil_which")) {
       import_anchor <- grep("^from os import path as os_path$", lines)
       if (base::length(import_anchor)) {
@@ -98,8 +105,9 @@
       }
     }
     selector_idx <- grep("CRISPR_CAS_FINDER_EXECUTABLE, CRISPR_CAS_FINDER_SO, NUM_CPUS = ", lines, fixed = TRUE)
-    if (base::length(selector_idx) && base::grepl("dependencies/CRISPRCasFinder/sel392v2\\.so", lines[[selector_idx[[1]]]])) {
-      lines[[selector_idx[[1]]]] <- "CRISPR_CAS_FINDER_EXECUTABLE, CRISPR_CAS_FINDER_SO, NUM_CPUS = 'dependencies/CRISPRCasFinder/CRISPRCasFinder.pl', '/usr/lib/vmatch/SELECT/sel392.so', '4'  # CRISPRCasFinder files"
+    desired_selector <- "CRISPR_CAS_FINDER_EXECUTABLE, CRISPR_CAS_FINDER_SO, NUM_CPUS = 'dependencies/CRISPRCasFinder/CRISPRCasFinder.pl', os_environ.get('DNMB_VMATCH_SEL392', os_path.join('dependencies', 'CRISPRCasFinder', 'sel392v2.so')), '4'  # CRISPRCasFinder files"
+    if (base::length(selector_idx) && !identical(lines[[selector_idx[[1]]]], desired_selector)) {
+      lines[[selector_idx[[1]]]] <- desired_selector
       changed <- TRUE
     }
     rpsblast_exec_idx <- grep("execute\\(\\['rpsblast\\+',", lines)
@@ -266,7 +274,7 @@
 
   py_run <- dnmb_run_external(
     layout$env_python,
-    args = c("-c", "import sys, Bio; print(sys.executable)"),
+    args = c("-c", "import sys, numpy, Bio; from Bio import SeqIO; print(sys.executable)"),
     required = FALSE
   )
   if (!base::isTRUE(py_run$ok)) {
@@ -292,7 +300,11 @@
     if (!base::file.exists(layout$env_python)) {
       unlink(layout$env_dir, recursive = TRUE, force = TRUE)
     } else {
-      test <- dnmb_run_external(layout$env_python, args = c("-c", "print('ok')"), required = FALSE)
+      test <- dnmb_run_external(
+        layout$env_python,
+        args = c("-c", "import sys, numpy, Bio; from Bio import SeqIO; print('ok')"),
+        required = FALSE
+      )
       if (!base::isTRUE(test$ok)) {
         unlink(layout$env_dir, recursive = TRUE, force = TRUE)
       }
@@ -305,7 +317,7 @@
     }
   }
   pip_run <- dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "--upgrade", "pip"), required = FALSE)
-  bio_run <- dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "biopython"), required = FALSE)
+  bio_run <- dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "numpy", "biopython"), required = FALSE)
   if (!base::isTRUE(bio_run$ok)) {
     return(.dnmb_acrfinder_status_row("acrfinder_python", "failed", bio_run$error %||% layout$env_python))
   }
@@ -736,7 +748,41 @@ dnmb_acrfinder_full_normalize_hits <- function(parsed_outputs) {
   ""
 }
 
-.dnmb_acrfinder_runtime_status <- function(path_entries = character()) {
+.dnmb_acrfinder_sel392_candidates <- function(path_entries = character(), repo_dir = NULL) {
+  env_path <- base::Sys.getenv("DNMB_VMATCH_SEL392", unset = "")
+  repo_dir <- base::trimws(base::as.character(repo_dir)[1])
+  if (base::is.na(repo_dir)) {
+    repo_dir <- ""
+  }
+  path_entries <- base::as.character(path_entries)
+  path_entries <- path_entries[!base::is.na(path_entries) & base::nzchar(path_entries)]
+  crispr_dirs <- unique(base::dirname(path_entries[base::basename(path_entries) == "bin"]))
+  unique(c(
+    if (base::nzchar(env_path)) env_path else character(),
+    "/usr/lib/vmatch/SELECT/sel392.so",
+    if (base::nzchar(repo_dir)) {
+      base::file.path(repo_dir, "dependencies", "CRISPRCasFinder", c("sel392v2.so", "sel392.so"))
+    } else {
+      character()
+    },
+    if (base::length(crispr_dirs)) {
+      base::as.vector(base::outer(crispr_dirs, c("sel392v2.so", "sel392.so"), base::file.path))
+    } else {
+      character()
+    }
+  ))
+}
+
+.dnmb_acrfinder_find_sel392 <- function(path_entries = character(), repo_dir = NULL) {
+  candidates <- .dnmb_acrfinder_sel392_candidates(path_entries = path_entries, repo_dir = repo_dir)
+  existing <- candidates[base::file.exists(candidates)]
+  if (base::length(existing)) {
+    return(existing[[1]])
+  }
+  ""
+}
+
+.dnmb_acrfinder_runtime_status <- function(path_entries = character(), repo_dir = NULL) {
   required_bins <- c(
     "diamond", "blastn", "perl", "clustalw", "muscle", "fuzznuc", "needle",
     "vmatch2", "mkvtree2", "vsubseqselect2"
@@ -780,13 +826,13 @@ dnmb_acrfinder_full_normalize_hits <- function(parsed_outputs) {
       if (base::nzchar(rpsblast)) rpsblast else "rpsblast/rpsblast+ not found; AcrFinder CDD filtering will be skipped."
     )
   )
-  sel392 <- base::Sys.getenv("DNMB_VMATCH_SEL392", unset = "/usr/lib/vmatch/SELECT/sel392.so")
+  sel392 <- .dnmb_acrfinder_find_sel392(path_entries = path_entries, repo_dir = repo_dir)
   status <- dplyr::bind_rows(
     status,
     .dnmb_acrfinder_status_row(
       "acrfinder_dependency_vmatch_sel392",
-      if (base::file.exists(sel392)) "ok" else "missing",
-      if (base::file.exists(sel392)) sel392 else "Vmatch selector sel392.so is missing."
+      if (base::nzchar(sel392)) "ok" else "missing",
+      if (base::nzchar(sel392)) sel392 else "Vmatch selector sel392.so is missing."
     )
   )
   status
@@ -926,7 +972,7 @@ dnmb_run_acrfinder_module <- function(genes,
     base::file.path(module$manifest$repo_dir, "dependencies", "CRISPRCasFinder", "bin")
   )
   acr_path_entries <- unique(acr_path_entries[base::nzchar(acr_path_entries) & base::file.exists(acr_path_entries)])
-  dependency_status <- .dnmb_acrfinder_runtime_status(acr_path_entries)
+  dependency_status <- .dnmb_acrfinder_runtime_status(acr_path_entries, repo_dir = module$manifest$repo_dir)
   status <- dplyr::bind_rows(status, dependency_status)
   blocking_dependency <- dependency_status$status %in% c("missing", "failed")
   if (base::any(blocking_dependency)) {
@@ -934,12 +980,15 @@ dnmb_run_acrfinder_module <- function(genes,
     status <- dplyr::bind_rows(status, .dnmb_acrfinder_status_row("acrfinder_run", "failed", detail))
     return(list(ok = FALSE, status = status, files = list(trace_log = trace_log), raw_hits = .dnmb_acrfinder_empty_hits(), hits = .dnmb_module_empty_optional_long_table(), output_table = data.frame()))
   }
+  sel392_status <- dependency_status[dependency_status$component == "acrfinder_dependency_vmatch_sel392", , drop = FALSE]
+  sel392_path <- if (base::nrow(sel392_status) && identical(sel392_status$status[[1]], "ok")) sel392_status$detail[[1]] else ""
   run <- dnmb_run_external(
     module$files$env_python,
     args = cmd,
     wd = module$manifest$repo_dir,
     env = c(
       PATH = base::paste(acr_path_entries, collapse = .Platform$path.sep),
+      DNMB_VMATCH_SEL392 = sel392_path,
       MACSY_HOME = base::file.path(module$manifest$repo_dir, "dependencies", "CRISPRCasFinder", "macsyfinder-1.0.5")
     ),
     required = FALSE

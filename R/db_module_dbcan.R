@@ -1516,8 +1516,9 @@ dnmb_run_dbcan_module <- function(genes,
     ))
   }
 
-  standalone_possible <- .dnmb_dbcan_can_run_standalone(genes) &&
-    isTRUE(dnmb_detect_binary("run_dbcan", required = FALSE)$found)
+  standalone_inputs_ok <- .dnmb_dbcan_can_run_standalone(genes)
+  run_dbcan_detection <- dnmb_detect_binary("run_dbcan", required = FALSE)
+  standalone_possible <- standalone_inputs_ok && isTRUE(run_dbcan_detection$found)
   if (standalone_possible) {
     search <- dnmb_dbcan_run_standalone(
       query_fasta = fasta_path,
@@ -1530,6 +1531,12 @@ dnmb_run_dbcan_module <- function(genes,
       base_url = base_url
     )
   } else {
+    missing_cols <- setdiff(c("locus_tag", "contig", "start", "end", "direction"), names(genes))
+    skip_detail <- if (!standalone_inputs_ok) {
+      paste0("missing required GenBank columns for CGC mode: ", paste(missing_cols, collapse = ", "))
+    } else {
+      run_dbcan_detection$message
+    }
     search <- dnmb_dbcan_run_hmmsearch(
       query_fasta = fasta_path,
       output_dir = output_dir,
@@ -1539,6 +1546,10 @@ dnmb_run_dbcan_module <- function(genes,
       install = install,
       base_url = base_url,
       asset_urls = asset_urls
+    )
+    search$status <- dplyr::bind_rows(
+      .dnmb_dbcan_status_row("run_dbcan", "skipped", skip_detail),
+      search$status
     )
   }
 

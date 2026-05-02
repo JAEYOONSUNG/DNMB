@@ -215,6 +215,11 @@
   }
   if ("dbCAN" %in% module_aliases) {
     signatures$dbCAN <- .dnmb_db_manifest_identity("dbcan", current_version, cache_root = module_cache_root)
+    run_dbcan <- tryCatch(
+      dnmb_detect_binary("run_dbcan", required = FALSE),
+      error = function(e) list(found = FALSE)
+    )
+    signatures$dbCAN$run_dbcan_available <- isTRUE(run_dbcan$found)
   }
   if ("PAZy" %in% module_aliases) {
     signatures$PAZy <- .dnmb_db_manifest_identity("pazy", current_version, cache_root = module_cache_root)

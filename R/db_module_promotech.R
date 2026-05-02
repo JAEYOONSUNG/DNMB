@@ -851,6 +851,16 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
 #' as /opt/biotools instead of the distro Python.
 .dnmb_promotech_resolve_python <- function(python = "python3") {
   python <- base::trimws(base::as.character(python %||% "python3")[1])
+  env_python <- base::trimws(base::Sys.getenv("DNMB_PROMOTECH_PYTHON", unset = ""))
+  if (base::nzchar(env_python) && (!base::nzchar(python) || identical(python, "python3"))) {
+    if (base::grepl("[/\\\\]", env_python) && base::file.exists(env_python)) {
+      return(base::normalizePath(env_python, winslash = "/", mustWork = FALSE))
+    }
+    env_detected <- base::unname(Sys.which(env_python))
+    if (base::nzchar(env_detected)) {
+      return(base::normalizePath(env_detected, winslash = "/", mustWork = FALSE))
+    }
+  }
   if (base::nzchar(python)) {
     if (base::grepl("[/\\\\]", python) && base::file.exists(python)) {
       return(base::normalizePath(python, winslash = "/", mustWork = FALSE))

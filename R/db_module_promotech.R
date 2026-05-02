@@ -933,7 +933,8 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
     cache_hit <- !is.na(pred_mtime) && !is.na(fasta_mtime) && pred_mtime >= fasta_mtime
     if (isTRUE(cache_hit)) {
       run_results[[length(run_results) + 1L]] <- list(ok = TRUE, cached = TRUE,
-                                                       contig = base::basename(contig_out))
+                                                       contig = base::basename(contig_out),
+                                                       prediction_path = pred_path)
       pred <- .dnmb_promotech_read_predictions(pred_path, threshold = threshold)
       if (base::nrow(pred)) {
         combined[[length(combined) + 1L]] <- pred
@@ -952,25 +953,20 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
       args <- c(args, "--test-samples", base::as.character(base::as.integer(test_samples)[1]))
     }
     run <- dnmb_run_external(py_path, args = args, required = FALSE, wd = module$files$repo_dir)
+    run$contig <- base::basename(contig_out)
+    run$prediction_path <- pred_path
+    if (base::isTRUE(run$ok) && !base::file.exists(pred_path)) {
+      run$ok <- FALSE
+      run$error <- base::paste0("Promotech completed for ", run$contig, " but did not create genome_predictions.csv.")
+    }
     run_results[[length(run_results) + 1L]] <- run
-    if (base::file.exists(pred_path)) {
+    if (base::isTRUE(run$ok) && base::file.exists(pred_path)) {
       pred <- .dnmb_promotech_read_predictions(pred_path, threshold = threshold)
       if (base::nrow(pred)) {
         combined[[length(combined) + 1L]] <- pred
       }
-      # Drop the multi-GB intermediate matrices (forward/reverse
-      # one-hot encoded sequences) once the predictions CSV is
-      # written. They aren't needed downstream and bloat the
-      # per-genome module dir by ~3.5 GB.
-      stale_files <- c("RF-HOT.data", "RF-HOT-INV.data",
-                       "SEQS.data", "SEQS-INV.data")
-      for (sf in stale_files) {
-        sp <- base::file.path(contig_out, sf)
-        if (base::file.exists(sp)) {
-          tryCatch(base::file.remove(sp), error = function(e) FALSE)
-        }
-      }
     }
+    .dnmb_promotech_remove_intermediate_files(contig_out)
   }
   predictions <- if (base::length(combined)) dplyr::bind_rows(combined) else data.frame()
   output_path <- base::file.path(output_dir, "promotech_predictions.tsv")
@@ -979,6 +975,36 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
        predictions = predictions,
        prediction_path = output_path,
        runs = run_results)
+}
+
+.dnmb_promotech_remove_intermediate_files <- function(contig_out) {
+  stale_files <- c("RF-HOT.data", "RF-HOT-INV.data", "SEQS.data", "SEQS-INV.data")
+  for (sf in stale_files) {
+    sp <- base::file.path(contig_out, sf)
+    if (base::file.exists(sp)) {
+      tryCatch(base::file.remove(sp), error = function(e) FALSE)
+    }
+  }
+  invisible(TRUE)
+}
+
+.dnmb_promotech_live_status <- function(runs) {
+  if (!base::length(runs)) {
+    return(.dnmb_promotech_empty_status())
+  }
+  rows <- lapply(runs, function(run) {
+    contig <- if (!base::is.null(run$contig)) base::as.character(run$contig)[1] else "unknown_contig"
+    prediction_path <- if (!base::is.null(run$prediction_path)) base::as.character(run$prediction_path)[1] else ""
+    if (base::isTRUE(run$cached)) {
+      return(.dnmb_promotech_status_row("promotech_contig", "cached", base::paste0(contig, ": ", prediction_path)))
+    }
+    if (base::isTRUE(run$ok)) {
+      return(.dnmb_promotech_status_row("promotech_contig", "ok", base::paste0(contig, ": ", prediction_path)))
+    }
+    detail <- if (!base::is.null(run$error) && base::nzchar(base::as.character(run$error)[1])) base::as.character(run$error)[1] else "Promotech run failed."
+    .dnmb_promotech_status_row("promotech_contig", "failed", base::paste0(contig, ": ", detail))
+  })
+  dplyr::bind_rows(rows)
 }
 
 .dnmb_promotech_map_predictions_to_genes <- function(predictions,
@@ -1235,10 +1261,11 @@ dnmb_run_promotech_module <- function(genes,
     predictions_tbl <- live_result$predictions
     status <- dplyr::bind_rows(
       status,
+      .dnmb_promotech_live_status(live_result$runs),
       .dnmb_promotech_status_row(
         "promotech_run",
-        if (base::isTRUE(live_result$ok)) "ok" else "partial",
-        prediction_path
+        if (base::isTRUE(live_result$ok)) "ok" else "failed",
+        if (base::isTRUE(live_result$ok)) prediction_path else "One or more Promotech contig runs failed."
       )
     )
   }
@@ -1264,8 +1291,14 @@ dnmb_run_promotech_module <- function(genes,
     genbank_artifacts$status
   )
 
+  module_ok <- if (!base::is.null(live_result)) {
+    base::isTRUE(live_result$ok)
+  } else {
+    base::nzchar(prediction_path) && base::file.exists(prediction_path)
+  }
+
   list(
-    ok = base::nrow(predictions_tbl) > 0L || (!base::is.null(live_result) && base::isTRUE(live_result$ok)),
+    ok = module_ok,
     status = status,
     files = list(
       trace_log = trace_log,

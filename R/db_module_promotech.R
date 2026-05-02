@@ -846,16 +846,24 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
 
 #' Resolve a python interpreter that has the Promotech wheel deps
 #' (numpy / pandas / joblib / progressbar2 / scikit-learn / Biopython).
-#' Prefer the distro-managed system python because that is where the
-#' Dockerfile installs the deps via `python3 -m pip install`. Conda
-#' envs on PATH (e.g. /opt/biotools/bin/python3 from the eggnog-mapper
-#' env) typically lack pandas / progressbar and would shadow system
-#' python because /opt/biotools/bin is prepended to PATH.
+#' Honor an explicit path or PATH-selected interpreter first; container
+#' wrappers may intentionally provide these deps from a managed env such
+#' as /opt/biotools instead of the distro Python.
 .dnmb_promotech_resolve_python <- function(python = "python3") {
+  python <- base::trimws(base::as.character(python %||% "python3")[1])
+  if (base::nzchar(python)) {
+    if (base::grepl("[/\\\\]", python) && base::file.exists(python)) {
+      return(base::normalizePath(python, winslash = "/", mustWork = FALSE))
+    }
+    detected <- base::unname(Sys.which(python))
+    if (base::nzchar(detected)) {
+      return(base::normalizePath(detected, winslash = "/", mustWork = FALSE))
+    }
+  }
   for (cand in c("/usr/bin/python3", "/usr/local/bin/python3")) {
     if (base::file.exists(cand)) return(cand)
   }
-  base::unname(Sys.which(python))
+  ""
 }
 
 .dnmb_promotech_python_status <- function(python = "python3",

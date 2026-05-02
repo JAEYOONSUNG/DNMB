@@ -637,6 +637,101 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
   base::as.vector(base::t(lines))
 }
 
+.dnmb_promotech_chunk_size <- function() {
+  raw <- base::Sys.getenv("DNMB_PROMOTECH_CHUNK_SIZE", unset = "500000")
+  value <- suppressWarnings(base::as.integer(raw)[1])
+  if (base::is.na(value) || value < 1000L) {
+    return(500000L)
+  }
+  value
+}
+
+.dnmb_promotech_chunk_id <- function(contig_id, chunk_index, offset) {
+  safe_contig <- base::gsub("[^[:alnum:]_.-]+", "_", base::as.character(contig_id)[1])
+  base::sprintf("%s__dnmbchunk_%04d_offset_%d", safe_contig, base::as.integer(chunk_index), base::as.integer(offset))
+}
+
+.dnmb_promotech_write_subject_chunks <- function(seq,
+                                                 contig_id,
+                                                 input_dir,
+                                                 chunk_size = .dnmb_promotech_chunk_size()) {
+  n <- base::nchar(seq)
+  if (base::is.na(n) || n < 41L) {
+    return(list(paths = character(), info = data.frame()))
+  }
+
+  chunk_size <- suppressWarnings(base::as.integer(chunk_size)[1])
+  if (base::is.na(chunk_size) || chunk_size < 1000L || n <= chunk_size) {
+    safe_id <- base::gsub("[^[:alnum:]_.-]+", "_", base::as.character(contig_id)[1])
+    path <- base::file.path(input_dir, base::paste0(safe_id, ".fna"))
+    base::writeLines(c(base::paste0(">", contig_id), seq), con = path)
+    return(list(
+      paths = path,
+      info = data.frame(
+        path = path,
+        chunk_id = safe_id,
+        contig_id = base::as.character(contig_id)[1],
+        offset = 0L,
+        chunked = FALSE,
+        stringsAsFactors = FALSE
+      )
+    ))
+  }
+
+  overlap <- 39L
+  step <- chunk_size - overlap
+  starts <- seq.int(1L, n, by = step)
+  paths <- character()
+  rows <- list()
+  for (chunk_index in base::seq_along(starts)) {
+    start <- starts[[chunk_index]]
+    end <- base::min(n, start + chunk_size - 1L)
+    if ((end - start + 1L) < 41L) {
+      next
+    }
+    offset <- start - 1L
+    chunk_seq <- base::substr(seq, start, end)
+    chunk_id <- .dnmb_promotech_chunk_id(contig_id, chunk_index, offset)
+    path <- base::file.path(input_dir, base::paste0(chunk_id, ".fna"))
+    base::writeLines(c(base::paste0(">", chunk_id), chunk_seq), con = path)
+    paths <- c(paths, path)
+    rows[[base::length(rows) + 1L]] <- data.frame(
+      path = path,
+      chunk_id = chunk_id,
+      contig_id = base::as.character(contig_id)[1],
+      offset = offset,
+      chunked = TRUE,
+      stringsAsFactors = FALSE
+    )
+  }
+
+  list(
+    paths = paths,
+    info = if (base::length(rows)) dplyr::bind_rows(rows) else data.frame()
+  )
+}
+
+.dnmb_promotech_adjust_chunk_predictions <- function(pred, chunk_info) {
+  if (!base::is.data.frame(pred) || !base::nrow(pred) || !base::is.data.frame(chunk_info) || !base::nrow(chunk_info)) {
+    return(pred)
+  }
+  if (!base::isTRUE(chunk_info$chunked[[1]])) {
+    return(pred)
+  }
+
+  offset <- suppressWarnings(base::as.integer(chunk_info$offset[[1]]))
+  if (base::is.na(offset)) {
+    offset <- 0L
+  }
+  for (column in c("start", "end", "promoter_start", "promoter_end")) {
+    if (column %in% base::names(pred)) {
+      pred[[column]] <- suppressWarnings(base::as.integer(pred[[column]])) + offset
+    }
+  }
+  pred$chrom <- base::as.character(chunk_info$contig_id[[1]])
+  pred
+}
+
 .dnmb_promotech_genbank_records <- function(lines) {
   loci <- base::grep("^LOCUS\\s+", lines)
   if (!base::length(loci)) {
@@ -796,7 +891,12 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
   }
   input_dir <- base::file.path(output_dir, "subjects")
   base::dir.create(input_dir, recursive = TRUE, showWarnings = FALSE)
+  old_subjects <- base::list.files(input_dir, pattern = "\\.fna$", full.names = TRUE, ignore.case = TRUE)
+  if (base::length(old_subjects)) {
+    base::unlink(old_subjects, force = TRUE)
+  }
   fasta_paths <- character()
+  chunk_rows <- list()
   record_count <- if (base::is.data.frame(records)) base::nrow(records) else base::length(records)
   for (idx in base::seq_len(record_count)) {
     if (base::is.data.frame(records)) {
@@ -811,14 +911,17 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
     if (base::nchar(seq) < 41L) {
       next
     }
-    safe_id <- base::gsub("[^[:alnum:]_.-]+", "_", contig_id)
-    path <- base::file.path(input_dir, base::paste0(safe_id, ".fna"))
-    base::writeLines(c(base::paste0(">", contig_id), seq), con = path)
-    fasta_paths <- c(fasta_paths, path)
+    chunks <- .dnmb_promotech_write_subject_chunks(seq, contig_id = contig_id, input_dir = input_dir)
+    fasta_paths <- c(fasta_paths, chunks$paths)
+    if (base::is.data.frame(chunks$info) && base::nrow(chunks$info)) {
+      chunk_rows[[base::length(chunk_rows) + 1L]] <- chunks$info
+    }
   }
   if (!base::length(fasta_paths)) {
     base::stop("No contigs >= 41 bp are available for Promotech.", call. = FALSE)
   }
+  chunk_info <- if (base::length(chunk_rows)) dplyr::bind_rows(chunk_rows) else data.frame()
+  attr(fasta_paths, "promotech_chunk_info") <- chunk_info
   fasta_paths
 }
 
@@ -935,6 +1038,7 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
                                      test_samples = NULL,
                                      python = "python3") {
   input_fastas <- .dnmb_promotech_prepare_input_fasta(genbank, output_dir)
+  chunk_info <- attr(input_fastas, "promotech_chunk_info")
   runner <- .dnmb_promotech_write_runner(base::file.path(output_dir, "dnmb_promotech_runner.py"))
   py_path <- .dnmb_promotech_resolve_python(python)
   combined <- list()
@@ -962,6 +1066,8 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
                                                        contig = base::basename(contig_out),
                                                        prediction_path = pred_path)
       pred <- .dnmb_promotech_read_predictions(pred_path, threshold = threshold)
+      chunk_row <- chunk_info[base::match(fasta, chunk_info$path), , drop = FALSE]
+      pred <- .dnmb_promotech_adjust_chunk_predictions(pred, chunk_row)
       if (base::nrow(pred)) {
         combined[[length(combined) + 1L]] <- pred
       }
@@ -988,6 +1094,8 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
     run_results[[length(run_results) + 1L]] <- run
     if (base::isTRUE(run$ok) && base::file.exists(pred_path)) {
       pred <- .dnmb_promotech_read_predictions(pred_path, threshold = threshold)
+      chunk_row <- chunk_info[base::match(fasta, chunk_info$path), , drop = FALSE]
+      pred <- .dnmb_promotech_adjust_chunk_predictions(pred, chunk_row)
       if (base::nrow(pred)) {
         combined[[length(combined) + 1L]] <- pred
       }
@@ -995,6 +1103,9 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
     .dnmb_promotech_remove_intermediate_files(contig_out)
   }
   predictions <- if (base::length(combined)) dplyr::bind_rows(combined) else data.frame()
+  if (base::is.data.frame(predictions) && base::nrow(predictions)) {
+    predictions$promoter_id <- base::sprintf("Promotech_%06d", base::seq_len(base::nrow(predictions)))
+  }
   output_path <- base::file.path(output_dir, "promotech_predictions.tsv")
   utils::write.table(predictions, file = output_path, sep = "\t", quote = FALSE, row.names = FALSE)
   list(ok = base::all(vapply(run_results, function(x) base::isTRUE(x$ok), logical(1))),

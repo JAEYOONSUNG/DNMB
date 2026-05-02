@@ -429,24 +429,40 @@ dnmb_promotech_get_module <- function(version = .dnmb_promotech_default_version(
   list(manifest = manifest, files = files)
 }
 
-.dnmb_promotech_prediction_candidates <- function(output_dir, asset_urls = list(), predictions = NULL) {
+.dnmb_promotech_prediction_candidates <- function(output_dir,
+                                                 asset_urls = list(),
+                                                 predictions = NULL,
+                                                 include_generated = FALSE) {
   candidates <- c(
     predictions,
     asset_urls$predictions,
     asset_urls$predictions_path,
-    asset_urls$prediction_csv,
-    base::file.path(output_dir, "genome_predictions.csv"),
-    base::file.path(output_dir, "promotech_predictions.tsv"),
-    base::file.path(getwd(), "genome_predictions.csv"),
-    base::file.path(getwd(), "promotech_predictions.tsv")
+    asset_urls$prediction_csv
   )
+  if (base::isTRUE(include_generated)) {
+    candidates <- c(
+      candidates,
+      base::file.path(output_dir, "genome_predictions.csv"),
+      base::file.path(output_dir, "promotech_predictions.tsv"),
+      base::file.path(getwd(), "genome_predictions.csv"),
+      base::file.path(getwd(), "promotech_predictions.tsv")
+    )
+  }
   candidates <- base::path.expand(base::as.character(candidates))
   candidates <- candidates[!base::is.na(candidates) & base::nzchar(candidates)]
   candidates
 }
 
-.dnmb_promotech_first_existing_prediction <- function(output_dir, asset_urls = list(), predictions = NULL) {
-  candidates <- .dnmb_promotech_prediction_candidates(output_dir, asset_urls = asset_urls, predictions = predictions)
+.dnmb_promotech_first_existing_prediction <- function(output_dir,
+                                                     asset_urls = list(),
+                                                     predictions = NULL,
+                                                     include_generated = FALSE) {
+  candidates <- .dnmb_promotech_prediction_candidates(
+    output_dir,
+    asset_urls = asset_urls,
+    predictions = predictions,
+    include_generated = include_generated
+  )
   existing <- candidates[base::file.exists(candidates)]
   if (base::length(existing)) {
     return(existing[[1]])
@@ -1216,7 +1232,12 @@ dnmb_run_promotech_module <- function(genes,
   trace_log <- base::file.path(output_dir, "promotech_module_trace.log")
   asset_urls <- .dnmb_promotech_normalize_asset_urls(asset_urls)
 
-  prediction_path <- .dnmb_promotech_first_existing_prediction(output_dir, asset_urls = asset_urls, predictions = predictions)
+  prediction_path <- .dnmb_promotech_first_existing_prediction(
+    output_dir,
+    asset_urls = asset_urls,
+    predictions = predictions,
+    include_generated = base::is.null(genbank)
+  )
   predictions_tbl <- data.frame()
   live_result <- NULL
 

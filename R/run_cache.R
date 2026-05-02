@@ -452,6 +452,24 @@
   file.path(module_dir, paste0(".dnmb_", tolower(as.character(alias)[1]), "_complete"))
 }
 
+.dnmb_promotech_stage_artifacts_complete <- function(wd = getwd()) {
+  module_dir <- file.path(normalizePath(wd, winslash = "/", mustWork = FALSE), "dnmb_module_promotech")
+  subject_dir <- file.path(module_dir, "subjects")
+  subject_fastas <- if (dir.exists(subject_dir)) {
+    list.files(subject_dir, pattern = "\\.fna$", full.names = FALSE, ignore.case = TRUE)
+  } else {
+    character()
+  }
+
+  if (length(subject_fastas)) {
+    contigs <- tools::file_path_sans_ext(basename(subject_fastas))
+    prediction_paths <- file.path(module_dir, "promotech_runs", contigs, "genome_predictions.csv")
+    return(all(file.exists(prediction_paths)))
+  }
+
+  file.exists(file.path(module_dir, "promotech_predictions.tsv"))
+}
+
 #' Write a small RDS sentinel marking that a module completed
 #' successfully. The stage cache reader treats the sentinel as
 #' first-class proof of completion, so 0-hit runs (no artifact files)
@@ -476,6 +494,9 @@
   # Completion sentinel is sufficient — written at the end of every
   # successful module run regardless of hit count.
   if (file.exists(.dnmb_module_completion_sentinel_path(alias, wd = wd))) {
+    if (identical(as.character(alias)[1], "Promotech")) {
+      return(.dnmb_promotech_stage_artifacts_complete(wd = wd))
+    }
     return(TRUE)
   }
 

@@ -777,6 +777,120 @@ dnmb_run_external <- function(command,
   result
 }
 
+.dnmb_python_probe <- function(python) {
+  python <- path.expand(as.character(python)[1])
+  empty <- list(
+    command = python,
+    resolved_command = "",
+    executable = "",
+    version = "",
+    major_minor = "",
+    include = "",
+    has_python_h = FALSE,
+    has_pip = FALSE,
+    ok = FALSE,
+    detail = "Python command is empty."
+  )
+  if (is.na(python) || !nzchar(trimws(python))) {
+    return(empty)
+  }
+
+  script <- paste(
+    c(
+      "import importlib.util, os, sys, sysconfig",
+      "include = sysconfig.get_config_var('INCLUDEPY') or sysconfig.get_paths().get('include') or ''",
+      "header = bool(include) and os.path.exists(os.path.join(include, 'Python.h'))",
+      "pip_ok = importlib.util.find_spec('pip') is not None",
+      "version = '.'.join(str(x) for x in sys.version_info[:3])",
+      "major_minor = '.'.join(str(x) for x in sys.version_info[:2])",
+      "print('\\t'.join([sys.executable, version, major_minor, include, str(header), str(pip_ok)]))"
+    ),
+    collapse = "\n"
+  )
+  run <- dnmb_run_external(python, args = c("-c", script), required = FALSE)
+  if (!isTRUE(run$ok) || !length(run$stdout)) {
+    empty$resolved_command <- run$resolved_command %||% ""
+    empty$detail <- run$error %||% paste0("Python probe failed: ", python)
+    return(empty)
+  }
+
+  fields <- strsplit(run$stdout[[1]], "\t", fixed = TRUE)[[1]]
+  if (length(fields) < 6L) {
+    empty$resolved_command <- run$resolved_command %||% ""
+    empty$detail <- paste0("Python probe returned unexpected output: ", paste(run$stdout, collapse = " "))
+    return(empty)
+  }
+
+  list(
+    command = python,
+    resolved_command = run$resolved_command %||% python,
+    executable = fields[[1]],
+    version = fields[[2]],
+    major_minor = fields[[3]],
+    include = fields[[4]],
+    has_python_h = identical(tolower(fields[[5]]), "true"),
+    has_pip = identical(tolower(fields[[6]]), "true"),
+    ok = TRUE,
+    detail = paste0(fields[[1]], " (Python ", fields[[2]], ")")
+  )
+}
+
+.dnmb_python_probe_ok <- function(probe, require_pip = FALSE, require_header = FALSE) {
+  isTRUE(probe$ok) &&
+    (!isTRUE(require_pip) || isTRUE(probe$has_pip)) &&
+    (!isTRUE(require_header) || isTRUE(probe$has_python_h))
+}
+
+.dnmb_python_probe_detail <- function(probe, require_pip = FALSE, require_header = FALSE) {
+  if (!isTRUE(probe$ok)) {
+    return(probe$detail %||% "Python probe failed.")
+  }
+  missing <- character()
+  if (isTRUE(require_pip) && !isTRUE(probe$has_pip)) {
+    missing <- c(missing, "pip")
+  }
+  if (isTRUE(require_header) && !isTRUE(probe$has_python_h)) {
+    include <- probe$include %||% ""
+    header_detail <- if (nzchar(include)) {
+      paste0("Python.h under ", include)
+    } else {
+      "Python.h"
+    }
+    missing <- c(missing, header_detail)
+  }
+  if (!length(missing)) {
+    return(probe$detail %||% "Python probe passed.")
+  }
+  paste0(
+    probe$detail %||% probe$resolved_command %||% probe$command,
+    " is missing ",
+    paste(missing, collapse = " and "),
+    ". Install the matching python-dev package or use a Python build with development headers."
+  )
+}
+
+.dnmb_python_select <- function(candidates, require_pip = FALSE, require_header = FALSE) {
+  candidates <- unique(path.expand(as.character(candidates)))
+  candidates <- candidates[!is.na(candidates) & nzchar(trimws(candidates))]
+  fallback <- ""
+  for (candidate in candidates) {
+    probe <- .dnmb_python_probe(candidate)
+    if (!nzchar(fallback) && isTRUE(probe$ok)) {
+      fallback <- probe$resolved_command %||% candidate
+    }
+    if (.dnmb_python_probe_ok(probe, require_pip = require_pip, require_header = require_header)) {
+      return(probe$resolved_command %||% candidate)
+    }
+  }
+  if (nzchar(fallback)) {
+    fallback
+  } else if (length(candidates)) {
+    candidates[[1]]
+  } else {
+    ""
+  }
+}
+
 .dnmb_nonempty_file <- function(path) {
   if (is.null(path) || length(path) != 1L || is.na(path) || !nzchar(path)) {
     return(FALSE)

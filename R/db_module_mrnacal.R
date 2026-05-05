@@ -22,6 +22,87 @@
   )
 }
 
+.dnmb_mrnacal_trace <- function(path, text) {
+  base::cat(base::paste0(text, "\n"), file = path, append = TRUE)
+}
+
+.dnmb_mrnacal_finalize <- function(ok,
+                                   status,
+                                   output_dir,
+                                   results = NULL,
+                                   hits = .dnmb_module_empty_optional_long_table(),
+                                   output_table = data.frame(),
+                                   files = list()) {
+  base::dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  status_tbl <- if (base::is.null(status)) {
+    .dnmb_mrnacal_empty_status()
+  } else {
+    dplyr::bind_rows(status)
+  }
+  status_path <- base::file.path(output_dir, "mrnacal_module_status.tsv")
+  trace_log <- base::file.path(output_dir, "mrnacal_module_trace.log")
+
+  try(readr::write_tsv(status_tbl, status_path), silent = TRUE)
+  if (base::nrow(status_tbl)) {
+    detail <- if ("detail" %in% base::names(status_tbl)) base::as.character(status_tbl$detail) else base::rep("", base::nrow(status_tbl))
+    detail[base::is.na(detail)] <- ""
+    lines <- base::paste(
+      base::format(base::Sys.time(), "%Y-%m-%d %H:%M:%S %z"),
+      base::as.character(status_tbl$component),
+      base::as.character(status_tbl$status),
+      detail,
+      sep = "\t"
+    )
+    try(.dnmb_mrnacal_trace(trace_log, base::paste(lines, collapse = "\n")), silent = TRUE)
+  }
+
+  out <- list(
+    ok = base::isTRUE(ok),
+    status = status_tbl,
+    hits = hits,
+    output_table = output_table,
+    files = c(files, list(status = status_path, trace_log = trace_log))
+  )
+  if (!base::is.null(results)) {
+    out$results <- results
+  }
+  out
+}
+
+.dnmb_mrnacal_tool_identity <- function(rnafold_path = NULL) {
+  one_tool <- function(tool) {
+    resolved <- .dnmb_mrnacal_find_tool(rnafold_path, tool)
+    version <- NA_character_
+    if (base::nzchar(resolved)) {
+      version_run <- tryCatch(
+        dnmb_run_external(resolved, args = "--version", required = FALSE),
+        error = function(e) list(ok = FALSE, stdout = character(), stderr = conditionMessage(e))
+      )
+      parsed_version <- .dnmb_parse_tool_version(c(version_run$stdout, version_run$stderr))
+      version <- parsed_version %||% {
+        first_line <- c(version_run$stdout, version_run$stderr)
+        first_line <- first_line[base::nzchar(base::trimws(first_line))]
+        if (base::length(first_line)) base::trimws(first_line[[1]]) else NA_character_
+      }
+    }
+    list(
+      found = base::nzchar(resolved),
+      path = if (base::nzchar(resolved)) base::normalizePath(resolved, winslash = "/", mustWork = FALSE) else "",
+      version = version
+    )
+  }
+
+  list(
+    installed = TRUE,
+    module = "mrnacal",
+    version = "embedded",
+    algorithm = "rnaplfold_local_tir_ncs30_tircore_ncsdG_band_seed9_dup15_zband_v11",
+    RNAfold = one_tool("RNAfold"),
+    RNAplfold = one_tool("RNAplfold"),
+    RNAduplex = one_tool("RNAduplex")
+  )
+}
+
 .dnmb_mrnacal_normalize_dna <- function(x) {
   x <- base::as.character(x)[1]
   if (base::is.na(x) || !base::nzchar(x)) {
@@ -1170,6 +1251,8 @@
                                               window = 70L,
                                               span = 40L,
                                               ulength = 20L) {
+  output_dir <- base::normalizePath(output_dir, winslash = "/", mustWork = FALSE)
+  base::dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   tool <- .dnmb_mrnacal_find_tool(rnaplfold_path %||% rnafold_path, "RNAplfold")
   if (!base::nzchar(tool)) {
     return(list(ok = FALSE, error = "RNAplfold not found in PATH.", table = data.frame()))
@@ -1332,6 +1415,8 @@
                                               sd_seed = "AGGAGG",
                                               rnaduplex_path = NULL,
                                               rnafold_path = NULL) {
+  output_dir <- base::normalizePath(output_dir, winslash = "/", mustWork = FALSE)
+  base::dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   tool <- .dnmb_mrnacal_find_tool(rnaduplex_path %||% rnafold_path, "RNAduplex")
   if (!base::nzchar(tool)) {
     return(list(ok = FALSE, error = "RNAduplex not found in PATH.", table = data.frame()))
@@ -1597,39 +1682,51 @@ dnmb_run_mrnacal_module <- function(genes,
   required <- c("locus_tag", "start", "end", "direction")
   missing <- base::setdiff(required, base::names(genes))
   if (base::length(missing)) {
-    return(list(
+    return(.dnmb_mrnacal_finalize(
       ok = FALSE,
       status = .dnmb_mrnacal_status_row("mrnacal_input", "failed", base::paste("Missing columns:", base::paste(missing, collapse = ", "))),
-      hits = .dnmb_module_empty_optional_long_table(),
-      output_table = data.frame(),
-      files = list()
+      output_dir = output_dir
     ))
   }
 
   rnafold_tool <- .dnmb_mrnacal_find_tool(rnafold_path, "RNAfold")
+  status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row(
+    "RNAfold",
+    if (base::nzchar(rnafold_tool)) "ok" else "missing",
+    if (base::nzchar(rnafold_tool)) rnafold_tool else "RNAfold not found in PATH."
+  )
   if (!base::nzchar(rnafold_tool) && base::isTRUE(require_rnafold)) {
-    return(list(
+    return(.dnmb_mrnacal_finalize(
       ok = FALSE,
-      status = .dnmb_mrnacal_status_row("RNAfold", "failed", "RNAfold not found in PATH."),
-      hits = .dnmb_module_empty_optional_long_table(),
-      output_table = data.frame(),
-      files = list()
+      status = status,
+      output_dir = output_dir
     ))
   }
 
   genbank <- genbank %||% .dnmb_module_detect_genbank(base::getwd())
   contig_cols <- base::intersect(c("contig_number", "contig"), base::names(genes))
   contig_hint <- if (base::length(contig_cols)) genes[, contig_cols, drop = FALSE] else genes[0, , drop = FALSE]
-  contigs <- .dnmb_mrnacal_contig_table(contig_hint, genbank = genbank)
+  contig_error <- NULL
+  contigs <- tryCatch(
+    .dnmb_mrnacal_contig_table(contig_hint, genbank = genbank),
+    error = function(e) {
+      contig_error <<- conditionMessage(e)
+      data.frame()
+    }
+  )
   if (!base::nrow(contigs)) {
-    return(list(
+    status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row(
+      "mrnacal_genome_sequence",
+      "missing",
+      contig_error %||% "No contig sequences were available from GenBank or global contig objects."
+    )
+    return(.dnmb_mrnacal_finalize(
       ok = FALSE,
-      status = .dnmb_mrnacal_status_row("mrnacal_genome_sequence", "missing", "No contig sequences were available from GenBank or global contig objects."),
-      hits = .dnmb_module_empty_optional_long_table(),
-      output_table = data.frame(),
-      files = list()
+      status = status,
+      output_dir = output_dir
     ))
   }
+  status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("mrnacal_genome_sequence", "ok", base::paste0(base::nrow(contigs), " contig sequence(s)"))
 
   translation_domain <- translation_domain %||% .dnmb_detect_translation_domain(target = genes, gb_path = genbank)
   seed_cols <- base::intersect(c("product", "rearranged_nt_seq"), base::names(genes))
@@ -1661,13 +1758,13 @@ dnmb_run_mrnacal_module <- function(genes,
   gene_tbl <- gene_tbl[!base::is.na(gene_tbl$locus_tag) & base::nzchar(gene_tbl$locus_tag), , drop = FALSE]
   if (!base::nrow(gene_tbl)) {
     empty <- .dnmb_mrnacal_output_table(genes, data.frame())
-    return(list(
+    return(.dnmb_mrnacal_finalize(
       ok = TRUE,
       status = dplyr::bind_rows(status, .dnmb_mrnacal_status_row("mrnacal_cds", "empty", "No protein-coding genes with translations were available.")),
+      output_dir = output_dir,
       results = data.frame(),
       hits = .dnmb_module_empty_optional_long_table(),
-      output_table = empty,
-      files = list()
+      output_table = empty
     ))
   }
 
@@ -1678,12 +1775,10 @@ dnmb_run_mrnacal_module <- function(genes,
   gene_tbl <- gene_tbl[keep, , drop = FALSE]
   windows <- windows[keep]
   if (!base::nrow(gene_tbl)) {
-    return(list(
+    return(.dnmb_mrnacal_finalize(
       ok = FALSE,
       status = dplyr::bind_rows(status, .dnmb_mrnacal_status_row("mrnacal_windows", "failed", "No transcript windows could be extracted.")),
-      hits = .dnmb_module_empty_optional_long_table(),
-      output_table = data.frame(),
-      files = list()
+      output_dir = output_dir
     ))
   }
 
@@ -1840,12 +1935,10 @@ dnmb_run_mrnacal_module <- function(genes,
   results <- dplyr::bind_rows(base_rows)
   results <- results[base::nchar(results$fold_sequence) >= 10L, , drop = FALSE]
   if (!base::nrow(results)) {
-    return(list(
+    return(.dnmb_mrnacal_finalize(
       ok = FALSE,
       status = dplyr::bind_rows(status, .dnmb_mrnacal_status_row("mrnacal_windows", "failed", "Extracted transcript windows were too short.")),
-      hits = .dnmb_module_empty_optional_long_table(),
-      output_table = data.frame(),
-      files = list()
+      output_dir = output_dir
     ))
   }
 
@@ -1853,12 +1946,10 @@ dnmb_run_mrnacal_module <- function(genes,
   fold <- .dnmb_mrnacal_run_rnafold_batch(results[, c("locus_tag", "fold_sequence"), drop = FALSE], output_dir, rnafold_path = rnafold_tool, cpu = cpu)
   if (!base::isTRUE(fold$ok)) {
     if (base::isTRUE(require_rnafold)) {
-      return(list(
+      return(.dnmb_mrnacal_finalize(
         ok = FALSE,
         status = dplyr::bind_rows(status, .dnmb_mrnacal_status_row("RNAfold", "failed", fold$error)),
-        hits = .dnmb_module_empty_optional_long_table(),
-        output_table = data.frame(),
-        files = list()
+        output_dir = output_dir
       ))
     }
     status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("RNAfold", "missing", fold$error)
@@ -2074,9 +2165,10 @@ dnmb_run_mrnacal_module <- function(genes,
   }
 
   status[[base::length(status) + 1L]] <- .dnmb_mrnacal_status_row("mrnacal_results", "ok", base::paste0(base::nrow(results), " CDS windows scored"))
-  list(
+  .dnmb_mrnacal_finalize(
     ok = TRUE,
-    status = dplyr::bind_rows(status),
+    status = status,
+    output_dir = output_dir,
     results = results,
     hits = hits,
     output_table = output_table,

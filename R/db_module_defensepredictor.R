@@ -159,22 +159,48 @@
   list(cli = "", download_cli = "", detail = "", mode = "missing")
 }
 
+.dnmb_defensepredictor_cli_ok <- function(layout, manifest = NULL) {
+  if (!.dnmb_exec_wrapper_ok(layout$cli_path) || !.dnmb_exec_wrapper_ok(layout$download_cli)) {
+    return(FALSE)
+  }
+  if (identical(manifest$mode %||% "", "venv") || file.exists(layout$env_python)) {
+    probe <- .dnmb_python_probe(layout$env_python)
+    if (!.dnmb_python_probe_ok(probe, require_pip = TRUE)) {
+      return(FALSE)
+    }
+  }
+  run <- dnmb_run_external(layout$cli_path, args = "--help", required = FALSE)
+  isTRUE(run$ok)
+}
+
 .dnmb_defensepredictor_prepare_env <- function(layout, force = FALSE) {
   py <- .dnmb_defensefinder_candidate_python()
   if (!nzchar(py)) {
     return(.dnmb_defensepredictor_status_row("defensepredictor_python", "missing", "No python3 executable with pip found in PATH."))
   }
+  py_probe <- .dnmb_python_probe(py)
+  if (!.dnmb_python_probe_ok(py_probe, require_pip = TRUE)) {
+    return(.dnmb_defensepredictor_status_row("defensepredictor_python", "failed", .dnmb_python_probe_detail(py_probe, require_pip = TRUE)))
+  }
+
+  detail <- layout$env_python
   if (dir.exists(layout$env_dir) && isTRUE(force)) {
     unlink(layout$env_dir, recursive = TRUE, force = TRUE)
+    detail <- paste0(layout$env_python, " (rebuilt: force)")
   }
   if (dir.exists(layout$env_dir)) {
+    venv_probe <- .dnmb_python_probe(layout$env_python)
+    rebuild_reason <- ""
     if (!file.exists(layout$env_python)) {
+      rebuild_reason <- "missing python"
+    } else if (!.dnmb_python_probe_ok(venv_probe, require_pip = TRUE)) {
+      rebuild_reason <- .dnmb_python_probe_detail(venv_probe, require_pip = TRUE)
+    } else if (nzchar(py_probe$major_minor) && !identical(venv_probe$major_minor, py_probe$major_minor)) {
+      rebuild_reason <- paste0("python ", venv_probe$major_minor, " != selected ", py_probe$major_minor)
+    }
+    if (nzchar(rebuild_reason)) {
       unlink(layout$env_dir, recursive = TRUE, force = TRUE)
-    } else {
-      test <- dnmb_run_external(layout$env_python, args = c("-c", "print('ok')"), required = FALSE)
-      if (!isTRUE(test$ok)) {
-        unlink(layout$env_dir, recursive = TRUE, force = TRUE)
-      }
+      detail <- paste0(layout$env_python, " (rebuilt: ", rebuild_reason, ")")
     }
   }
   if (!file.exists(layout$env_python)) {
@@ -183,14 +209,18 @@
       return(.dnmb_defensepredictor_status_row("defensepredictor_python", "failed", run$error %||% py))
     }
   }
-  .dnmb_defensepredictor_status_row("defensepredictor_python", "ok", layout$env_python)
+  venv_probe <- .dnmb_python_probe(layout$env_python)
+  if (!.dnmb_python_probe_ok(venv_probe, require_pip = TRUE)) {
+    return(.dnmb_defensepredictor_status_row("defensepredictor_python", "failed", .dnmb_python_probe_detail(venv_probe, require_pip = TRUE)))
+  }
+  .dnmb_defensepredictor_status_row("defensepredictor_python", "ok", detail)
 }
 
 .dnmb_defensepredictor_install_cli <- function(layout) {
   dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "--upgrade", "pip"), required = FALSE)
-  run <- dnmb_run_external(layout$env_pip, args = c("install", "--no-cache-dir", "defense_predictor"), required = FALSE)
+  run <- dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "--no-cache-dir", "defense_predictor"), required = FALSE)
   if (!isTRUE(run$ok)) {
-    return(.dnmb_defensepredictor_status_row("defensepredictor_cli", "failed", run$error %||% layout$env_pip))
+    return(.dnmb_defensepredictor_status_row("defensepredictor_cli", "failed", run$error %||% layout$env_python))
   }
   direct_cli <- file.path(layout$env_dir, "bin", "defense_predictor")
   direct_download <- file.path(layout$env_dir, "bin", "defense_predictor_download")
@@ -202,12 +232,143 @@
   .dnmb_defensepredictor_status_row("defensepredictor_cli", "ok", direct_cli)
 }
 
+.dnmb_defensepredictor_required_weight_files <- function() {
+  c(
+    sprintf("beaker_fold_%d.pkl", 0:4),
+    "esm2_t30_150M_UR50D-contact-regression.pt",
+    "esm2_t30_150M_UR50D.pt"
+  )
+}
+
+.dnmb_defensepredictor_package_dir <- function(layout) {
+  python <- .dnmb_defensepredictor_python_for_cli(layout)
+  if (!nzchar(python)) {
+    return("")
+  }
+  code <- paste(
+    "import defense_predictor, pathlib",
+    "print(pathlib.Path(defense_predictor.__file__).resolve().parent)",
+    sep = "\n"
+  )
+  run <- dnmb_run_external(python, args = c("-c", code), required = FALSE)
+  if (!isTRUE(run$ok) || !length(run$stdout)) {
+    return("")
+  }
+  pkg_dir <- trimws(run$stdout[[1]])
+  if (nzchar(pkg_dir) && dir.exists(pkg_dir)) normalizePath(pkg_dir, mustWork = FALSE) else ""
+}
+
+.dnmb_defensepredictor_python_for_cli <- function(layout) {
+  probe <- .dnmb_python_probe(layout$env_python)
+  if (.dnmb_python_probe_ok(probe, require_pip = TRUE)) {
+    return(layout$env_python)
+  }
+  cli_target <- .dnmb_exec_wrapper_target(layout$cli_path)
+  if (is.na(cli_target) || !nzchar(cli_target) || !file.exists(cli_target)) {
+    return("")
+  }
+  first_line <- tryCatch(readLines(cli_target, n = 1, warn = FALSE), error = function(e) character())
+  if (!length(first_line) || !grepl("^#!", first_line[[1]])) {
+    return("")
+  }
+  shebang <- trimws(sub("^#!", "", first_line[[1]]))
+  pieces <- strsplit(shebang, "[[:space:]]+")[[1]]
+  pieces <- pieces[nzchar(pieces)]
+  if (!length(pieces)) {
+    return("")
+  }
+  python <- pieces[[1]]
+  if (basename(python) == "env" && length(pieces) >= 2) {
+    python <- Sys.which(pieces[[2]])
+  }
+  python <- path.expand(python)
+  if (nzchar(python) && file.exists(python)) python else ""
+}
+
+.dnmb_defensepredictor_weights_state <- function(layout) {
+  pkg_dir <- .dnmb_defensepredictor_package_dir(layout)
+  if (!nzchar(pkg_dir)) {
+    return(list(ok = FALSE, detail = "Unable to locate installed defense_predictor package.", missing = character()))
+  }
+  required <- .dnmb_defensepredictor_required_weight_files()
+  paths <- file.path(pkg_dir, required)
+  info <- file.info(paths)
+  present <- file.exists(paths) & !is.na(info$size) & info$size > 0
+  missing <- required[!present]
+  list(
+    ok = !length(missing),
+    detail = if (length(missing)) paste0("Missing weights: ", paste(missing, collapse = ", ")) else pkg_dir,
+    missing = missing,
+    package_dir = pkg_dir
+  )
+}
+
+.dnmb_defensepredictor_download_timeout <- function() {
+  raw <- trimws(Sys.getenv("DNMB_DEFENSEPREDICTOR_DOWNLOAD_TIMEOUT", unset = "1800"))
+  if (!nzchar(raw) || tolower(raw) %in% c("0", "false", "no", "off", "none")) {
+    return(NA_real_)
+  }
+  value <- suppressWarnings(as.numeric(raw))
+  if (!is.finite(value) || value <= 0) NA_real_ else value
+}
+
+.dnmb_defensepredictor_timeout_binary <- function() {
+  candidates <- c(Sys.which("timeout"), Sys.which("gtimeout"))
+  candidates <- candidates[nzchar(candidates)]
+  if (length(candidates)) candidates[[1]] else ""
+}
+
 .dnmb_defensepredictor_download_weights <- function(layout) {
-  run <- dnmb_run_external(layout$download_cli, required = FALSE)
+  weights <- .dnmb_defensepredictor_weights_state(layout)
+  if (isTRUE(weights$ok)) {
+    return(.dnmb_defensepredictor_status_row("defensepredictor_weights", "ok", weights$detail))
+  }
+
+  timeout_seconds <- .dnmb_defensepredictor_download_timeout()
+  timeout_bin <- .dnmb_defensepredictor_timeout_binary()
+  command <- layout$download_cli
+  args <- character()
+  timeout_detail <- "outer timeout disabled"
+  if (!is.na(timeout_seconds) && nzchar(timeout_bin)) {
+    timeout_seconds <- as.integer(ceiling(timeout_seconds))
+    command <- timeout_bin
+    args <- c(paste0(timeout_seconds, "s"), layout$download_cli)
+    timeout_detail <- paste0("outer timeout=", timeout_seconds, "s")
+  } else if (!is.na(timeout_seconds)) {
+    timeout_detail <- "outer timeout unavailable"
+  }
+
+  message("[DNMB DefensePredictor] Downloading model weights (", timeout_detail, ").")
+  .dnmb_defensepredictor_trace(
+    layout$install_trace_log,
+    sprintf("[%s] %s", Sys.time(), .dnmb_format_command(command, args))
+  )
+  run <- dnmb_run_external(command, args = args, required = FALSE, stream_stderr = TRUE)
+  if (length(run$stdout)) {
+    .dnmb_defensepredictor_trace(layout$install_trace_log, paste(run$stdout, collapse = "\n"))
+  }
+  if (length(run$stderr)) {
+    .dnmb_defensepredictor_trace(layout$install_trace_log, paste(run$stderr, collapse = "\n"))
+  }
+
+  weights <- .dnmb_defensepredictor_weights_state(layout)
+  if (isTRUE(weights$ok)) {
+    return(.dnmb_defensepredictor_status_row("defensepredictor_weights", "ok", weights$detail))
+  }
+
+  detail <- weights$detail
+  if (!isTRUE(run$ok)) {
+    status <- suppressWarnings(as.integer(run$status %||% NA_integer_))
+    if (!is.na(status) && status == 124L) {
+      detail <- paste0("Timed out while downloading DefensePredictor weights; ", detail)
+    } else {
+      detail <- paste0(run$error %||% layout$download_cli, "; ", detail)
+    }
+  }
   .dnmb_defensepredictor_status_row(
     "defensepredictor_weights",
-    if (isTRUE(run$ok)) "ok" else "failed",
-    if (isTRUE(run$ok)) layout$download_cli else (run$error %||% layout$download_cli)
+    "failed",
+    detail
   )
 }
 
@@ -224,8 +385,7 @@ dnmb_defensepredictor_install_module <- function(version = .dnmb_defensepredicto
   if (!isTRUE(force) &&
       !is.null(manifest) &&
       isTRUE(manifest$install_ok) &&
-      .dnmb_exec_wrapper_ok(layout$cli_path) &&
-      .dnmb_exec_wrapper_ok(layout$download_cli)) {
+      .dnmb_defensepredictor_cli_ok(layout, manifest = manifest)) {
     return(list(
       ok = TRUE,
       status = .dnmb_defensepredictor_status_row("defensepredictor_install", "cached", module_dir),
@@ -307,7 +467,8 @@ dnmb_defensepredictor_install_module <- function(version = .dnmb_defensepredicto
     mode = "venv",
     env_python = layout$env_python,
     cli_path = layout$cli_path,
-    download_cli = layout$download_cli
+    download_cli = layout$download_cli,
+    python_version = .dnmb_python_probe(layout$env_python)$version
   )
   dnmb_db_write_manifest(module, version, manifest = manifest, cache_root = cache_root, overwrite = TRUE)
   .dnmb_db_autoprune_default_versions(
@@ -331,8 +492,7 @@ dnmb_defensepredictor_get_module <- function(version = .dnmb_defensepredictor_de
   layout <- .dnmb_defensepredictor_asset_layout(.dnmb_db_module_dir(.dnmb_defensepredictor_module_name(), version, cache_root = cache_root, create = FALSE))
   ok <- !is.null(manifest) &&
     isTRUE(manifest$install_ok) &&
-    file.exists(layout$cli_path) &&
-    file.exists(layout$download_cli)
+    .dnmb_defensepredictor_cli_ok(layout, manifest = manifest)
   if (required && !ok) {
     stop("DefensePredictor module is not installed for version `", version, "`.", call. = FALSE)
   }

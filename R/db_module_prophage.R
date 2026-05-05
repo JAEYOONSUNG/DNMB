@@ -85,6 +85,18 @@
   )
 }
 
+.dnmb_prophage_cli_ok <- function(layout) {
+  if (!base::file.exists(layout$cli_path)) {
+    return(FALSE)
+  }
+  probe <- .dnmb_python_probe(layout$env_python)
+  if (!.dnmb_python_probe_ok(probe, require_pip = TRUE, require_header = TRUE)) {
+    return(FALSE)
+  }
+  run <- dnmb_run_external(layout$cli_path, args = "--help", required = FALSE)
+  base::isTRUE(run$ok)
+}
+
 .dnmb_prophage_candidate_python <- function() {
   # Prefer Homebrew python on Apple Silicon to avoid conda x86 compiler issues
   homebrew_candidates <- c(
@@ -93,19 +105,15 @@
     "/opt/homebrew/bin/python3.12",
     "/opt/homebrew/bin/python3.11"
   )
-  for (hb in homebrew_candidates) {
-    if (base::file.exists(hb)) return(hb)
-  }
   candidates <- c(
+    homebrew_candidates[base::file.exists(homebrew_candidates)],
     dnmb_detect_binary("python3.12", required = FALSE)$path,
     dnmb_detect_binary("python3.11", required = FALSE)$path,
     dnmb_detect_binary("python3.13", required = FALSE)$path,
     dnmb_detect_binary("python3.10", required = FALSE)$path,
     dnmb_detect_binary("python3", required = FALSE)$path
   )
-  candidates <- unique(candidates[nzchar(candidates)])
-  if (!base::length(candidates)) return("")
-  candidates[[1]]
+  .dnmb_python_select(candidates, require_header = TRUE)
 }
 
 .dnmb_prophage_candidate_conda <- function() {
@@ -306,7 +314,9 @@
     } else {
       locus_id
     }
-    accession <- strsplit(accession, "\\s+")[[1]][[1]]
+    accession_tokens <- strsplit(trimws(accession), "\\s+")[[1]]
+    accession_tokens <- accession_tokens[nzchar(accession_tokens)]
+    accession <- if (length(accession_tokens)) accession_tokens[[1]] else locus_id
     def_idx <- base::grep("^DEFINITION", rec)
     definition <- NA_character_
     if (base::length(def_idx)) {
@@ -487,18 +497,29 @@
   if (!base::nzchar(py)) {
     return(.dnmb_prophage_status_row("prophage_python", "missing", "No python3 executable found in PATH."))
   }
+  py_probe <- .dnmb_python_probe(py)
+  if (!.dnmb_python_probe_ok(py_probe, require_header = TRUE)) {
+    return(.dnmb_prophage_status_row("prophage_python", "failed", .dnmb_python_probe_detail(py_probe, require_header = TRUE)))
+  }
+
+  detail <- layout$env_python
   if (base::dir.exists(layout$env_dir) && base::isTRUE(force)) {
     unlink(layout$env_dir, recursive = TRUE, force = TRUE)
+    detail <- paste0(layout$env_python, " (rebuilt: force)")
   }
-  # Check if existing venv works (may be from different platform/python version)
   if (base::dir.exists(layout$env_dir)) {
+    venv_probe <- .dnmb_python_probe(layout$env_python)
+    rebuild_reason <- ""
     if (!base::file.exists(layout$env_python)) {
+      rebuild_reason <- "missing python"
+    } else if (!.dnmb_python_probe_ok(venv_probe, require_pip = TRUE, require_header = TRUE)) {
+      rebuild_reason <- .dnmb_python_probe_detail(venv_probe, require_pip = TRUE, require_header = TRUE)
+    } else if (base::nzchar(py_probe$major_minor) && !identical(venv_probe$major_minor, py_probe$major_minor)) {
+      rebuild_reason <- paste0("python ", venv_probe$major_minor, " != selected ", py_probe$major_minor)
+    }
+    if (base::nzchar(rebuild_reason)) {
       unlink(layout$env_dir, recursive = TRUE, force = TRUE)
-    } else {
-      test <- dnmb_run_external(layout$env_python, args = c("-c", "print('ok')"), required = FALSE)
-      if (!base::isTRUE(test$ok)) {
-        unlink(layout$env_dir, recursive = TRUE, force = TRUE)
-      }
+      detail <- paste0(layout$env_python, " (rebuilt: ", rebuild_reason, ")")
     }
   }
   if (!base::file.exists(layout$env_python)) {
@@ -507,27 +528,36 @@
       return(.dnmb_prophage_status_row("prophage_python", "failed", run$error %||% py))
     }
   }
-  .dnmb_prophage_status_row("prophage_python", "ok", layout$env_python)
+  venv_probe <- .dnmb_python_probe(layout$env_python)
+  if (!.dnmb_python_probe_ok(venv_probe, require_pip = TRUE, require_header = TRUE)) {
+    return(.dnmb_prophage_status_row("prophage_python", "failed", .dnmb_python_probe_detail(venv_probe, require_pip = TRUE, require_header = TRUE)))
+  }
+  .dnmb_prophage_status_row("prophage_python", "ok", detail)
 }
 
 .dnmb_prophage_install_cli <- function(layout) {
-  # Clean compiler env to prevent conda x86 flags from poisoning arm64 builds
+  probe <- .dnmb_python_probe(layout$env_python)
+  if (!.dnmb_python_probe_ok(probe, require_pip = TRUE, require_header = TRUE)) {
+    return(.dnmb_prophage_status_row("prophage_cli", "failed", .dnmb_python_probe_detail(probe, require_pip = TRUE, require_header = TRUE)))
+  }
+
+  # Clean compiler env to prevent host flags from poisoning extension builds.
   clean_env <- c(
     CC = "/usr/bin/cc", CXX = "/usr/bin/c++",
     CFLAGS = "", CXXFLAGS = "", LDFLAGS = "",
-    ARCHFLAGS = paste0("-arch ", Sys.info()[["machine"]])
+    ARCHFLAGS = if (identical(Sys.info()[["sysname"]], "Darwin")) paste0("-arch ", Sys.info()[["machine"]]) else ""
   )
   # pip upgrade is optional — don't fail if it doesn't work
   dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"), env = clean_env, required = FALSE)
   # Install PhiSpy
-  run <- dnmb_run_external(layout$env_pip, args = c("install", "--no-cache-dir", "-U", layout$repo_dir), env = clean_env, required = FALSE)
+  run <- dnmb_run_external(layout$env_python, args = c("-m", "pip", "install", "--no-cache-dir", "-U", layout$repo_dir), env = clean_env, required = FALSE)
   if (!base::isTRUE(run$ok)) {
-    return(.dnmb_prophage_status_row("prophage_cli", "failed", run$error %||% layout$env_pip))
+    return(.dnmb_prophage_status_row("prophage_cli", "failed", run$error %||% layout$env_python))
   }
   .dnmb_prophage_status_row(
     "prophage_cli",
-    if (base::file.exists(layout$cli_path)) "ok" else "failed",
-    if (base::file.exists(layout$cli_path)) layout$cli_path else layout$env_dir
+    if (.dnmb_prophage_cli_ok(layout)) "ok" else "failed",
+    if (.dnmb_prophage_cli_ok(layout)) layout$cli_path else layout$env_dir
   )
 }
 
@@ -544,7 +574,7 @@ dnmb_prophage_install_module <- function(version = .dnmb_prophage_default_versio
 
   if (!base::isTRUE(install)) {
     manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
-    ready <- !base::is.null(manifest) && base::isTRUE(manifest$install_ok) && base::file.exists(layout$cli_path)
+    ready <- !base::is.null(manifest) && base::isTRUE(manifest$install_ok) && .dnmb_prophage_cli_ok(layout)
     if (ready) {
       return(list(ok = TRUE, status = .dnmb_prophage_status_row("prophage_install", "cached", module_dir), files = list(cli = layout$cli_path, env_python = layout$env_python), manifest = manifest))
     }
@@ -571,7 +601,9 @@ dnmb_prophage_install_module <- function(version = .dnmb_prophage_default_versio
     install_ok = TRUE,
     repo_dir = layout$repo_dir,
     env_python = layout$env_python,
-    cli_path = layout$cli_path
+    cli_path = layout$cli_path,
+    python_version = .dnmb_python_probe(layout$env_python)$version,
+    python_include = .dnmb_python_probe(layout$env_python)$include
   )
   dnmb_db_write_manifest(module, version, manifest = manifest, cache_root = cache_root, overwrite = TRUE)
   list(
@@ -592,13 +624,18 @@ dnmb_prophage_get_module <- function(version = .dnmb_prophage_default_version(),
     }
     return(list(ok = FALSE, manifest = NULL))
   }
+  layout <- .dnmb_prophage_asset_layout(.dnmb_db_module_dir(.dnmb_prophage_module_name(), version, cache_root = cache_root, create = FALSE))
+  cli_ok <- .dnmb_prophage_cli_ok(layout)
+  if (base::isTRUE(required) && !cli_ok) {
+    base::stop("PhiSpy module is installed but its cached Python environment is not runnable. Reinstall with module_install = TRUE.", call. = FALSE)
+  }
   list(
-    ok = TRUE,
+    ok = cli_ok,
     manifest = manifest,
     files = list(
-      cli = manifest$cli_path,
-      env_python = manifest$env_python,
-      repo_dir = manifest$repo_dir
+      cli = layout$cli_path,
+      env_python = layout$env_python,
+      repo_dir = layout$repo_dir
     )
   )
 }

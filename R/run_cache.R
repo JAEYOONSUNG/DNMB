@@ -163,7 +163,8 @@
 .dnmb_collect_module_db_signatures <- function(module_aliases,
                                                module_version = NULL,
                                                module_cache_root = NULL,
-                                               module_Prophage_backend = .dnmb_run_default_prophage_backend()) {
+                                               module_Prophage_backend = .dnmb_run_default_prophage_backend(),
+                                               mrnacal_rnafold_path = NULL) {
   if (!length(module_aliases)) {
     return(list())
   }
@@ -196,7 +197,7 @@
     signatures$Promotech <- .dnmb_db_manifest_identity("promotech", current_version, cache_root = module_cache_root)
   }
   if ("mRNAcal" %in% module_aliases) {
-    signatures$mRNAcal <- list(installed = TRUE, module = "mrnacal", version = "embedded")
+    signatures$mRNAcal <- .dnmb_mrnacal_tool_identity(rnafold_path = mrnacal_rnafold_path)
   }
   if ("PADLOC" %in% module_aliases) {
     signatures$PADLOC <- .dnmb_db_manifest_identity("padloc", current_version, cache_root = module_cache_root)
@@ -324,7 +325,8 @@
       module_aliases = aliases,
       module_version = module_version,
       module_cache_root = module_cache_root,
-      module_Prophage_backend = module_Prophage_backend
+      module_Prophage_backend = module_Prophage_backend,
+      mrnacal_rnafold_path = mrnacal_rnafold_path
     )
   )
 }

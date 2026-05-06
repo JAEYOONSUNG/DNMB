@@ -1284,7 +1284,11 @@ dnmb_module_details_rebasefinder <- function(genbank_table, base_cols) {
   )
   out$context_summary <- dnmb_detail_join(
     if ("REBASEfinder_enzyme_role" %in% names(genbank_table)) paste0("role=", as.character(genbank_table$REBASEfinder_enzyme_role[keep])) else NA_character_,
-    if ("REBASEfinder_operon_id" %in% names(genbank_table)) paste0("operon=", as.character(genbank_table$REBASEfinder_operon_id[keep])) else NA_character_
+    if ("REBASEfinder_operon_id" %in% names(genbank_table)) paste0("operon=", as.character(genbank_table$REBASEfinder_operon_id[keep])) else NA_character_,
+    if ("REBASEfinder_typei_context_status" %in% names(genbank_table)) paste0("typeI=", as.character(genbank_table$REBASEfinder_typei_context_status[keep])) else NA_character_,
+    if ("REBASEfinder_typeiii_context_status" %in% names(genbank_table)) paste0("typeIII=", as.character(genbank_table$REBASEfinder_typeiii_context_status[keep])) else NA_character_,
+    if ("REBASEfinder_family_id" %in% names(genbank_table) && any(as.character(genbank_table$REBASEfinder_family_id[keep]) == "Type IV", na.rm = TRUE)) "typeIV=candidate" else NA_character_,
+    if ("REBASEfinder_structure_status" %in% names(genbank_table)) paste0("structure=", as.character(genbank_table$REBASEfinder_structure_status[keep])) else NA_character_
   )
   out
 }

@@ -402,6 +402,17 @@
 #'   unavailable. Set `FALSE` for sequence-only smoke runs.
 #' @param mrnacal_sd_seed Optional Shine-Dalgarno seed override.
 #' @param mrnacal_top_folds Number of high-scoring fold diagrams to draw.
+#' @param rebasefinder_structure_tsv Optional Foldseek/structure validation TSV
+#'   to merge into REBASEfinder calls. Headered TSVs should include query/locus
+#'   tag, target, and any of evalue, probability/prob, TM-score, bitscore.
+#'   Headerless Foldseek BLAST-like tabular output is also accepted.
+#' @param rebasefinder_structure_max_evalue Maximum accepted Foldseek e-value.
+#' @param rebasefinder_structure_min_probability Minimum accepted Foldseek
+#'   probability when present in the structure TSV.
+#' @param rebasefinder_structure_min_tmscore Minimum accepted alignment TM-score
+#'   when present in the structure TSV.
+#' @param rebasefinder_typeiii_context_genes Number of upstream/downstream genes
+#'   inspected around Type III hits to rescue missing Mod/Res operon partners.
 #' @param module_cpu Integer thread count for external tools.
 #' @param merge Logical; when `TRUE`, return a merged locus-level table instead
 #'   of a list of per-module runs.
@@ -457,6 +468,11 @@ run_module_set <- function(db = NULL,
                            mrnacal_require_rnafold = TRUE,
                            mrnacal_sd_seed = NULL,
                            mrnacal_top_folds = 12L,
+                           rebasefinder_structure_tsv = NULL,
+                           rebasefinder_structure_max_evalue = 1e-3,
+                           rebasefinder_structure_min_probability = 0.50,
+                           rebasefinder_structure_min_tmscore = 0.45,
+                           rebasefinder_typeiii_context_genes = 3L,
                            iselement_analysis_depth = "standard",
                            iselement_related_genbanks = NULL,
                            iselement_related_metadata = NULL,
@@ -941,6 +957,11 @@ run_module_set <- function(db = NULL,
         search_motifs = TRUE,
         install = isTRUE(module_install),
         cache_root = module_cache_root,
+        structure_validation = rebasefinder_structure_tsv,
+        structure_max_evalue = rebasefinder_structure_max_evalue,
+        structure_min_probability = rebasefinder_structure_min_probability,
+        structure_min_tmscore = rebasefinder_structure_min_tmscore,
+        typeiii_context_neighbors = rebasefinder_typeiii_context_genes,
         cpu = as.integer(module_cpu)[1],
         verbose = verbose
       )

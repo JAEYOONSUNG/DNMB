@@ -263,8 +263,57 @@ is newer than the contig FASTA, and prunes the multi-GB
 | mRNAcal | `mRNAcal_translation_efficiency_summary.pdf` | `<workdir>/visualizations/` |
 | mRNAcal (full per-gene table) | `translation_efficiency_summary.xlsx`, `translation_efficiency_distribution.pdf`, `translation_efficiency_rbs_detail.tsv` | `<workdir>/dnmb_module_mrnacal/` |
 | ISelement | `ISelement_overview.pdf` | `<workdir>/visualizations/` |
-| REBASEfinder | `REBASE_overview.pdf`, `R-M_REBASE_analysis.xlsx` | `<workdir>/visualizations/`, `<workdir>/dnmb_module_rebasefinder/` |
+| REBASEfinder | `REBASE_overview.pdf`, `R-M_REBASE_analysis.xlsx`, `DNMB_REBASEfinder_augmented_hits.tsv`, `DNMB_REBASEfinder_motif_hits.tsv`, `DNMB_REBASEfinder_structure_queries.faa`, `DNMB_REBASEfinder_structure_coverage.tsv` | `<workdir>/visualizations/`, `<workdir>/dnmb_module_rebasefinder/` |
 | Combined Excel | `*_total.xlsx` (one row per locus_tag, every module's columns + per-module sheets, mRNAcal_full sheet, IS_census, Landing_pads, …) | `<workdir>/` |
+
+### REBASEfinder structural validation
+
+REBASEfinder writes `DNMB_REBASEfinder_structure_queries.faa` for
+candidate R-M proteins and `DNMB_REBASEfinder_structure_coverage.tsv` to
+show which candidates actually have query structures and Foldseek hits.
+Queries without a structure are also written to
+`DNMB_REBASEfinder_structure_missing_queries.faa`; use that FASTA to fill
+the gaps before treating Foldseek validation as complete. You can predict
+structures for those candidates, compare them to the bundled R-M reference
+structures with Foldseek, and merge the resulting secondary evidence back
+into DNMB:
+
+```bash
+Rscript inst/scripts/rebasefinder_prepare_structure_refs.R \
+  --out refs
+
+Rscript inst/scripts/rebasefinder_fetch_alphafold_structures.R \
+  --queries <workdir>/dnmb_module_rebasefinder/DNMB_REBASEfinder_structure_queries.faa \
+  --metadata <workdir>/dnmb_module_rebasefinder/rebasefinder_input.tsv \
+  --out-dir query_structures
+
+Rscript inst/scripts/rebasefinder_esmfold_predict.R \
+  --in <workdir>/dnmb_module_rebasefinder/DNMB_REBASEfinder_structure_queries.faa \
+  --out-dir query_structures \
+  --limit 50
+
+Rscript inst/scripts/rebasefinder_foldseek_validate.R \
+  --query query_structures \
+  --target refs \
+  --out <workdir>/dnmb_module_rebasefinder/foldseek_results.tsv \
+  --threads 4
+
+Rscript inst/scripts/rebasefinder_verify_motif_structures.R \
+  --motifs <workdir>/dnmb_module_rebasefinder/DNMB_REBASEfinder_motif_hits.tsv \
+  --structures-dir query_structures \
+  --out <workdir>/dnmb_module_rebasefinder/DNMB_REBASEfinder_motif_structure_verification.tsv
+```
+
+Re-run REBASEfinder with `rebasefinder_structure_tsv` pointing to the
+Foldseek TSV, or leave `foldseek_results.tsv` in the REBASEfinder module
+directory for automatic pickup. Structure-supported calls are added to
+`DNMB_REBASEfinder_augmented_hits.tsv` and marked in `REBASE_overview.pdf`.
+Role-relevant motif regex hits, partial/short-sequence flags, and structural
+support status are written to `DNMB_REBASEfinder_motif_hits.tsv`; all raw
+regex hits, including role-inappropriate diagnostic matches, are written to
+`DNMB_REBASEfinder_motif_hits_raw.tsv`. When query structures are available,
+`rebasefinder_verify_motif_structures.R` checks each listed motif range for
+modeled-residue coverage, local pLDDT, and short-motif CA-span distance.
 
 ### GPU-gated defaults (CLEAN and PIDE)
 

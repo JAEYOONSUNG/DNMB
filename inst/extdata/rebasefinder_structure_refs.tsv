@@ -1,0 +1,10 @@
+reference_id	pdb_id	rm_type	enzyme_role	chain_role_map	structural_class	motif_focus	source_note
+EcoP15I_ModRes_4ZCF	4ZCF	Type III	M/R	A:M,B:M,C:R	Type III Mod2-Res1 complex	Type III Mod adenine MTase and Res context	Gupta et al. structural basis of EcoP15I asymmetric methylation
+EcoRI_TypeIIP_1ERI	1ERI	Type II	R	A:R,B:exclude	Type IIP restriction endonuclease-DNA complex	Canonical restriction endonuclease-like fold and DNA recognition	EcoRI endonuclease-DNA recognition complex
+FokI_TypeIIS_1FOK	1FOK	Type IIS	R	A:R,B:exclude,C:exclude	Type IIS bipartite restriction endonuclease-DNA complex	DNA-binding plus nuclease architecture	FokI restriction endonuclease bound to DNA
+HhaI_C5MTase_2HMY	2HMY	Type II	M	B:M	Type II C5 cytosine methyltransferase	SAM-dependent C5 cytosine MTase fold	HhaI methyltransferase with AdoMet
+LlaBIII_TypeISP_4XQK	4XQK	Type ISP	R/M	A:R/M,B:R/M	Type ISP single-polypeptide RM enzyme	SF2 helicase-like ATPase plus nuclease and MTase architecture	Type ISP LlaBIII-DNA complex
+BpuSI_TypeIIG_3S1S	3S1S	Type IIG	R/M	A:R/M	Type IIG fused restriction-modification enzyme	PD-x(15)-ExK REase plus N6-adenine MTase domain	BpuSI crystal structure
+TypeI_MTase_2AR0	2AR0	Type I	M	A:M,B:M	Type I methyltransferase-related fold	SAM-dependent MTase fold	Type I MTase structural comparator
+TypeI_MTase_2Y7C	2Y7C	Type I	M/S	A:S,B:M,C:M,D:exclude,E:exclude	Type I methyltransferase-specificity complex	SAM-dependent MTase fold with specificity subunit; Ocr chains excluded	Type I MTase structural comparator
+TypeI_MTase_3UFB	3UFB	Type I	M	A:M	Type I methyltransferase-related fold	SAM-dependent MTase fold	Type I MTase structural comparator

@@ -293,16 +293,25 @@
   raw <- .dnmb_rebasefinder_motif_hits_table(tbl, role_relevant_only = FALSE)
   if (!nrow(raw)) return(invisible(NULL))
   out <- raw[is.na(raw$role_relevant) | raw$role_relevant, , drop = FALSE]
-  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-  tsv <- file.path(output_dir, "DNMB_REBASEfinder_motif_hits.tsv")
+  module_dir <- file.path(output_dir, "dnmb_module_rebasefinder")
+  dir.create(module_dir, recursive = TRUE, showWarnings = FALSE)
+  # Remove stray copies left in the run root by older versions of this writer.
+  for (stray in c("DNMB_REBASEfinder_motif_hits.tsv",
+                  "DNMB_REBASEfinder_motif_hits.xlsx",
+                  "DNMB_REBASEfinder_motif_hits_raw.tsv",
+                  "DNMB_REBASEfinder_motif_hits_raw.xlsx")) {
+    stray_path <- file.path(output_dir, stray)
+    if (file.exists(stray_path)) unlink(stray_path, force = TRUE)
+  }
+  tsv <- file.path(module_dir, "DNMB_REBASEfinder_motif_hits.tsv")
   utils::write.table(out, tsv, sep = "\t", quote = FALSE, row.names = FALSE)
-  xlsx <- file.path(output_dir, "DNMB_REBASEfinder_motif_hits.xlsx")
+  xlsx <- file.path(module_dir, "DNMB_REBASEfinder_motif_hits.xlsx")
   if (requireNamespace("openxlsx", quietly = TRUE)) {
     tryCatch(openxlsx::write.xlsx(out, xlsx, overwrite = TRUE), error = function(e) NULL)
   }
-  raw_tsv <- file.path(output_dir, "DNMB_REBASEfinder_motif_hits_raw.tsv")
+  raw_tsv <- file.path(module_dir, "DNMB_REBASEfinder_motif_hits_raw.tsv")
   utils::write.table(raw, raw_tsv, sep = "\t", quote = FALSE, row.names = FALSE)
-  raw_xlsx <- file.path(output_dir, "DNMB_REBASEfinder_motif_hits_raw.xlsx")
+  raw_xlsx <- file.path(module_dir, "DNMB_REBASEfinder_motif_hits_raw.xlsx")
   if (requireNamespace("openxlsx", quietly = TRUE)) {
     tryCatch(openxlsx::write.xlsx(raw, raw_xlsx, overwrite = TRUE), error = function(e) NULL)
   }

@@ -498,6 +498,32 @@ dnmb_order_genbank_table_for_output <- function(genbank_table) {
     base_cols <- c("locus_tag", "old_locus_tag", setdiff(base_cols, c("locus_tag", "old_locus_tag")))
   }
 
+  # Within the base column block, enforce NCBI -> EggNOG -> InterProScan order.
+  # EggNOG can arrive either as raw emapper column names (external path) or
+  # with an "EggNOG_" prefix (module path). InterProScan columns produced by
+  # InterProScan_organizer have a `<field>_<analysis>` shape with one of three
+  # known prefixes.
+  eggnog_raw_cols <- c(
+    "seed_ortholog", "evalue", "score", "eggNOG_OGs", "max_annot_lvl",
+    "COG_category", "Description", "Preferred_name", "GOs", "EC",
+    "KEGG_ko", "KEGG_Pathway", "KEGG_Module", "KEGG_Reaction",
+    "KEGG_rclass", "BRITE", "KEGG_TC", "CAZy", "BiGG_Reaction", "PFAMs",
+    "COG_category_for_plot", "COG_color", "COG_legend"
+  )
+  eggnog_cols <- intersect(
+    c(grep("^EggNOG_", base_cols, value = TRUE), eggnog_raw_cols),
+    base_cols
+  )
+  interproscan_cols <- grep(
+    "^Signature accession_|^Signature description_|^Score_",
+    base_cols, value = TRUE
+  )
+  annotation_cols <- intersect(base_cols, c(eggnog_cols, interproscan_cols))
+  if (length(annotation_cols)) {
+    leading_cols <- setdiff(base_cols, annotation_cols)
+    base_cols <- c(leading_cols, eggnog_cols, setdiff(interproscan_cols, eggnog_cols))
+  }
+
   ordered_cols <- base_cols
   for (prefix in module_prefixes) {
     block_cols <- dnmb_module_block_columns(out, prefix = prefix)

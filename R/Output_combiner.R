@@ -540,7 +540,7 @@ dnmb_order_genbank_table_for_output <- function(genbank_table) {
 }
 
 dnmb_supported_module_prefixes <- function() {
-  c("CLEAN", "GapMindAA", "GapMindCarbon", "GapMind", "DefenseFinder", "dbAPIS", "AcrFinder", "Promotech", "mRNAcal", "PADLOC", "DefensePredictor", "ISelement", "Prophage", "dbCAN", "MEROPS", "PAZy")
+  c("CLEAN", "GapMindAA", "GapMindCarbon", "GapMind", "DefenseFinder", "dbAPIS", "AcrFinder", "Promotech", "mRNAcal", "PADLOC", "DefensePredictor", "REBASEfinder", "ISelement", "Prophage", "dbCAN", "MEROPS", "PAZy")
 }
 
 dnmb_module_prefix_order <- function(genbank_table) {

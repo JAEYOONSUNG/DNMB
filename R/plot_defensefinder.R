@@ -637,6 +637,9 @@
       ,
       drop = FALSE
     ]
+    if (!nrow(zoom_tbl)) {
+      next
+    }
     zoom_tbl$defense_role <- "neighbor"
     sys_loci <- full_tbl$locus_tag[full_tbl$DefenseFinder_system_id == one$DefenseFinder_system_id[[1]]]
     match_idx <- match(zoom_tbl$locus_tag, sys_loci)

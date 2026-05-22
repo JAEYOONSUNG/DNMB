@@ -256,11 +256,23 @@
     dplyr::summarise(max_end = max(.data$end, na.rm = TRUE), .groups = "drop")
   contigs$max_end <- max_end$max_end[match(contigs$contig, max_end$contig)]
 
+  # Map per-replicon lengths by replicon order (contig_number), never by row
+  # position. Both the global `contig_length` table and the parsed gbff records
+  # are ordered by replicon, so a positional take (seq_len(nrow(contigs)))
+  # misassigns lengths whenever `contigs` is a subset that does not start at
+  # replicon 1 and run contiguously — e.g. a module table filtered to systems
+  # sitting on the chromosome plus a high-numbered plasmid. That misassignment
+  # can hand a contig a length shorter than its gene coordinates, collapsing
+  # downstream zoom windows to zero rows.
+  contig_idx <- suppressWarnings(as.integer(contigs$contig_number))
+
   contig_length_obj <- get0("contig_length", envir = .GlobalEnv, inherits = FALSE)
   if (is.data.frame(contig_length_obj) && nrow(contig_length_obj) >= nrow(contigs)) {
     length_col <- contig_length_obj[[1]]
     if (!is.null(length_col)) {
-      contigs$length_bp <- suppressWarnings(as.numeric(length_col[seq_len(nrow(contigs))]))
+      pick <- ifelse(!is.na(contig_idx) & contig_idx >= 1L & contig_idx <= length(length_col),
+                     contig_idx, NA_integer_)
+      contigs$length_bp <- suppressWarnings(as.numeric(length_col[pick]))
       contigs$length_source <- "global_contig_length"
     }
   }
@@ -268,9 +280,10 @@
   if (!"length_bp" %in% names(contigs) || all(is.na(contigs$length_bp))) {
     gbff_records <- .dnmb_parse_gbff_records(.dnmb_find_gbff_for_plot(output_dir))
     if (nrow(gbff_records) >= nrow(contigs)) {
-      contigs$length_bp <- gbff_records$length_bp[seq_len(nrow(contigs))]
-      contigs$accession <- gbff_records$accession[seq_len(nrow(contigs))]
-      contigs$gbff_definition <- gbff_records$definition[seq_len(nrow(contigs))]
+      g_idx <- match(contig_idx, gbff_records$order)
+      contigs$length_bp <- gbff_records$length_bp[g_idx]
+      contigs$accession <- gbff_records$accession[g_idx]
+      contigs$gbff_definition <- gbff_records$definition[g_idx]
       contigs$length_source <- "gbff_source"
     }
   }

@@ -1,4 +1,10 @@
 ^DNMB\.Rproj$
 ^\.Rproj\.user$
+^\.DS_Store$
+^\.dockerignore$
 ^data$
 ^data/
+^Dockerfile$
+^Rplots\.pdf$
+^CLAUDE_HANDOFF_.*\.md$
+^R/_iselement_circlize_(optimized|reference)\.R$

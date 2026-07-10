@@ -927,7 +927,19 @@ dnmb_build_module_details_table <- function(genbank_table) {
     "score_summary",
     "alignment_summary",
     "context_summary",
-    "resource_links"
+    "resource_links",
+    "rebase_match_link",
+    "recognition_match_rebase_link",
+    "recognition_donor_rebase_link",
+    "rebase_reference_ncbi_link",
+    "recognition_match_reference_ncbi_link",
+    "recognition_reference_ncbi_link",
+    "recognition_donor_ncbi_link",
+    "query_strain_pacbio_link",
+    "query_strain_pacbio_index_link",
+    "rebase_match_pacbio_link",
+    "recognition_match_pacbio_link",
+    "recognition_donor_pacbio_link"
   )
   detail <- detail[, intersect(ordered_cols, names(detail)), drop = FALSE]
   rownames(detail) <- NULL
@@ -1288,17 +1300,33 @@ dnmb_module_details_pazy <- function(genbank_table, base_cols) {
 }
 
 dnmb_module_details_rebasefinder <- function(genbank_table, base_cols) {
-  label_col <- if ("REBASEfinder_family_id" %in% names(genbank_table)) genbank_table$REBASEfinder_family_id else NULL
+  label_col <- if ("REBASEfinder_final_family" %in% names(genbank_table)) {
+    genbank_table$REBASEfinder_final_family
+  } else if ("REBASEfinder_family_id" %in% names(genbank_table)) {
+    genbank_table$REBASEfinder_family_id
+  } else {
+    NULL
+  }
   if (is.null(label_col)) return(data.frame())
   keep <- !is.na(label_col) & nzchar(label_col)
+  if ("REBASEfinder_curation_keep" %in% names(genbank_table)) {
+    keep <- keep & genbank_table$REBASEfinder_curation_keep %in% TRUE
+  }
   if (!any(keep)) return(data.frame())
   base <- dnmb_module_detail_base(genbank_table, base_cols, keep)
   out <- dnmb_module_detail_template(base)
   out$module_category <- "REBASE"
-  out$primary_call <- as.character(genbank_table$REBASEfinder_family_id[keep])
+  out$primary_call <- if ("REBASEfinder_final_family" %in% names(genbank_table)) {
+    as.character(genbank_table$REBASEfinder_final_family[keep])
+  } else {
+    as.character(genbank_table$REBASEfinder_family_id[keep])
+  }
   out$reference_id <- dnmb_detail_join(
     if ("REBASEfinder_hit_label" %in% names(genbank_table)) as.character(genbank_table$REBASEfinder_hit_label[keep]) else NA_character_,
-    if ("REBASEfinder_rec_seq" %in% names(genbank_table)) paste0("rec=", as.character(genbank_table$REBASEfinder_rec_seq[keep])) else NA_character_
+    dnmb_detail_text_value("rec", if ("REBASEfinder_rec_seq" %in% names(genbank_table)) genbank_table$REBASEfinder_rec_seq[keep] else NA_character_),
+    dnmb_detail_text_value("reference_rec", if ("REBASEfinder_reference_rec_seq" %in% names(genbank_table)) genbank_table$REBASEfinder_reference_rec_seq[keep] else NA_character_),
+    dnmb_detail_text_value("recognition_match", if ("REBASEfinder_recognition_match" %in% names(genbank_table)) genbank_table$REBASEfinder_recognition_match[keep] else NA_character_),
+    dnmb_detail_text_value("recognition_donor", if ("REBASEfinder_recognition_donor" %in% names(genbank_table)) genbank_table$REBASEfinder_recognition_donor[keep] else NA_character_)
   )
   out$significance <- dnmb_detail_join(
     dnmb_detail_key_value("evalue", if ("REBASEfinder_blast_evalue" %in% names(genbank_table)) genbank_table$REBASEfinder_blast_evalue[keep] else NA, digits = 3),
@@ -1309,13 +1337,44 @@ dnmb_module_details_rebasefinder <- function(genbank_table, base_cols) {
     dnmb_detail_key_value("aln_len", if ("REBASEfinder_blast_length" %in% names(genbank_table)) genbank_table$REBASEfinder_blast_length[keep] else NA, digits = 0)
   )
   out$context_summary <- dnmb_detail_join(
-    if ("REBASEfinder_enzyme_role" %in% names(genbank_table)) paste0("role=", as.character(genbank_table$REBASEfinder_enzyme_role[keep])) else NA_character_,
-    if ("REBASEfinder_operon_id" %in% names(genbank_table)) paste0("operon=", as.character(genbank_table$REBASEfinder_operon_id[keep])) else NA_character_,
-    if ("REBASEfinder_typei_context_status" %in% names(genbank_table)) paste0("typeI=", as.character(genbank_table$REBASEfinder_typei_context_status[keep])) else NA_character_,
-    if ("REBASEfinder_typeiii_context_status" %in% names(genbank_table)) paste0("typeIII=", as.character(genbank_table$REBASEfinder_typeiii_context_status[keep])) else NA_character_,
-    if ("REBASEfinder_family_id" %in% names(genbank_table) && any(as.character(genbank_table$REBASEfinder_family_id[keep]) == "Type IV", na.rm = TRUE)) "typeIV=candidate" else NA_character_,
-    if ("REBASEfinder_structure_status" %in% names(genbank_table)) paste0("structure=", as.character(genbank_table$REBASEfinder_structure_status[keep])) else NA_character_
+    dnmb_detail_text_value("tier", if ("REBASEfinder_curation_tier" %in% names(genbank_table)) genbank_table$REBASEfinder_curation_tier[keep] else NA_character_),
+    dnmb_detail_text_value("score", if ("REBASEfinder_curation_score" %in% names(genbank_table)) genbank_table$REBASEfinder_curation_score[keep] else NA_character_),
+    dnmb_detail_text_value("decision", if ("REBASEfinder_curation_decision" %in% names(genbank_table)) genbank_table$REBASEfinder_curation_decision[keep] else NA_character_),
+    dnmb_detail_text_value("reason", if ("REBASEfinder_curation_reason" %in% names(genbank_table)) genbank_table$REBASEfinder_curation_reason[keep] else NA_character_),
+    dnmb_detail_text_value("role", if ("REBASEfinder_enzyme_role" %in% names(genbank_table)) genbank_table$REBASEfinder_enzyme_role[keep] else NA_character_),
+    dnmb_detail_text_value("operon", if ("REBASEfinder_operon_id" %in% names(genbank_table)) genbank_table$REBASEfinder_operon_id[keep] else NA_character_),
+    dnmb_detail_text_value("typeI", if ("REBASEfinder_typei_context_status" %in% names(genbank_table)) genbank_table$REBASEfinder_typei_context_status[keep] else NA_character_),
+    dnmb_detail_text_value("typeII", if ("REBASEfinder_typeii_context_status" %in% names(genbank_table)) genbank_table$REBASEfinder_typeii_context_status[keep] else NA_character_),
+    dnmb_detail_text_value("typeIII", if ("REBASEfinder_typeiii_context_status" %in% names(genbank_table)) genbank_table$REBASEfinder_typeiii_context_status[keep] else NA_character_),
+    dnmb_detail_text_value("MTase_motif_pair", if ("REBASEfinder_mtase_motif_verified" %in% names(genbank_table)) genbank_table$REBASEfinder_mtase_motif_verified[keep] else NA_character_),
+    if ("REBASEfinder_family_id" %in% names(genbank_table)) ifelse(as.character(genbank_table$REBASEfinder_family_id[keep]) == "Type IV", "typeIV=candidate", NA_character_) else NA_character_,
+    dnmb_detail_text_value("structure", if ("REBASEfinder_structure_status" %in% names(genbank_table)) genbank_table$REBASEfinder_structure_status[keep] else NA_character_)
   )
+  out$resource_links <- dnmb_detail_join(
+    dnmb_detail_text_value("REBASE", if ("REBASEfinder_rebase_match_link" %in% names(genbank_table)) genbank_table$REBASEfinder_rebase_match_link[keep] else NA_character_),
+    dnmb_detail_text_value("Recognition_REBASE", if ("REBASEfinder_recognition_match_rebase_link" %in% names(genbank_table)) genbank_table$REBASEfinder_recognition_match_rebase_link[keep] else NA_character_),
+    dnmb_detail_text_value("Recognition_donor_REBASE", if ("REBASEfinder_recognition_donor_rebase_link" %in% names(genbank_table)) genbank_table$REBASEfinder_recognition_donor_rebase_link[keep] else NA_character_),
+    dnmb_detail_text_value("Matched_PacBio", if ("REBASEfinder_rebase_match_pacbio_link" %in% names(genbank_table)) genbank_table$REBASEfinder_rebase_match_pacbio_link[keep] else NA_character_),
+    dnmb_detail_text_value("Recognition_PacBio", if ("REBASEfinder_recognition_match_pacbio_link" %in% names(genbank_table)) genbank_table$REBASEfinder_recognition_match_pacbio_link[keep] else NA_character_),
+    dnmb_detail_text_value("Recognition_donor_PacBio", if ("REBASEfinder_recognition_donor_pacbio_link" %in% names(genbank_table)) genbank_table$REBASEfinder_recognition_donor_pacbio_link[keep] else NA_character_),
+    dnmb_detail_text_value("Query_strain_PacBio", if ("REBASEfinder_query_strain_pacbio_link" %in% names(genbank_table)) genbank_table$REBASEfinder_query_strain_pacbio_link[keep] else NA_character_),
+    dnmb_detail_text_value("REBASE_PacBio_index", if ("REBASEfinder_query_strain_pacbio_index_link" %in% names(genbank_table)) genbank_table$REBASEfinder_query_strain_pacbio_index_link[keep] else NA_character_)
+  )
+  link_value <- function(column_name) {
+    if (column_name %in% names(genbank_table)) as.character(genbank_table[[column_name]][keep]) else NA_character_
+  }
+  out$rebase_match_link <- link_value("REBASEfinder_rebase_match_link")
+  out$recognition_match_rebase_link <- link_value("REBASEfinder_recognition_match_rebase_link")
+  out$recognition_donor_rebase_link <- link_value("REBASEfinder_recognition_donor_rebase_link")
+  out$rebase_reference_ncbi_link <- link_value("REBASEfinder_rebase_reference_ncbi_link")
+  out$recognition_match_reference_ncbi_link <- link_value("REBASEfinder_recognition_match_reference_ncbi_link")
+  out$recognition_reference_ncbi_link <- link_value("REBASEfinder_recognition_reference_ncbi_link")
+  out$recognition_donor_ncbi_link <- link_value("REBASEfinder_recognition_donor_ncbi_link")
+  out$rebase_match_pacbio_link <- link_value("REBASEfinder_rebase_match_pacbio_link")
+  out$recognition_match_pacbio_link <- link_value("REBASEfinder_recognition_match_pacbio_link")
+  out$recognition_donor_pacbio_link <- link_value("REBASEfinder_recognition_donor_pacbio_link")
+  out$query_strain_pacbio_link <- link_value("REBASEfinder_query_strain_pacbio_link")
+  out$query_strain_pacbio_index_link <- link_value("REBASEfinder_query_strain_pacbio_index_link")
   out
 }
 
@@ -1664,6 +1723,14 @@ dnmb_detail_key_value <- function(label, value, digits = 3) {
   }, character(1))
 }
 
+dnmb_detail_text_value <- function(label, value) {
+  value <- as.character(value)
+  valid <- !is.na(value) & nzchar(trimws(value)) & value != "NA"
+  out <- rep(NA_character_, length(value))
+  out[valid] <- paste0(label, "=", value[valid])
+  out
+}
+
 dnmb_detail_span <- function(label, start, end, total = NA) {
   start <- suppressWarnings(as.numeric(start))
   end <- suppressWarnings(as.numeric(end))
@@ -1771,6 +1838,15 @@ dnmb_excel_hyperlink_label <- function(column_name) {
   }
   if (grepl("brenda", column_name, fixed = TRUE)) {
     return("BRENDA")
+  }
+  if (grepl("pacbio", column_name, fixed = TRUE)) {
+    return("PacBio")
+  }
+  if (grepl("ncbi", column_name, fixed = TRUE)) {
+    return("NCBI")
+  }
+  if (grepl("rebase", column_name, fixed = TRUE)) {
+    return("REBASE")
   }
   "Link"
 }
@@ -2027,7 +2103,7 @@ dnmb_write_hyperlink_columns <- function(wb, sheet, table, startRow = 1L, startC
     if (any(keep)) {
       label <- dnmb_excel_hyperlink_label(column_name)
       escaped <- gsub("\"", "\"\"", values[keep], fixed = TRUE)
-      formulas[keep] <- paste0('=HYPERLINK("', escaped, '","', label, '")')
+      formulas[keep] <- paste0('HYPERLINK("', escaped, '","', label, '")')
     }
     if (any(!is.na(formulas))) {
       col_index <- startCol + match(column_name, names(table)) - 1L

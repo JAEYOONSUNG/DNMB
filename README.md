@@ -263,57 +263,91 @@ is newer than the contig FASTA, and prunes the multi-GB
 | mRNAcal | `mRNAcal_translation_efficiency_summary.pdf` | `<workdir>/visualizations/` |
 | mRNAcal (full per-gene table) | `translation_efficiency_summary.xlsx`, `translation_efficiency_distribution.pdf`, `translation_efficiency_rbs_detail.tsv` | `<workdir>/dnmb_module_mrnacal/` |
 | ISelement | `ISelement_overview.pdf` | `<workdir>/visualizations/` |
-| REBASEfinder | `REBASE_overview.pdf`, `R-M_REBASE_analysis.xlsx`, `DNMB_REBASEfinder_augmented_hits.tsv`, `DNMB_REBASEfinder_motif_hits.tsv`, `DNMB_REBASEfinder_structure_queries.faa`, `DNMB_REBASEfinder_structure_coverage.tsv` | `<workdir>/visualizations/`, `<workdir>/dnmb_module_rebasefinder/` |
+| REBASEfinder | `REBASE_overview.pdf`, `R-M_REBASE_analysis.xlsx`, `DNMB_REBASEfinder_augmented_hits.tsv`, `DNMB_REBASEfinder_motif_hits.tsv`, `DNMB_REBASEfinder_homology_templates.tsv`, `DNMB_REBASEfinder_motif_geometry.tsv`, `DNMB_REBASEfinder_structure_coverage.tsv` | `<workdir>/visualizations/`, `<workdir>/dnmb_module_rebasefinder/` |
 | Combined Excel | `*_total.xlsx` (one row per locus_tag, every module's columns + per-module sheets, mRNAcal_full sheet, IS_census, Landing_pads, …) | `<workdir>/` |
+
+`REBASE_overview.pdf` is the single canonical REBASEfinder visualization. It
+combines the system inventory, genome context, REBASE BLAST, protein domains,
+and coherent motif/profile functional evidence in one PDF. The motif TSV/XLSX
+files are audit tables rather than separate plots; DefenseViz's redundant
+`RM_system_dotplot.pdf` is removed after the integrated PDF is written
+successfully.
 
 ### REBASEfinder structural validation
 
-REBASEfinder writes `DNMB_REBASEfinder_structure_queries.faa` for
-candidate R-M proteins and `DNMB_REBASEfinder_structure_coverage.tsv` to
-show which candidates actually have query structures and Foldseek hits.
-Queries without a structure are also written to
-`DNMB_REBASEfinder_structure_missing_queries.faa`; use that FASTA to fill
-the gaps before treating Foldseek validation as complete. You can predict
-structures for those candidates, compare them to the bundled R-M reference
-structures with Foldseek, and merge the resulting secondary evidence back
-into DNMB:
+The automatic coordinate path is deliberately limited to one API-free method:
+bundled R-M template search followed by local ProMod3 homology modeling. DNMB
+ships 13 positive chain-only templates, including the near-full Type I HsdR
+structure `6H2J:B`, and three explicit decoys: KsgA rRNA methylase, RecQ SF2
+helicase, and Endonuclease IV DNA-repair nuclease.
+
+Only non-noise candidates in the high/medium tiers, or review candidates with
+at least two evidence axes, enter the template search. S subunits are not
+modeled because the geometry stage validates R motor/nuclease and M catalytic
+motif pairs. At least 25% of a capped candidate batch is reserved for R/RM
+roles so abundant MTase calls cannot displace operon R subunits. A positive
+template must match the candidate role and, for already typed candidates, the
+R-M family; unclassified candidates search all role-compatible positive
+templates. It must have at least 30% aligned identity,
+60% template coverage, and 80 aligned residues, and beat the best decoy by a
+normalized score margin of at least 0.02 and 15% relative to the decoy score.
+Incompatible positive templates are not aligned, which keeps the screen fast
+across many genomes.
+
+For candidates that pass, DNMB runs the local command:
 
 ```bash
-Rscript inst/scripts/rebasefinder_prepare_structure_refs.R \
-  --out refs
-
-Rscript inst/scripts/rebasefinder_fetch_alphafold_structures.R \
-  --queries <workdir>/dnmb_module_rebasefinder/DNMB_REBASEfinder_structure_queries.faa \
-  --metadata <workdir>/dnmb_module_rebasefinder/rebasefinder_input.tsv \
-  --out-dir query_structures
-
-Rscript inst/scripts/rebasefinder_esmfold_predict.R \
-  --in <workdir>/dnmb_module_rebasefinder/DNMB_REBASEfinder_structure_queries.faa \
-  --out-dir query_structures \
-  --limit 50
-
-Rscript inst/scripts/rebasefinder_foldseek_validate.R \
-  --query query_structures \
-  --target refs \
-  --out <workdir>/dnmb_module_rebasefinder/foldseek_results.tsv \
-  --threads 4
-
-Rscript inst/scripts/rebasefinder_verify_motif_structures.R \
-  --motifs <workdir>/dnmb_module_rebasefinder/DNMB_REBASEfinder_motif_hits.tsv \
-  --structures-dir query_structures \
-  --out <workdir>/dnmb_module_rebasefinder/DNMB_REBASEfinder_motif_structure_verification.tsv
+pm build-model -f query_template_alignment.fasta \
+  -p bundled_template.pdb -o query_model.pdb
 ```
 
-Re-run REBASEfinder with `rebasefinder_structure_tsv` pointing to the
-Foldseek TSV, or leave `foldseek_results.tsv` in the REBASEfinder module
-directory for automatic pickup. Structure-supported calls are added to
-`DNMB_REBASEfinder_augmented_hits.tsv` and marked in `REBASE_overview.pdf`.
-Role-relevant motif regex hits, partial/short-sequence flags, and structural
-support status are written to `DNMB_REBASEfinder_motif_hits.tsv`; all raw
-regex hits, including role-inappropriate diagnostic matches, are written to
-`DNMB_REBASEfinder_motif_hits_raw.tsv`. When query structures are available,
-`rebasefinder_verify_motif_structures.R` checks each listed motif range for
-modeled-residue coverage, local pLDDT, and short-motif CA-span distance.
+`module_install = TRUE` creates a managed Bioconda ProMod3 3.6 environment on
+the first eligible run when `pm` is not already available. No account, API key,
+or remote prediction service is used. ProMod3 is available natively on Linux
+and macOS; Windows users need WSL2 or Docker. A new managed installation
+requires at least 5.0 GiB of free disk space during dependency extraction; the
+temporary package cache is deleted after installation and the retained runtime
+is approximately 2.7 GiB. Set
+`rebasefinder_homology_modeling = FALSE` to disable this optional step.
+
+Each model is content-addressed in the DNMB cache, validated as a PDB before it
+replaces an output, and isolated per candidate so one failed model does not stop
+the remaining analysis. Up to two candidates run concurrently within the
+requested CPU budget. Selection and backend states such as
+`template_mapped`, `backend_unavailable`, and `model_failed` are written to
+`DNMB_REBASEfinder_homology_templates.tsv` and its Excel companion.
+
+DNMB maps the original sequence and role-specific motif pairs back onto each
+model. These include SAM motif I versus methylase catalytic motif IV, C5 `PCQ`
+versus `ENV`, and the HsdR/Res Walker-A, Walker-B, motif-III, and nuclease
+PD-(D/E)xK pattern. A motor-only HsdR/Res model is labeled as partial and cannot
+become functional model support.
+Pair distance, centroid distance, contact count, mapping coverage, template
+identity, and provenance are written to `DNMB_REBASEfinder_motif_geometry.tsv`.
+ProMod3 B-factors are not interpreted as pLDDT.
+
+Geometry is shown in the Functional evidence panel of the same
+`REBASE_overview.pdf` as a full-row outline around the existing motif cells,
+rather than as separate `Contact map` or `3D motifs` heatmap columns. The
+outline is a row-level status marker: its width does not represent structural
+coverage, and the underlying calculation still maps the full query sequence to
+the structure before measuring the selected core catalytic motif residues.
+Blue solid outlines denote coordinate-verified pairs, blue dashed outlines
+denote contact-map-only support, and red outlines denote pairs that are not
+3D-verified. Motor-only HsdR/Res geometry therefore remains red at the complete
+nuclease-motor pair. Homology-model evidence remains distinguishable from
+experimental/user PDB plus Foldseek in the audit tables. Because the model
+derives from sequence-template alignment, it is not counted as another
+independent curation axis and does not add points; it only supplies validation
+metadata and breaks ties within an existing score. This prevents circular
+support from modeling against a template and then matching the model back to
+that same template.
+
+User-supplied experimental structures and Foldseek TSVs remain accepted through
+`rebasefinder_structure_tsv`, but they are not an additional automatic
+prediction backend. MmeI-like fusions test their MTase pocket internally; DNMB
+does not require the separate nuclease and methylase domains to be spatially
+adjacent.
 
 ### GPU-gated defaults (CLEAN and PIDE)
 

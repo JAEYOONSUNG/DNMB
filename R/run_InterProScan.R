@@ -11,7 +11,7 @@
 #' @param output_dir Directory for InterProScan output files.
 #' @param applications Character vector of InterProScan analyses to run (e.g.,
 #'   \code{c("Pfam", "TIGRFAM", "CDD")}). \code{NULL} runs all available.
-#' @param cpu Number of threads. Defaults to 80\% of available cores.
+#' @param cpu Number of threads. Defaults to 80 percent of available cores.
 #' @param extra_args Additional arguments passed to \code{interproscan.sh}.
 #' @param interproscan_path Path to the \code{interproscan.sh} script. When
 #'   \code{NULL}, searches \code{INTERPROSCAN_HOME} env var, then PATH.

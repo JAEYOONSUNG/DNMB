@@ -27,6 +27,7 @@
 #' The function requires `ComplexHeatmap`, `circlize`, `grid`, `reshape2`, `dplyr`, and `tidyr` packages.
 #'
 #' @examples
+#' \dontrun{
 #' # Generate a heatmap using default settings:
 #' DefenseFinder_Heatmap()
 #'
@@ -36,6 +37,7 @@
 #'     bar_color = "#33A1FF",
 #'     debug = FALSE
 #' )
+#' }
 #'
 #' @import ComplexHeatmap circlize grid reshape2
 #' @export

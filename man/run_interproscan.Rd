@@ -25,7 +25,7 @@ When \code{NULL}, proteins are extracted from the active
 \item{applications}{Character vector of InterProScan analyses to run (e.g.,
 \code{c("Pfam", "TIGRFAM", "CDD")}). \code{NULL} runs all available.}
 
-\item{cpu}{Number of threads. Defaults to 80\\% of available cores.}
+\item{cpu}{Number of threads. Defaults to 80 percent of available cores.}
 
 \item{extra_args}{Additional arguments passed to \code{interproscan.sh}.}
 

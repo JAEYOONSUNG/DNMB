@@ -54,6 +54,7 @@ Customization options include:
 The function requires \code{ComplexHeatmap}, \code{circlize}, \code{grid}, \code{reshape2}, and \code{tidyverse} packages.
 }
 \examples{
+\dontrun{
 # Generate a heatmap using default settings:
 DefenseFinder_Heatmap()
 
@@ -63,5 +64,6 @@ DefenseFinder_Heatmap(
     bar_color = "#33A1FF",
     debug = FALSE
 )
+}
 
 }

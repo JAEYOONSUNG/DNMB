@@ -15,10 +15,12 @@ if (.has_flag("--help") || .has_flag("-h")) {
     "Usage:\n",
     "  Rscript inst/scripts/rebasefinder_esmfold_predict.R \\\n",
     "    --in DNMB_REBASEfinder_structure_queries.faa \\\n",
-    "    --out-dir <query_structures_dir> [--limit 20] [--max-aa 1200] [--insecure]\n\n",
+    "    --out-dir <query_structures_dir> [--limit 20] [--max-aa 400] [--insecure]\n\n",
     "Predicts PDB structures for REBASEfinder candidates with the public ESMFold API.\n",
     "The output directory can be used as --query for rebasefinder_foldseek_validate.R.\n\n",
-    "Useful sequence controls: --min-aa 20, --max-aa 1200, --limit Inf, --sleep 1,\n",
+    "The public ESM Atlas endpoint accepts at most 400 residues. For longer fusion\n",
+    "proteins, submit a motif-containing domain crop and retain the original locus ID.\n\n",
+    "Useful sequence controls: --min-aa 20, --max-aa 400, --limit Inf, --sleep 1,\n",
     "--timeout 300, --retries 2, --overwrite, --dry-run, --endpoint <url>, --curl <path>.\n",
     sep = ""
   )
@@ -30,7 +32,7 @@ out_dir <- .arg_value("--out-dir", "rebasefinder_query_structures")
 endpoint <- .arg_value("--endpoint", "https://api.esmatlas.com/foldSequence/v1/pdb/")
 curl <- .arg_value("--curl", Sys.which("curl"))
 min_aa <- suppressWarnings(as.integer(.arg_value("--min-aa", "20")))
-max_aa <- suppressWarnings(as.integer(.arg_value("--max-aa", "1200")))
+max_aa <- suppressWarnings(as.integer(.arg_value("--max-aa", "400")))
 limit_arg <- .arg_value("--limit", "Inf")
 limit <- if (identical(tolower(limit_arg), "inf")) Inf else suppressWarnings(as.integer(limit_arg))
 sleep_sec <- suppressWarnings(as.numeric(.arg_value("--sleep", "1")))

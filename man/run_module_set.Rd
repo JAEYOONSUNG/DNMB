@@ -6,9 +6,27 @@
 \usage{
 run_module_set(
   db = NULL,
-  module_dbCAN = FALSE,
-  module_MEROPS = FALSE,
-  module_CLEAN = FALSE,
+  module_dbCAN = TRUE,
+  module_MEROPS = TRUE,
+  module_CLEAN = .dnmb_cuda_default_module(),
+  module_PAZy = TRUE,
+  module_GapMind = TRUE,
+  module_DefenseFinder = TRUE,
+  module_dbAPIS = TRUE,
+  module_AcrFinder = TRUE,
+  module_Promotech = TRUE,
+  module_mRNAcal = TRUE,
+  module_DefenseFinder_antidefense = TRUE,
+  module_PADLOC = TRUE,
+  module_DefensePredictor = TRUE,
+  module_REBASEfinder = TRUE,
+  module_ISelement = TRUE,
+  module_Prophage = FALSE,
+  module_PhiSpy = TRUE,
+  module_VirSorter2 = FALSE,
+  module_PIDE = .dnmb_cuda_default_module(),
+  module_EggNOG = TRUE,
+  module_Prophage_backend = .dnmb_module_default_prophage_backend(),
   genbank_table = NULL,
   genbank = NULL,
   output_dir = NULL,
@@ -17,16 +35,49 @@ run_module_set(
   module_install = TRUE,
   module_base_url = NULL,
   module_asset_urls = NULL,
-  module_cpu = 1L,
+  module_cpu = .dnmb_default_cpu(),
   merge = FALSE,
-  verbose = TRUE
+  verbose = TRUE,
+  promotech_predictions = NULL,
+  promotech_model = "RF-HOT",
+  promotech_threshold = 0.5,
+  promotech_max_distance = 300L,
+  promotech_test_samples = NULL,
+  promotech_python = "python3",
+  promotech_download_model = TRUE,
+  promotech_model_base_url = .dnmb_promotech_default_model_base_url(),
+  mrnacal_upstream = 60L,
+  mrnacal_downstream = 60L,
+  mrnacal_rnafold_path = NULL,
+  mrnacal_require_rnafold = TRUE,
+  mrnacal_sd_seed = NULL,
+  mrnacal_top_folds = 12L,
+  rebasefinder_structure_tsv = NULL,
+  rebasefinder_structure_max_evalue = 0.001,
+  rebasefinder_structure_min_probability = 0.5,
+  rebasefinder_structure_min_tmscore = 0.45,
+  rebasefinder_homology_modeling = TRUE,
+  rebasefinder_homology_max_candidates = 24L,
+  rebasefinder_typeiii_context_genes = 3L,
+  iselement_analysis_depth = "standard",
+  iselement_related_genbanks = NULL,
+  iselement_related_metadata = NULL,
+  iselement_auto_discover_related = TRUE,
+  iselement_max_related = 5L
 )
 }
 \arguments{
 \item{db}{Optional character vector of module names to run.}
 
-\item{module_dbCAN, module_MEROPS, module_CLEAN}{Logical toggles used when
+\item{module_dbCAN, module_MEROPS, module_CLEAN, module_PAZy, module_GapMind, module_DefenseFinder, module_dbAPIS, module_AcrFinder, module_Promotech, module_mRNAcal, module_PADLOC, module_DefensePredictor, module_ISelement, module_Prophage}{Logical toggles used when
 \code{db} is not supplied.}
+
+\item{module_DefenseFinder_antidefense}{Logical; when \code{TRUE}, run
+DefenseFinder with AntiDefenseFinder enabled so anti-defense systems are
+collected alongside canonical defense systems.}
+
+\item{module_Prophage_backend}{Character backend for \code{Prophage}; one of
+\code{phispy}, \code{virsorter2}, or \code{pide}.}
 
 \item{genbank_table}{Optional gene table to use instead of the global
 \code{genbank_table}.}
@@ -52,6 +103,68 @@ assets.}
 of a list of per-module runs.}
 
 \item{verbose}{Logical; emit progress messages.}
+
+\item{promotech_predictions}{Optional precomputed Promotech
+\code{genome_predictions.csv}/TSV path. Supplying this avoids live model
+execution.}
+
+\item{promotech_model}{Promotech model name (\code{RF-HOT}, \code{RF-TETRA}, \code{GRU},
+or \code{LSTM}) used for live execution.}
+
+\item{promotech_threshold}{Numeric Promotech probability threshold.}
+
+\item{promotech_max_distance}{Maximum upstream distance, in bp, used to map
+promoter windows to genes.}
+
+\item{promotech_test_samples}{Optional Promotech test-sample size for short
+smoke runs.}
+
+\item{promotech_python}{Python executable for live Promotech execution.}
+
+\item{promotech_download_model}{Logical; when live Promotech execution is
+requested, download the selected model into the DNMB cache if it is
+missing.}
+
+\item{promotech_model_base_url}{Base URL for upstream Promotech model files.}
+
+\item{mrnacal_upstream, mrnacal_downstream}{Transcript-window lengths around
+the start codon used by the mRNAcal translation-initiation module.
+RNAplfold is run on a smaller local TIR window inside this extracted
+sequence for speed.}
+
+\item{mrnacal_rnafold_path}{Optional path to \code{RNAfold}; \code{NULL} auto-detects
+from \code{PATH}. Sibling \code{RNAplfold} and \code{RNAduplex} binaries are used when
+available.}
+
+\item{mrnacal_require_rnafold}{Logical; fail the module when \code{RNAfold} is
+unavailable. Set \code{FALSE} for sequence-only smoke runs.}
+
+\item{mrnacal_sd_seed}{Optional Shine-Dalgarno seed override.}
+
+\item{mrnacal_top_folds}{Number of high-scoring fold diagrams to draw.}
+
+\item{rebasefinder_structure_tsv}{Optional Foldseek/structure validation TSV
+to merge into REBASEfinder calls. Headered TSVs should include query/locus
+tag, target, and any of evalue, probability/prob, TM-score, bitscore.
+Headerless Foldseek BLAST-like tabular output is also accepted.}
+
+\item{rebasefinder_structure_max_evalue}{Maximum accepted Foldseek e-value.}
+
+\item{rebasefinder_structure_min_probability}{Minimum accepted Foldseek
+probability when present in the structure TSV.}
+
+\item{rebasefinder_structure_min_tmscore}{Minimum accepted alignment TM-score
+when present in the structure TSV.}
+
+\item{rebasefinder_homology_modeling}{Logical; screen selected candidates
+against bundled positive/decoy R-M templates and build eligible models with
+the local ProMod3 backend. No remote prediction API is used.}
+
+\item{rebasefinder_homology_max_candidates}{Maximum number of ranked,
+non-noise candidates submitted to the bundled template screen.}
+
+\item{rebasefinder_typeiii_context_genes}{Number of upstream/downstream genes
+inspected around Type III hits to rescue missing Mod/Res operon partners.}
 }
 \value{
 A named list of \code{dnmb_module_run} objects, or a merged data frame
@@ -63,6 +176,5 @@ supplied gene table and returns per-module results or a merged locus-level
 table.
 }
 \details{
-Live execution is currently implemented for \code{dbCAN}, \code{MEROPS}, and
-\code{CLEAN}.
+Live execution is currently implemented for \code{dbCAN}, \code{MEROPS}, \code{CLEAN}, \code{PAZy}, \code{GapMind}, \code{DefenseFinder}, \code{dbAPIS}, \code{AcrFinder}, \code{Promotech}, \code{mRNAcal}, \code{PADLOC}, \code{DefensePredictor}, \code{ISelement}, and \code{Prophage}.
 }

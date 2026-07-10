@@ -5,6 +5,8 @@ FokI_TypeIIS_1FOK	1FOK	Type IIS	R	A:R,B:exclude,C:exclude	Type IIS bipartite res
 HhaI_C5MTase_2HMY	2HMY	Type II	M	B:M	Type II C5 cytosine methyltransferase	SAM-dependent C5 cytosine MTase fold	HhaI methyltransferase with AdoMet
 LlaBIII_TypeISP_4XQK	4XQK	Type ISP	R/M	A:R/M,B:R/M	Type ISP single-polypeptide RM enzyme	SF2 helicase-like ATPase plus nuclease and MTase architecture	Type ISP LlaBIII-DNA complex
 BpuSI_TypeIIG_3S1S	3S1S	Type IIG	R/M	A:R/M	Type IIG fused restriction-modification enzyme	PD-x(15)-ExK REase plus N6-adenine MTase domain	BpuSI crystal structure
+MmeI_TypeIIL_5HR4	5HR4	Type IIL	R/M	A:R/M,C:R/M,J:R/M	Type IIL fused restriction-modification enzyme	PD-(D/E)XK REase plus gamma-class N6-adenine MTase and TRD	MmeI-DNA-sinefungin crystal structure
 TypeI_MTase_2AR0	2AR0	Type I	M	A:M,B:M	Type I methyltransferase-related fold	SAM-dependent MTase fold	Type I MTase structural comparator
 TypeI_MTase_2Y7C	2Y7C	Type I	M/S	A:S,B:M,C:M,D:exclude,E:exclude	Type I methyltransferase-specificity complex	SAM-dependent MTase fold with specificity subunit; Ocr chains excluded	Type I MTase structural comparator
 TypeI_MTase_3UFB	3UFB	Type I	M	A:M	Type I methyltransferase-related fold	SAM-dependent MTase fold	Type I MTase structural comparator
+KsgA_rRNA_MTase_1QYR	1QYR	non_RM	exclude	A:exclude	rRNA adenine dimethyltransferase decoy	SAM-dependent RNA MTase fold negative control	KsgA crystal structure used to prevent RNA-MTase structural rescue

@@ -38,6 +38,26 @@
       cgc_raw$dbCAN_family_id <- NA_character_
     }
     cgc_raw$dbcan_pul_substrate <- NA_character_
+    substrate_path <- file.path(output_dir, "dnmb_module_dbcan", "run_dbcan", "substrate_prediction.tsv")
+    if (file.exists(substrate_path) && isTRUE(file.info(substrate_path)$size > 0)) {
+      substrate <- tryCatch(
+        dnmb_dbcan_parse_substrate_table(substrate_path),
+        error = function(e) NULL
+      )
+      if (is.data.frame(substrate) && nrow(substrate) && "dbcan_cgc_id" %in% names(substrate)) {
+        substrate <- as.data.frame(substrate, stringsAsFactors = FALSE)
+        resolved_substrate <- substrate$dbcan_pul_substrate
+        if ("dbcan_sub_substrate" %in% names(substrate)) {
+          resolved_substrate <- ifelse(
+            is.na(resolved_substrate) | !nzchar(resolved_substrate),
+            substrate$dbcan_sub_substrate,
+            resolved_substrate
+          )
+        }
+        substrate_map <- stats::setNames(resolved_substrate, substrate$dbcan_cgc_id)
+        cgc_raw$dbcan_pul_substrate <- unname(substrate_map[cgc_raw$dbcan_cgc_id])
+      }
+    }
     tbl <- cgc_raw[!is.na(cgc_raw$dbcan_cgc_id) & nzchar(cgc_raw$dbcan_cgc_id), , drop = FALSE]
   } else {
     cgc_family_col <- .dnmb_pick_column(tbl, c("dbCAN_dbcan_cgc_protein_family", "dbCAN_cgc_protein_family", "dbcan_cgc_protein_family"))

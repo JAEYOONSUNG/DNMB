@@ -411,6 +411,11 @@
 #'   probability when present in the structure TSV.
 #' @param rebasefinder_structure_min_tmscore Minimum accepted alignment TM-score
 #'   when present in the structure TSV.
+#' @param rebasefinder_homology_modeling Logical; screen selected candidates
+#'   against bundled positive/decoy R-M templates and build eligible models with
+#'   the local ProMod3 backend. No remote prediction API is used.
+#' @param rebasefinder_homology_max_candidates Maximum number of ranked,
+#'   non-noise candidates submitted to the bundled template screen.
 #' @param rebasefinder_typeiii_context_genes Number of upstream/downstream genes
 #'   inspected around Type III hits to rescue missing Mod/Res operon partners.
 #' @param module_cpu Integer thread count for external tools.
@@ -472,6 +477,8 @@ run_module_set <- function(db = NULL,
                            rebasefinder_structure_max_evalue = 1e-3,
                            rebasefinder_structure_min_probability = 0.50,
                            rebasefinder_structure_min_tmscore = 0.45,
+                           rebasefinder_homology_modeling = TRUE,
+                           rebasefinder_homology_max_candidates = 24L,
                            rebasefinder_typeiii_context_genes = 3L,
                            iselement_analysis_depth = "standard",
                            iselement_related_genbanks = NULL,
@@ -961,6 +968,8 @@ run_module_set <- function(db = NULL,
         structure_max_evalue = rebasefinder_structure_max_evalue,
         structure_min_probability = rebasefinder_structure_min_probability,
         structure_min_tmscore = rebasefinder_structure_min_tmscore,
+        homology_modeling = isTRUE(rebasefinder_homology_modeling),
+        homology_max_candidates = as.integer(rebasefinder_homology_max_candidates),
         typeiii_context_neighbors = rebasefinder_typeiii_context_genes,
         cpu = as.integer(module_cpu)[1],
         verbose = verbose

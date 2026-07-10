@@ -22,7 +22,8 @@ if (.has_flag("--help") || .has_flag("-h")) {
     "Predict query PDB files from DNMB_REBASEfinder_structure_queries.faa ",
     "with inst/scripts/rebasefinder_esmfold_predict.R or another structure predictor.\n",
     "Output columns are compatible with DNMB REBASEfinder's ",
-    "rebasefinder_structure_tsv parser.\n",
+    "rebasefinder_structure_tsv parser. The output retains query/target coverage,\n",
+    "gap-aware sequence alignments, LDDT, and TM scores for motif-coordinate transfer.\n",
     sep = ""
   )
   quit(status = 0)
@@ -50,18 +51,22 @@ dir.create(tmp, recursive = TRUE, showWarnings = FALSE)
 
 raw_out <- tempfile(fileext = ".tsv")
 fmt <- paste(
-  c("query", "target", "prob", "evalue", "bits", "alntmscore", "rmsd", "lddt"),
+  c(
+    "query", "target", "prob", "evalue", "bits", "alntmscore",
+    "qtmscore", "ttmscore", "rmsd", "lddt", "qstart", "qend", "qlen",
+    "tstart", "tend", "tlen", "alnlen", "qcov", "tcov", "qaln", "taln"
+  ),
   collapse = ","
 )
 cmd_args <- c(
   "easy-search",
-  query,
-  target,
-  raw_out,
-  tmp,
+  shQuote(query),
+  shQuote(target),
+  shQuote(raw_out),
+  shQuote(tmp),
   "--threads", as.character(threads),
   "-v", as.character(verbosity),
-  "--format-output", fmt
+  "--format-output", shQuote(fmt)
 )
 
 status <- system2(foldseek, cmd_args)
@@ -70,6 +75,6 @@ if (!identical(status, 0L)) {
 }
 
 body <- if (file.exists(raw_out)) readLines(raw_out, warn = FALSE) else character()
-header <- "query\ttarget\tprob\tevalue\tbits\talntmscore\trmsd\tlddt"
+header <- paste(strsplit(fmt, ",", fixed = TRUE)[[1]], collapse = "\t")
 writeLines(c(header, body), out)
 cat("Wrote ", normalizePath(out, winslash = "/", mustWork = FALSE), "\n", sep = "")

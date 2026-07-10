@@ -137,6 +137,13 @@
     file.path(cache_dir, "rebase_db.fasta"),
     file.path(cache_dir, "rebase_bairoch_lookup.rds")
   )
+  template_manifest <- tryCatch(
+    .dnmb_rebasefinder_homology_manifest_path(),
+    error = function(e) NA_character_
+  )
+  if (!is.na(template_manifest) && file.exists(template_manifest)) {
+    files <- c(files, template_manifest)
+  }
   files <- files[file.exists(files)]
   info <- if (length(files)) file.info(files) else data.frame()
   file_state <- if (length(files)) {
@@ -151,12 +158,33 @@
   }
   file_state <- file_state[order(file_state$file), , drop = FALSE]
   rownames(file_state) <- NULL
+  promod3_layout <- tryCatch(
+    .dnmb_rebasefinder_promod3_layout(cache_root = cache_root, create = FALSE),
+    error = function(e) NULL
+  )
+  promod3_cli <- Sys.which("pm")
+  if (!nzchar(promod3_cli) &&
+      !is.null(promod3_layout) &&
+      .dnmb_rebasefinder_promod3_ready(promod3_layout)) {
+    promod3_cli <- promod3_layout$cli
+  }
   list(
     installed = file.exists(file.path(cache_dir, "rebase_data.rds")),
     module = "rebasefinder",
     version = "embedded",
     cache_dir = normalizePath(cache_dir, winslash = "/", mustWork = FALSE),
-    files = file_state
+    files = file_state,
+    homology_template_manifest_md5 = if (!is.na(template_manifest) && file.exists(template_manifest)) {
+      unname(tools::md5sum(template_manifest)[[1]])
+    } else {
+      NA_character_
+    },
+    promod3_available = nzchar(promod3_cli),
+    promod3_cli_mtime = if (nzchar(promod3_cli) && file.exists(promod3_cli)) {
+      format(file.info(promod3_cli)$mtime, "%Y-%m-%d %H:%M:%S %z")
+    } else {
+      NA_character_
+    }
   )
 }
 
@@ -288,7 +316,7 @@
   }
 
   list(
-    signature_version = 1L,
+    signature_version = 2L,
     genbank_signature = genbank_signature,
     module_aliases = aliases,
     requested = list(
@@ -312,6 +340,7 @@
       mrnacal_sd_seed = if (is.null(mrnacal_sd_seed)) NULL else as.character(mrnacal_sd_seed)[1],
       mrnacal_top_folds = as.integer(mrnacal_top_folds)[1],
       mrnacal_algorithm = if ("mRNAcal" %in% aliases) "rnaplfold_local_tir_ncs30_tircore_ncsdG_band_seed9_dup15_zband_v11" else NULL,
+      rebasefinder_homology_backend = if ("REBASEfinder" %in% aliases) "promod3-3.6.0-bundled-templates-v2" else NULL,
       iselement_analysis_depth = as.character(iselement_analysis_depth)[1],
       iselement_auto_discover_related = isTRUE(iselement_auto_discover_related),
       iselement_max_related = as.integer(iselement_max_related)[1]
@@ -492,7 +521,21 @@
   invisible(path)
 }
 
-.dnmb_module_stage_artifacts_exist <- function(alias, wd = getwd()) {
+.dnmb_module_stage_artifacts_exist <- function(alias, wd = getwd(), signature = NULL) {
+  if (identical(as.character(alias)[1], "REBASEfinder") &&
+      base::isTRUE(signature$requested$module_install)) {
+    audit_path <- base::file.path(wd, "dnmb_module_rebasefinder", "DNMB_REBASEfinder_homology_templates.tsv")
+    if (base::file.exists(audit_path)) {
+      audit <- tryCatch(
+        utils::read.delim(audit_path, stringsAsFactors = FALSE, check.names = FALSE),
+        error = function(e) base::data.frame()
+      )
+      retry <- base::nrow(audit) && base::all(c("model_eligible", "model_status") %in% base::names(audit)) &&
+        base::any(audit$model_eligible %in% TRUE &
+          base::grepl("^backend_unavailable", audit$model_status))
+      if (base::isTRUE(retry)) return(FALSE)
+    }
+  }
   # Completion sentinel is sufficient — written at the end of every
   # successful module run regardless of hit count.
   if (file.exists(.dnmb_module_completion_sentinel_path(alias, wd = wd))) {
@@ -594,7 +637,7 @@
       key %in% names(cache$module_results) && !is.null(cache$module_results[[key]])
     }, logical(1)))
     same_db <- identical(signature$db_state[[alias]], cached_sig$db_state[[alias]])
-    has_artifacts <- .dnmb_module_stage_artifacts_exist(alias, wd = wd)
+    has_artifacts <- .dnmb_module_stage_artifacts_exist(alias, wd = wd, signature = signature)
     isTRUE(has_result) && isTRUE(same_db) && isTRUE(has_artifacts)
   }, logical(1))
 

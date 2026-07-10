@@ -112,19 +112,30 @@ dnmb_plot_comparative_rebasefinder <- function(
       openxlsx::read.xlsx(xlsx_path, sheet = "RM_Comprehensive"),
       error = function(e) NULL
     )
-    if (is.null(tab) || !all(c("rm_type", "passed_blast_filter") %in% names(tab))) {
+    family_col <- if (!is.null(tab) && "final_family" %in% names(tab)) "final_family" else "rm_type"
+    pass_col <- if (!is.null(tab) && "curation_keep" %in% names(tab)) "curation_keep" else "passed_blast_filter"
+    if (is.null(tab) || !all(c(family_col, pass_col) %in% names(tab))) {
       if (verbose) message("  ", genome_id, " — 0 R-M hits (malformed xlsx)")
       next
     }
-    pass <- as.logical(tab$passed_blast_filter)
-    keep <- !is.na(pass) & pass & !is.na(tab$rm_type) & nzchar(as.character(tab$rm_type))
+    pass <- as.logical(tab[[pass_col]])
+    family <- base::as.character(tab[[family_col]])
+    keep <- !is.na(pass) & pass & !is.na(family) &
+      family %in% c("Type I", "Type II", "Type III", "Type IV")
+    if ("rm_association_class" %in% names(tab)) {
+      keep <- keep & tab$rm_association_class %in% c(
+        "classic_RM_supported",
+        "fused_RM_supported",
+        "modification_dependent_restriction_supported"
+      )
+    }
     if (!any(keep)) {
       if (verbose) message("  ", genome_id, " — 0 R-M hits (analyzed, empty)")
       next
     }
     systems_all[[length(systems_all) + 1L]] <- data.frame(
       File = genome_id,
-      subtype = as.character(tab$rm_type)[keep],
+      subtype = family[keep],
       stringsAsFactors = FALSE
     )
     if (verbose) message("  ", genome_id, " — ", sum(keep), " R-M hits")

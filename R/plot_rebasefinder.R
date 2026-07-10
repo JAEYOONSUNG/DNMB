@@ -1,3 +1,25 @@
+.dnmb_rebasefinder_cleanup_native_pdfs <- function(output_dir) {
+  output_dir <- base::normalizePath(
+    output_dir,
+    winslash = "/",
+    mustWork = FALSE
+  )
+  run_root <- if (base::basename(output_dir) == "dnmb_module_rebasefinder") {
+    base::dirname(output_dir)
+  } else {
+    output_dir
+  }
+  legacy_pdfs <- base::unique(c(
+    base::file.path(run_root, "RM_system_dotplot.pdf"),
+    base::file.path(run_root, "dnmb_module_rebasefinder", "RM_system_dotplot.pdf")
+  ))
+  existing <- legacy_pdfs[base::file.exists(legacy_pdfs)]
+  if (base::length(existing)) {
+    base::unlink(existing, force = TRUE)
+  }
+  base::invisible(existing)
+}
+
 .dnmb_plot_rebasefinder_overview <- function(genbank_table, output_dir, cache_root = NULL) {
   tbl <- .dnmb_contig_ordered_table(genbank_table)
   req <- "REBASEfinder_family_id"
@@ -15,12 +37,12 @@
   if ("REBASEfinder_typing_eligible" %in% names(tbl)) {
     tbl$REBASEfinder_typing_eligible <- as.logical(tbl$REBASEfinder_typing_eligible)
   }
-  # Infer enzyme_role from hit name when missing or inconsistent
+  # Curated roles are authoritative. Hit-name parsing is a legacy fallback only.
   if ("REBASEfinder_hit_label" %in% names(tbl) && "REBASEfinder_enzyme_role" %in% names(tbl)) {
     hit <- as.character(tbl$REBASEfinder_hit_label)
     inferred <- .dnmb_rebasefinder_role_from_hit(hit)
     fix <- !is.na(inferred) & (is.na(tbl$REBASEfinder_enzyme_role) |
-           tbl$REBASEfinder_enzyme_role != inferred)
+           !nzchar(as.character(tbl$REBASEfinder_enzyme_role)))
     tbl$REBASEfinder_enzyme_role[fix] <- inferred[fix]
   }
 
@@ -29,12 +51,32 @@
 
   # Motif verification
   motif_verified <- .dnmb_rebasefinder_motif_verified(tbl)
-  .dnmb_rebasefinder_write_motif_hits(output_dir, tbl)
+  motif_files <- .dnmb_rebasefinder_write_motif_hits(output_dir, tbl)
+  motif_geometry <- if (!base::is.null(motif_files) &&
+                        base::is.data.frame(motif_files$qualified)) {
+    tryCatch(
+      .dnmb_rebasefinder_write_motif_geometry(
+        output_dir = output_dir,
+        tbl = tbl,
+        motif_hits = motif_files$qualified
+      ),
+      error = function(e) list(pairs = data.frame(), summary = data.frame())
+    )
+  } else {
+    list(pairs = data.frame(), summary = data.frame())
+  }
+  motif_contacts <- tryCatch(
+    .dnmb_rebasefinder_read_motif_contacts(output_dir),
+    error = function(e) list(pairs = data.frame(), summary = data.frame())
+  )
 
   # Confidence filter
   has_eligible <- "REBASEfinder_typing_eligible" %in% names(tbl)
+  has_tier <- "REBASEfinder_curation_tier" %in% names(tbl)
   has_ev <- "REBASEfinder_evidence_mode" %in% names(tbl)
-  is_hc <- if (has_eligible) {
+  is_hc <- if (has_tier) {
+    !is.na(tbl$REBASEfinder_curation_tier) & tbl$REBASEfinder_curation_tier == "high"
+  } else if (has_eligible) {
     !is.na(tbl$REBASEfinder_typing_eligible) & tbl$REBASEfinder_typing_eligible == TRUE
   } else if (has_ev) {
     !is.na(tbl$REBASEfinder_evidence_mode) & tbl$REBASEfinder_evidence_mode == "high_confidence"
@@ -42,12 +84,18 @@
     rep(TRUE, nrow(tbl))
   }
 
-  n_hc <- sum(is_hc)
-  tbl_verified <- tbl[is_hc & motif_verified, , drop = FALSE]
+  inventory_scope <- .dnmb_rebasefinder_inventory_scope(tbl)
+  inventory_tbl <- tbl[inventory_scope$system_mask, , drop = FALSE]
+  inventory_hc <- is_hc[inventory_scope$system_mask]
+  inventory_verified <- motif_verified[inventory_scope$system_mask]
+  n_hc <- sum(inventory_hc, na.rm = TRUE)
+  n_verified <- sum(inventory_hc & inventory_verified, na.rm = TRUE)
 
   p_inventory <- .dnmb_plot_rebasefinder_inventory(
-    tbl, rm_palette,
-    n_total = nrow(tbl), n_hc = n_hc, n_verified = nrow(tbl_verified)
+    inventory_tbl, rm_palette,
+    n_total = nrow(inventory_tbl), n_hc = n_hc, n_verified = n_verified,
+    n_orphan_mtase = inventory_scope$n_orphan_mtase,
+    n_unassociated = inventory_scope$n_unassociated
   )
 
   p_context <- .dnmb_plot_rebasefinder_context(
@@ -79,10 +127,17 @@
     .dnmb_plot_rebasefinder_domain_map(tbl, display_info, uniprot_doms),
     error = function(e) empty_plot
   )
-  p_motif <- tryCatch(
-    .dnmb_plot_rebasefinder_motif_verification(tbl, display_info),
-    error = function(e) empty_plot
-  )
+	  p_motif <- tryCatch(
+	    .dnmb_plot_rebasefinder_motif_verification(
+	      tbl,
+	      display_info,
+	      geometry_pairs = motif_geometry$pairs,
+	      geometry_summary = motif_geometry$summary,
+	      contact_pairs = motif_contacts$pairs,
+	      contact_summary = motif_contacts$summary
+	    ),
+	    error = function(e) empty_plot
+	  )
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, "REBASE_overview.pdf")
@@ -90,14 +145,14 @@
   n_hits <- nrow(display_info)
   cd_inch <- max(2.8, 0.42 * n_hits + 0.8)
 
-  n_rm_types <- length(unique(tbl$REBASEfinder_family_id))
+  n_rm_types <- length(unique(inventory_tbl$REBASEfinder_family_id))
   a_inch <- max(0.7, 0.45 * n_rm_types + 0.5)
 
   # Build bottom row (C): BLAST, protein domain map, square motif heatmap.
   bottom_row <- tryCatch(
     cowplot::plot_grid(
       p_blast, p_domain, p_motif,
-      ncol = 3, rel_widths = c(1.65, 0.55, 1.55),
+      ncol = 3, rel_widths = c(1.55, 0.50, 1.70),
       align = "h", axis = "tb"
     ),
     error = function(e) NULL
@@ -143,6 +198,9 @@
   })
   total_height <- a_inch + 2.0 + 0.35 + cd_inch
   .dnmb_module_plot_save(composite, pdf_path, width = 18, height = min(22, max(10, total_height)))
+  if (base::file.exists(pdf_path) && base::file.info(pdf_path)$size > 500) {
+    .dnmb_rebasefinder_cleanup_native_pdfs(output_dir)
+  }
   list(pdf = pdf_path)
 }
 
@@ -182,7 +240,9 @@
   out <- ifelse(grepl("^typeI_context:S:", out), "Type I S (operon)", out)
   out <- ifelse(grepl("^typeIII_context:R:", out), "Type III R (operon)", out)
   out <- ifelse(grepl("^typeIII_context:M:", out), "Type III M (operon)", out)
-  out <- ifelse(grepl("^typeIV_context:", out), "Type IV Mrr-like", out)
+  out <- ifelse(grepl("^typeII_context:R:", out), "Type II R (operon)", out)
+  out <- ifelse(grepl("^typeII_context:M:", out), "Type II M (operon)", out)
+  out <- ifelse(grepl("^typeIV_context:", out), "Type IV MDRE", out)
   out
 }
 
@@ -212,7 +272,7 @@
     NA_character_
   }
   if (is.na(structure_status) || !nzchar(structure_status)) return("structure_not_available")
-  if (!identical(structure_status, "structure_supported")) return(structure_status)
+  if (!grepl("^structure_supported", structure_status)) return(structure_status)
   role <- if ("REBASEfinder_enzyme_role" %in% names(row)) as.character(row$REBASEfinder_enzyme_role[[1]]) else NA_character_
   structure_role <- if ("REBASEfinder_structure_role" %in% names(row)) as.character(row$REBASEfinder_structure_role[[1]]) else NA_character_
   chain_role <- if ("REBASEfinder_structure_chain_role" %in% names(row)) as.character(row$REBASEfinder_structure_chain_role[[1]]) else NA_character_
@@ -228,6 +288,7 @@
   if (is.null(detailed)) return(data.frame())
   motif_defs <- .dnmb_rebasefinder_motif_definitions()
   motif_names <- names(motif_defs)
+  annotations <- .dnmb_rebasefinder_gene_annotation_text(tbl)
 
   rows <- list()
   n <- 0L
@@ -239,19 +300,45 @@
     family <- if ("REBASEfinder_family_id" %in% names(tbl)) as.character(tbl$REBASEfinder_family_id[[i]]) else NA_character_
     hit_label <- if ("REBASEfinder_hit_label" %in% names(tbl)) as.character(tbl$REBASEfinder_hit_label[[i]]) else NA_character_
     structure_check <- .dnmb_rebasefinder_structure_motif_status(row)
+    assessment <- .dnmb_rebasefinder_motif_assessment(
+      detailed[[i]], role = role, family = family, annotation = annotations[[i]]
+    )
 
     for (mn in motif_names) {
       info <- detailed[[i]][[which(motif_names == mn)]]
-      if (is.null(info) || is.null(info$hits) || !length(info$hits)) next
       def <- motif_defs[[mn]]
-      for (h in info$hits) {
-        n <- n + 1L
-        expected_role <- .dnmb_rebasefinder_motif_role_label(def)
-        role_relevant <- if (is.na(role) || !nzchar(role)) {
-          NA
-        } else {
-          .dnmb_rebasefinder_motif_role_match(def, role, family)
+      expected_role <- .dnmb_rebasefinder_motif_role_label(def)
+      role_relevant <- if (is.na(role) || !nzchar(role)) {
+        NA
+      } else {
+        .dnmb_rebasefinder_motif_role_match(def, role, family)
+      }
+      motif_evidence_level <- if (isTRUE(assessment$supported[[mn]])) {
+        if (identical(def$evidence_kind, "domain_architecture")) "architecture_supported" else "supported"
+      } else if (isTRUE(assessment$hint[[mn]])) {
+        if (identical(def$evidence_kind, "domain_architecture")) "architecture_candidate" else "sequence_hint"
+      } else if (isTRUE(role_relevant)) {
+        "raw_unqualified"
+      } else {
+        "raw_non_role"
+      }
+      hit_rows <- if (!is.null(info) && !is.null(info$hits) && length(info$hits)) {
+        info$hits
+      } else if (motif_evidence_level %in% c("architecture_supported", "architecture_candidate")) {
+        list(list(
+          match = assessment$derived_label[[mn]], pos = NA_integer_, end = NA_integer_,
+          in_range = TRUE
+        ))
+      } else {
+        list()
+      }
+      if (!length(hit_rows)) next
+      for (h in hit_rows) {
+        evidence_level <- motif_evidence_level
+        if (evidence_level == "supported" && !is.null(def$pos_range) && !isTRUE(h$in_range)) {
+          evidence_level <- "raw_unqualified"
         }
+        n <- n + 1L
         rows[[n]] <- data.frame(
           locus_tag = locus,
           family_id = family,
@@ -260,6 +347,12 @@
           motif = mn,
           motif_description = def$full,
           regex = def$pattern,
+          evidence_kind = def$evidence_kind,
+          evidence_level = evidence_level,
+          coherent_architecture = evidence_level %in% c("supported", "architecture_supported"),
+          gene_functional_verified = assessment$verified,
+          mtase_architecture = assessment$mtase_architecture,
+          typeiv_architecture = assessment$typeiv_architecture,
           expected_role = expected_role,
           role_relevant = role_relevant,
           match = h$match,
@@ -283,7 +376,10 @@
   if (!length(rows)) return(data.frame())
   out <- do.call(rbind, rows)
   if (isTRUE(role_relevant_only) && "role_relevant" %in% names(out)) {
-    out <- out[is.na(out$role_relevant) | out$role_relevant, , drop = FALSE]
+    qualified <- out$evidence_level %in% c(
+      "supported", "architecture_supported", "sequence_hint", "architecture_candidate"
+    )
+    out <- out[(is.na(out$role_relevant) | out$role_relevant) & qualified, , drop = FALSE]
   }
   if (!nrow(out)) return(out)
   out[order(out$locus_tag, out$start_aa, out$motif), , drop = FALSE]
@@ -292,7 +388,7 @@
 .dnmb_rebasefinder_write_motif_hits <- function(output_dir, tbl) {
   raw <- .dnmb_rebasefinder_motif_hits_table(tbl, role_relevant_only = FALSE)
   if (!nrow(raw)) return(invisible(NULL))
-  out <- raw[is.na(raw$role_relevant) | raw$role_relevant, , drop = FALSE]
+  out <- .dnmb_rebasefinder_motif_hits_table(tbl, role_relevant_only = TRUE)
   module_dir <- file.path(output_dir, "dnmb_module_rebasefinder")
   dir.create(module_dir, recursive = TRUE, showWarnings = FALSE)
   # Remove stray copies left in the run root by older versions of this writer.
@@ -319,7 +415,9 @@
     tsv = tsv,
     xlsx = if (file.exists(xlsx)) xlsx else NA_character_,
     raw_tsv = raw_tsv,
-    raw_xlsx = if (file.exists(raw_xlsx)) raw_xlsx else NA_character_
+    raw_xlsx = if (file.exists(raw_xlsx)) raw_xlsx else NA_character_,
+    qualified = out,
+    raw = raw
   ))
 }
 
@@ -425,7 +523,9 @@
 .dnmb_rebasefinder_display_labels <- function(tbl) {
   has_hit      <- "REBASEfinder_hit_label" %in% names(tbl)
   has_rec      <- "REBASEfinder_rec_seq" %in% names(tbl)
+  has_ref_rec  <- "REBASEfinder_reference_rec_seq" %in% names(tbl)
   has_eligible <- "REBASEfinder_typing_eligible" %in% names(tbl)
+  has_tier <- "REBASEfinder_curation_tier" %in% names(tbl)
   has_identity <- "REBASEfinder_blast_identity" %in% names(tbl)
   has_blastlen <- "REBASEfinder_blast_length" %in% names(tbl)
   has_translation <- "translation" %in% names(tbl)
@@ -435,10 +535,16 @@
 
   hit_label <- if (has_hit) .dnmb_rebasefinder_pretty_hit_label(tbl$REBASEfinder_hit_label) else tbl$locus_tag
   rec_seq   <- if (has_rec) as.character(tbl$REBASEfinder_rec_seq) else NA_character_
+  ref_rec_seq <- if (has_ref_rec) as.character(tbl$REBASEfinder_reference_rec_seq) else NA_character_
+  valid_rec <- !is.na(rec_seq) & nzchar(rec_seq) & rec_seq != "?"
+  valid_ref_rec <- !is.na(ref_rec_seq) & nzchar(ref_rec_seq) & ref_rec_seq != "?"
   identity  <- if (has_identity) tbl$REBASEfinder_blast_identity else rep(NA_real_, nrow(tbl))
   operon    <- group_info$operon_group[match(tbl$locus_tag, group_info$locus_tag)]
   operon[is.na(operon) | !nzchar(operon)] <- as.character(tbl$locus_tag[is.na(operon) | !nzchar(operon)])
-  confidence <- if (has_eligible) {
+  confidence <- if (has_tier) {
+    ifelse(tbl$REBASEfinder_curation_tier == "high", "High",
+      ifelse(tbl$REBASEfinder_curation_tier == "medium", "Medium", "Low"))
+  } else if (has_eligible) {
     ifelse(tbl$REBASEfinder_typing_eligible == TRUE, "High", "Low")
   } else if (has_identity) {
     ifelse(!is.na(identity) & identity >= 0.5, "High", "Low")
@@ -475,9 +581,13 @@
     rep("", nrow(tbl))
   }
   second_line <- ifelse(
-    !is.na(rec_seq) & nzchar(rec_seq) & rec_seq != "?",
+    valid_rec,
     paste0("rec: ", rec_seq, " | ", tbl$locus_tag),
-    as.character(tbl$locus_tag)
+    ifelse(
+      valid_ref_rec,
+      paste0("ref rec: ", ref_rec_seq, " | ", tbl$locus_tag),
+      as.character(tbl$locus_tag)
+    )
   )
   display <- paste0(base_label, qual_tag, partial_tag, "\n", second_line)
 
@@ -518,27 +628,79 @@
 # ====================================================================
 # Panel A
 # ====================================================================
+.dnmb_rebasefinder_inventory_scope <- function(tbl) {
+  tbl <- base::as.data.frame(tbl, stringsAsFactors = FALSE)
+  n <- base::nrow(tbl)
+  if (!n || !"REBASEfinder_rm_association_class" %in% base::names(tbl)) {
+    return(list(
+      system_mask = base::rep(TRUE, n),
+      n_orphan_mtase = 0L,
+      n_unassociated = 0L
+    ))
+  }
+
+  association <- base::as.character(tbl$REBASEfinder_rm_association_class)
+  supported <- association %in% c(
+    "classic_RM_supported",
+    "fused_RM_supported",
+    "modification_dependent_restriction_supported"
+  )
+  orphan_mtase <- association == "DNA_MTase_RM_association_unproven"
+  orphan_mtase[base::is.na(orphan_mtase)] <- FALSE
+  supported[base::is.na(supported)] <- FALSE
+  list(
+    system_mask = supported,
+    n_orphan_mtase = base::sum(orphan_mtase),
+    n_unassociated = base::sum(!supported)
+  )
+}
+
 .dnmb_plot_rebasefinder_inventory <- function(tbl, palette,
                                               n_total = nrow(tbl),
                                               n_hc = nrow(tbl),
-                                              n_verified = nrow(tbl)) {
+                                              n_verified = nrow(tbl),
+                                              n_orphan_mtase = 0L,
+                                              n_unassociated = 0L) {
   if (!nrow(tbl)) {
+    detail <- if (n_orphan_mtase > 0L) {
+      paste0(n_orphan_mtase, " orphan DNA MTase locus/loci retained in detailed panels")
+    } else if (n_unassociated > 0L) {
+      paste0(n_unassociated, " unassociated candidate locus/loci retained in detailed panels")
+    } else {
+      "No curated R-M loci"
+    }
     return(ggplot2::ggplot() + ggplot2::theme_void() +
              ggplot2::annotate("text", x = 0.5, y = 0.5,
-                               label = paste0("No motif-verified hits (",
-                                              n_hc, " high-confidence / ", n_total, " total)"),
+                               label = paste0("No association-supported R-M loci\n", detail),
                                size = 4, color = "grey50"))
   }
 
 	  has_role <- "REBASEfinder_enzyme_role" %in% names(tbl)
 	  has_rec  <- "REBASEfinder_rec_seq" %in% names(tbl)
+	  has_ref_rec <- "REBASEfinder_reference_rec_seq" %in% names(tbl)
 	  has_id   <- "REBASEfinder_blast_identity" %in% names(tbl)
 	  has_eligible <- "REBASEfinder_typing_eligible" %in% names(tbl)
+	  has_tier <- "REBASEfinder_curation_tier" %in% names(tbl)
 	  has_struct <- "REBASEfinder_structure_status" %in% names(tbl)
 	  has_typeiii_ctx <- "REBASEfinder_typeiii_context_status" %in% names(tbl)
 	  identity_vec <- if (has_id) suppressWarnings(as.numeric(tbl$REBASEfinder_blast_identity)) else rep(NA_real_, nrow(tbl))
-	  eligible_vec <- if (has_eligible) as.logical(tbl$REBASEfinder_typing_eligible) else rep(TRUE, nrow(tbl))
+	  eligible_vec <- if (has_tier) {
+	    tbl$REBASEfinder_curation_tier %in% c("high", "medium")
+	  } else if (has_eligible) {
+	    as.logical(tbl$REBASEfinder_typing_eligible)
+	  } else {
+	    rep(TRUE, nrow(tbl))
+	  }
 	  tbl$.inventory_meaningful <- eligible_vec %in% TRUE & (is.na(identity_vec) | identity_vec > 0.40)
+	  rec <- if (has_rec) as.character(tbl$REBASEfinder_rec_seq) else rep(NA_character_, nrow(tbl))
+	  ref_rec <- if (has_ref_rec) as.character(tbl$REBASEfinder_reference_rec_seq) else rep(NA_character_, nrow(tbl))
+	  valid_rec <- !is.na(rec) & nzchar(rec) & rec != "?"
+	  valid_ref_rec <- !is.na(ref_rec) & nzchar(ref_rec) & ref_rec != "?"
+	  tbl$.inventory_rec_label <- ifelse(
+	    valid_rec,
+	    paste0("rec:", rec),
+	    ifelse(valid_ref_rec, paste0("ref:", ref_rec), NA_character_)
+	  )
 
 	  inv <- tbl |>
 	    dplyr::group_by(.data$REBASEfinder_family_id) |>
@@ -547,13 +709,12 @@
 	      n_meaningful = sum(.data$.inventory_meaningful, na.rm = TRUE),
 	      n_weak = .data$n_genes - .data$n_meaningful,
 	      roles = if (has_role) paste(sort(unique(stats::na.omit(.data$REBASEfinder_enzyme_role))), collapse = "/") else "",
-      n_structure = if (has_struct) sum(.data$REBASEfinder_structure_status == "structure_supported", na.rm = TRUE) else 0L,
+      n_structure = if (has_struct) sum(grepl("^structure_supported", .data$REBASEfinder_structure_status), na.rm = TRUE) else 0L,
       n_typeiii_complete = if (has_typeiii_ctx) sum(.data$REBASEfinder_typeiii_context_status == "complete_mod_res", na.rm = TRUE) else 0L,
-      rec_seqs = if (has_rec) {
-        seqs <- unique(stats::na.omit(.data$REBASEfinder_rec_seq))
-        seqs <- seqs[nzchar(seqs) & seqs != "?"]
-        if (length(seqs)) paste(seqs[seq_len(min(3, length(seqs)))], collapse = ", ") else ""
-      } else "",
+	      rec_seqs = {
+	        seqs <- unique(stats::na.omit(.data$.inventory_rec_label))
+	        if (length(seqs)) paste(seqs[seq_len(min(3, length(seqs)))], collapse = ", ") else ""
+	      },
       mean_identity = if (has_id) mean(.data$REBASEfinder_blast_identity, na.rm = TRUE) else NA_real_,
       .groups = "drop"
     )
@@ -585,8 +746,18 @@
       if (inv$n_structure[i] > 0) paste0("structure: ", inv$n_structure[i]) else NULL,
       if (inv$n_typeiii_complete[i] > 0) paste0("Type III operon: ", inv$n_typeiii_complete[i]) else NULL
     ), collapse = " | ")
-    if (nzchar(inv$rec_seqs[i])) paste0(line1, "\nrec: ", inv$rec_seqs[i]) else line1
+	    if (nzchar(inv$rec_seqs[i])) paste0(line1, "\n", inv$rec_seqs[i]) else line1
   }, character(1))
+
+	  unassociated_note <- if (n_unassociated > 0L) {
+	    paste0(
+	      " | ", n_unassociated, " unassociated candidate",
+	      ifelse(n_unassociated == 1L, "", "s"), " shown in detailed panels",
+	      if (n_orphan_mtase > 0L) paste0(" (", n_orphan_mtase, " orphan DNA MTase)") else ""
+	    )
+	  } else {
+	    ""
+	  }
 
 	  ggplot2::ggplot(inv, ggplot2::aes(y = .data$REBASEfinder_family_id)) +
 	    ggplot2::geom_col(
@@ -602,9 +773,10 @@
 	    ggplot2::scale_alpha_manual(values = c(meaningful = 0.9, weak = 0.25)) +
     ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0.02, 0.65)),
                                 breaks = seq(0, max(inv$n_genes), by = max(1, ceiling(max(inv$n_genes) / 10)))) +
-    ggplot2::labs(title = paste0("R-M system inventory (", n_verified, " verified / ",
-                                  n_hc, " high-conf / ", n_total, " total)"),
-                  x = "Genes detected", y = NULL) +
+	    ggplot2::labs(title = paste0("R-M system inventory (", n_verified, " associated loci with complete functional suite / ",
+	                                  n_hc, " high-conf / ", n_total, " associated loci)",
+	                                  unassociated_note),
+	                  x = "Genes detected", y = NULL) +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(
       panel.grid.minor = ggplot2::element_blank(),
@@ -644,7 +816,15 @@
   contig_lengths$contig_short <- contig_map[contig_lengths$contig]
 
   has_eligible <- "REBASEfinder_typing_eligible" %in% names(rm_tbl)
-  is_hc <- if (has_eligible) !is.na(rm_tbl$REBASEfinder_typing_eligible) & rm_tbl$REBASEfinder_typing_eligible == TRUE else rep(TRUE, nrow(rm_tbl))
+  has_tier <- "REBASEfinder_curation_tier" %in% names(rm_tbl)
+  confidence <- if (has_tier) {
+    ifelse(rm_tbl$REBASEfinder_curation_tier == "high", "High",
+      ifelse(rm_tbl$REBASEfinder_curation_tier == "medium", "Medium", "Low"))
+  } else if (has_eligible) {
+    ifelse(!is.na(rm_tbl$REBASEfinder_typing_eligible) & rm_tbl$REBASEfinder_typing_eligible == TRUE, "High", "Low")
+  } else {
+    rep("High", nrow(rm_tbl))
+  }
 
   has_identity <- "REBASEfinder_blast_identity" %in% names(rm_tbl)
   blast_id <- if (has_identity) rm_tbl$REBASEfinder_blast_identity else rep(NA_real_, nrow(rm_tbl))
@@ -653,7 +833,7 @@
                           start = rm_tbl$start, end = rm_tbl$end,
                           rm_type = as.character(rm_tbl$REBASEfinder_family_id),
                           identity = blast_id,
-                          confidence = ifelse(is_hc, "High", "Low"), stringsAsFactors = FALSE)
+                          confidence = confidence, stringsAsFactors = FALSE)
 
   rm_genes$midpoint <- (rm_genes$start + rm_genes$end) / 2
   rm_genes$track <- 1
@@ -670,6 +850,7 @@
 
   has_hit <- "REBASEfinder_hit_label" %in% names(rm_tbl)
   has_rec <- "REBASEfinder_rec_seq" %in% names(rm_tbl)
+  has_ref_rec <- "REBASEfinder_reference_rec_seq" %in% names(rm_tbl)
   short_label <- if (has_hit) {
     hit_lab <- .dnmb_rebasefinder_pretty_hit_label(rm_tbl$REBASEfinder_hit_label)
     sl <- sub("ORF[0-9]+P$", "", hit_lab)
@@ -677,7 +858,12 @@
   } else as.character(rm_tbl$REBASEfinder_family_id)
   # Add locus_tag, then recognition sequence at the bottom
   short_label <- paste0(short_label, "\n", rm_tbl$locus_tag)
-  if (has_rec) { rec <- as.character(rm_tbl$REBASEfinder_rec_seq); short_label <- ifelse(!is.na(rec) & nzchar(rec) & rec != "?", paste0(short_label, "\n(", rec, ")"), short_label) }
+  rec <- if (has_rec) as.character(rm_tbl$REBASEfinder_rec_seq) else rep(NA_character_, nrow(rm_tbl))
+  ref_rec <- if (has_ref_rec) as.character(rm_tbl$REBASEfinder_reference_rec_seq) else rep(NA_character_, nrow(rm_tbl))
+  valid_rec <- !is.na(rec) & nzchar(rec) & rec != "?"
+  valid_ref_rec <- !is.na(ref_rec) & nzchar(ref_rec) & ref_rec != "?"
+  short_label <- ifelse(valid_rec, paste0(short_label, "\n(", rec, ")"), short_label)
+  short_label <- ifelse(!valid_rec & valid_ref_rec, paste0(short_label, "\n(ref: ", ref_rec, ")"), short_label)
   if ("REBASEfinder_partial_status" %in% names(rm_tbl)) {
     is_partial <- !is.na(rm_tbl$REBASEfinder_partial_status) &
       rm_tbl$REBASEfinder_partial_status == "partial_or_short"
@@ -687,7 +873,7 @@
   }
   rm_genes$label <- short_label
   rm_hc <- rm_genes[rm_genes$confidence == "High", , drop = FALSE]
-  rm_lc <- rm_genes[rm_genes$confidence == "Low", , drop = FALSE]
+  rm_lc <- rm_genes[rm_genes$confidence != "High", , drop = FALSE]
 
   # Split labels into isolated (geom_text) vs crowded (geom_text_repel)
   # based on proximity of midpoints within each contig
@@ -762,7 +948,7 @@
     ggplot2::facet_wrap(~ contig_short, ncol = 1, scales = "free_x") +
     ggplot2::scale_y_continuous(limits = c(0.4, 1.9), expand = c(0, 0)) +
     ggplot2::scale_x_continuous(labels = function(x) ifelse(x >= 1e6, paste0(round(x / 1e6, 1), " Mb"), ifelse(x >= 1e3, paste0(round(x / 1e3), " kb"), x)), expand = ggplot2::expansion(mult = c(0.01, 0.01))) +
-    ggplot2::labs(title = "R-M system genome context", subtitle = "solid = high-confidence, dashed = low-confidence | color intensity = BLAST identity", x = "Position", y = NULL) +
+    ggplot2::labs(title = "R-M system genome context", subtitle = "solid = high-confidence, dashed = medium/review | color intensity = BLAST identity", x = "Position", y = NULL) +
     ggplot2::theme_bw(base_size = 10) +
     ggplot2::theme(panel.grid = ggplot2::element_blank(), axis.text.y = ggplot2::element_blank(), axis.ticks.y = ggplot2::element_blank(),
                    strip.text = ggplot2::element_text(face = "bold", size = 9), strip.background = ggplot2::element_rect(fill = "grey95"),
@@ -948,8 +1134,9 @@
       show.legend = FALSE
     )
   }
-	  plot_tbl$foldseek_supported <- plot_tbl$structure_coverage_status == "foldseek_supported" |
-	    (plot_tbl$structure_status == "structure_supported" & plot_tbl$structure_pass %in% TRUE)
+	  plot_tbl$foldseek_supported <- grepl("^foldseek_supported", plot_tbl$structure_coverage_status) |
+	    (grepl("^structure_supported", plot_tbl$structure_status) & plot_tbl$structure_pass %in% TRUE)
+	  plot_tbl$foldseek_supported[is.na(plot_tbl$foldseek_supported)] <- FALSE
 	  struct_tbl <- plot_tbl[plot_tbl$foldseek_supported & !is.na(plot_tbl$identity), , drop = FALSE]
   if (nrow(struct_tbl)) {
     p <- p + ggplot2::geom_point(
@@ -1001,7 +1188,7 @@
 	    paste(subtitle_parts, collapse = if (has_ggtext) "<br>" else "\n")
 	  } else NULL
 
-  panel_core <- p + ggplot2::scale_shape_manual(values = c(High = 21, Low = 1), name = "Confidence") +
+  panel_core <- p + ggplot2::scale_shape_manual(values = c(High = 21, Medium = 22, Low = 1), name = "Confidence") +
     ggplot2::annotate("text", x = 49, y = Inf, label = "low", hjust = 1, vjust = 1.5,
                       size = 2.3, color = "#BF360C", fontface = "italic") +
     ggplot2::annotate("text", x = 51, y = Inf, label = "high confidence", hjust = 0, vjust = 1.5,
@@ -1098,45 +1285,121 @@
   )
 }
 
+.dnmb_rebasefinder_curated_mtase_motif_verified <- function(tbl) {
+  n <- base::nrow(tbl)
+  out <- base::rep(NA, n)
+  if ("REBASEfinder_mtase_motif_verified" %in% base::names(tbl)) {
+    out <- suppressWarnings(base::as.logical(tbl$REBASEfinder_mtase_motif_verified))
+  }
+  missing <- base::which(base::is.na(out))
+  if (!base::length(missing)) return(out)
+
+  translations <- if ("translation" %in% base::names(tbl)) {
+    base::as.character(tbl$translation)
+  } else {
+    base::rep(NA_character_, n)
+  }
+  annotations <- .dnmb_rebasefinder_gene_annotation_text(tbl)
+  out[missing] <- base::vapply(missing, function(i) {
+    .dnmb_rebasefinder_mtase_sequence_signals(translations[[i]], annotations[[i]])$verified
+  }, logical(1))
+  out
+}
+
 .dnmb_rebasefinder_methylation_annotations <- function(tbl, cache_root = NULL) {
   n <- nrow(tbl)
+  rec_seq <- if ("REBASEfinder_rec_seq" %in% names(tbl)) as.character(tbl$REBASEfinder_rec_seq) else rep(NA_character_, n)
+  reference_rec_seq <- if ("REBASEfinder_reference_rec_seq" %in% names(tbl)) {
+    as.character(tbl$REBASEfinder_reference_rec_seq)
+  } else {
+    rep(NA_character_, n)
+  }
+  rec_seq[rec_seq %in% c("", "?", "NA")] <- NA_character_
+  reference_rec_seq[reference_rec_seq %in% c("", "?", "NA")] <- NA_character_
+  use_reference <- is.na(rec_seq) & !is.na(reference_rec_seq)
+  rec_seq[use_reference] <- reference_rec_seq[use_reference]
   out <- data.frame(
     locus_tag = if ("locus_tag" %in% names(tbl)) as.character(tbl$locus_tag) else rep(NA_character_, n),
     meth_type = rep(NA_character_, n),
     meth_pos = rep(NA_character_, n),
     meth_all = rep(NA_character_, n),
-    rec_seq = if ("REBASEfinder_rec_seq" %in% names(tbl)) as.character(tbl$REBASEfinder_rec_seq) else rep(NA_character_, n),
+    rec_seq = rec_seq,
+    rec_source = ifelse(use_reference, "rebase_reference", ifelse(!is.na(rec_seq), "query_prediction", NA_character_)),
     meth_source = rep(NA_character_, n),
     stringsAsFactors = FALSE
   )
-  out$rec_seq[out$rec_seq %in% c("", "?", "NA")] <- NA_character_
   if (!n) return(out)
 
   bairoch <- tryCatch(.dnmb_rebasefinder_download_bairoch(cache_root = cache_root), error = function(e) NULL)
   hit <- if ("REBASEfinder_hit_label" %in% names(tbl)) as.character(tbl$REBASEfinder_hit_label) else rep(NA_character_, n)
   if (!is.null(bairoch) && nrow(bairoch)) {
-    exact <- match(hit, bairoch$enzyme_name)
-    exact_ok <- !is.na(exact)
-    out$meth_type[exact_ok] <- .dnmb_rebasefinder_meth_type_label(bairoch$meth_type[exact[exact_ok]])
-    out$meth_pos[exact_ok] <- as.character(bairoch$meth_pos[exact[exact_ok]])
-    out$meth_all[exact_ok] <- as.character(bairoch$meth_all[exact[exact_ok]])
-    out$rec_seq[exact_ok] <- ifelse(!is.na(bairoch$rec_seq[exact[exact_ok]]) & nzchar(bairoch$rec_seq[exact[exact_ok]]),
-                                    as.character(bairoch$rec_seq[exact[exact_ok]]), out$rec_seq[exact_ok])
-    out$meth_source[exact_ok] <- "bairoch_exact"
+    donor <- if ("REBASEfinder_recognition_donor" %in% names(tbl)) {
+      as.character(tbl$REBASEfinder_recognition_donor)
+    } else {
+      rep(NA_character_, n)
+    }
+    recognition_match <- if ("REBASEfinder_recognition_match" %in% names(tbl)) {
+      as.character(tbl$REBASEfinder_recognition_match)
+    } else {
+      rep(NA_character_, n)
+    }
+    bairoch_name <- trimws(as.character(bairoch$enzyme_name))
+    bairoch_rec <- as.character(bairoch$rec_seq)
+    bairoch_type <- as.character(bairoch$meth_type)
+    bairoch_pos <- as.character(bairoch$meth_pos)
+    bairoch_all <- as.character(bairoch$meth_all)
+
+    for (i in seq_len(n)) {
+      candidate_names <- c(donor[[i]], recognition_match[[i]], hit[[i]])
+      candidate_sources <- c("recognition_donor", "recognition_match", "clean_hit")
+      candidate_names <- .dnmb_rebasefinder_clean_rebase_subject(candidate_names)
+      valid_candidate <- !is.na(candidate_names) & nzchar(candidate_names) &
+        !grepl("_context:", candidate_names, fixed = TRUE)
+      candidate_names <- candidate_names[valid_candidate]
+      candidate_sources <- candidate_sources[valid_candidate]
+      if (!length(candidate_names)) next
+
+      for (j in seq_along(candidate_names)) {
+        exact <- which(bairoch_name == candidate_names[[j]])
+        if (!length(exact)) next
+        exact_rec <- exact[!is.na(bairoch_rec[exact]) & nzchar(bairoch_rec[exact])]
+        if (length(exact_rec) && (is.na(out$rec_seq[[i]]) || !nzchar(out$rec_seq[[i]]))) {
+          out$rec_seq[[i]] <- bairoch_rec[[exact_rec[[1]]]]
+          out$rec_source[[i]] <- paste0("rebase_", candidate_sources[[j]])
+        }
+        exact_meth <- exact[!is.na(bairoch_type[exact]) & nzchar(bairoch_type[exact])]
+        if (!length(exact_meth)) next
+        exact_meth <- exact_meth[[1]]
+        out$meth_type[[i]] <- .dnmb_rebasefinder_meth_type_label(bairoch_type[[exact_meth]])
+        out$meth_pos[[i]] <- bairoch_pos[[exact_meth]]
+        out$meth_all[[i]] <- bairoch_all[[exact_meth]]
+        out$meth_source[[i]] <- paste0("bairoch_", candidate_sources[[j]])
+        break
+      }
+    }
 
     rec_known <- !is.na(out$rec_seq) & nzchar(out$rec_seq)
     rec_missing_type <- rec_known & is.na(out$meth_type)
     if (any(rec_missing_type)) {
       for (i in which(rec_missing_type)) {
-        idx <- which(!is.na(bairoch$rec_seq) & bairoch$rec_seq == out$rec_seq[[i]] &
-                       !is.na(bairoch$meth_type) & nzchar(bairoch$meth_type))
-        if (length(idx)) {
-          idx <- idx[[1]]
-          out$meth_type[[i]] <- .dnmb_rebasefinder_meth_type_label(bairoch$meth_type[[idx]])
-          out$meth_pos[[i]] <- as.character(bairoch$meth_pos[[idx]])
-          out$meth_all[[i]] <- as.character(bairoch$meth_all[[idx]])
-          out$meth_source[[i]] <- "bairoch_rec_seq"
-        }
+        idx <- which(!is.na(bairoch_rec) & bairoch_rec == out$rec_seq[[i]] &
+                       !is.na(bairoch_type) & nzchar(bairoch_type))
+        if (!length(idx)) next
+        inferred_type <- .dnmb_rebasefinder_meth_type_label(bairoch_type[idx])
+        inferred_pos <- trimws(bairoch_pos[idx])
+        inferred_pos[is.na(inferred_pos) | !nzchar(inferred_pos)] <- NA_character_
+        valid <- !is.na(inferred_type) & nzchar(inferred_type)
+        if (!any(valid)) next
+        idx <- idx[valid]
+        inferred_type <- inferred_type[valid]
+        inferred_pos <- inferred_pos[valid]
+        signatures <- paste(inferred_type, ifelse(is.na(inferred_pos), "<NA>", inferred_pos), sep = "\r")
+        if (length(unique(signatures)) != 1L) next
+        chosen <- idx[[1]]
+        out$meth_type[[i]] <- inferred_type[[1]]
+        out$meth_pos[[i]] <- inferred_pos[[1]]
+        out$meth_all[[i]] <- bairoch_all[[chosen]]
+        out$meth_source[[i]] <- "bairoch_rec_seq_unique"
       }
     }
   }
@@ -1159,10 +1422,12 @@
       missing_rec <- idx[is.na(out$rec_seq[idx]) | !nzchar(out$rec_seq[idx])]
       if (length(missing_rec) && !is.na(out$rec_seq[[donor]]) && nzchar(out$rec_seq[[donor]])) {
         out$rec_seq[missing_rec] <- out$rec_seq[[donor]]
+        out$rec_source[missing_rec] <- paste0("operon_", out$rec_source[[donor]])
       }
     }
   }
 
+  curated_mtase_pair <- .dnmb_rebasefinder_curated_mtase_motif_verified(tbl)
   detailed <- .dnmb_rebasefinder_scan_motifs_detailed(tbl)
   if (!is.null(detailed)) {
     motif_names <- names(.dnmb_rebasefinder_motif_definitions())
@@ -1172,7 +1437,8 @@
       if (!is.na(out$meth_type[[i]])) next
       c5_hit <- length(c5_idx) && detailed[[i]][[c5_idx]]$status %in% c("present", "present*")
       amino_hit <- length(amino_idx) && detailed[[i]][[amino_idx]]$status %in% c("present", "present*")
-      if (isTRUE(c5_hit)) {
+      mtase_pair <- curated_mtase_pair[[i]]
+      if (isTRUE(c5_hit) && isTRUE(mtase_pair)) {
         out$meth_type[[i]] <- "N5C"
         out$meth_pos[[i]] <- "?"
         out$meth_source[[i]] <- "motif_fallback"
@@ -1211,104 +1477,7 @@
 #   (GIY-YIG), Schluckebier+ 1995 (SAM fold), Murray 2000 (Type I)
 # ====================================================================
 .dnmb_rebasefinder_motif_definitions <- function() {
-  list(
-    # -- Methyltransferase motifs (M subunits) --
-    "SAM"     = list(pattern = "[FYW].G.[GA]",
-                     expected_role = "M",
-                     full = "SAM/AdoMet motif I FxGxG/FxGxA",
-                     pos_range = c(0.02, 0.95),
-                     weight = 3L),
-    "Amino-IV" = list(pattern = "[DNS]PP[YFW]",
-                     expected_role = "M",
-                     full = "Amino-MTase catalytic motif IV [DNS]PP[YFW] (N4C/N6A class)",
-                     pos_range = c(0.20, 0.70),
-                     weight = 3L),
-    "N5C-PC"  = list(pattern = "[PE]C[QG]",
-                     expected_role = "M",
-                     full = "N5C C5-MTase catalytic PC motif [PE]C[QG]",
-                     pos_range = c(0.30, 0.55),
-                     weight = 3L),
-    # -- Type I specificity subunit signatures (S subunits) --
-    "HsdS-FxGxA" = list(pattern = "[FYW].G.[GA]",
-                        expected_role = "S",
-                        expected_family = "Type I",
-                        full = "Type I HsdS specificity-subunit conserved FxGxA/FxGxG signature",
-                        pos_range = c(0.02, 0.95),
-                        weight = 2L),
-    # -- REase / nuclease motifs (R subunits) --
-    "PD-ExK"  = list(pattern = "PD.{8,20}[DE][LIVMFY]K",
-                     expected_role = "R",
-                     expected_family = "Type II",
-                     full = "REase PD-(D/E)xK catalytic triad",
-                     pos_range = c(0.05, 0.65),
-                     weight = 3L),
-    "HNH"     = list(pattern = "H.{1,3}N.{5,40}H",
-                     expected_role = "R",
-                     expected_family = "Type II",
-                     full = "HNH nuclease (His-Asn-His)",
-                     pos_range = NULL,
-                     weight = 3L),
-    "GIY-YIG" = list(pattern = "G[LIVMA]Y.{2,4}Y[IVLA]G",
-                     expected_role = "R",
-                     expected_family = "Type II",
-                     full = "GIY-YIG endonuclease",
-                     pos_range = c(0.0, 0.40),
-                     weight = 3L),
-    "P-loop"  = list(pattern = "[AG].{4}GK[ST]",
-                     expected_role = "R",
-                     expected_family = "Type I",
-                     full = "Walker A / P-loop ATPase GxxxxGK[ST]",
-                     pos_range = c(0.20, 0.55),
-                     weight = 2L),
-	    "DEAD"    = list(pattern = "DE[AHCF][DHQ]",
-	                     expected_role = "R",
-	                     expected_family = "Type I",
-	                     full = "Walker B / DEAD-box helicase (Type I HsdR)",
-	                     pos_range = c(0.25, 0.60),
-	                     weight = 2L),
-	    "HsdR-MIII" = list(pattern = "[ST]AT",
-	                       expected_role = "R",
-	                       expected_family = "Type I",
-	                       full = "Type I HsdR helicase motif III [ST]AT",
-	                       pos_range = c(0.25, 0.62),
-	                       weight = 1L),
-    "PLD"     = list(pattern = "H[LIVMF]K.{4}D",
-                     expected_role = "R",
-                     expected_family = "Type II",
-                     full = "PLD/HKD phosphodiesterase nuclease",
-                     pos_range = NULL,
-                     weight = 2L),
-    "ResIII-WA" = list(pattern = "[AG].{4}GK[ST]",
-                       expected_role = "R",
-                       expected_family = "Type III",
-                       full = "Type III Res Walker A / P-loop ATPase",
-                       pos_range = c(0.05, 0.45),
-                       weight = 2L),
-	    "ResIII-WB" = list(pattern = "DE.H",
-	                       expected_role = "R",
-	                       expected_family = "Type III",
-	                       full = "Type III Res Walker B DExH helicase",
-	                       pos_range = c(0.10, 0.60),
-	                       weight = 2L),
-	    "ResIII-MIII" = list(pattern = "[ST]AT",
-	                         expected_role = "R",
-	                         expected_family = "Type III",
-	                         full = "Type III Res helicase motif III [ST]AT",
-	                         pos_range = c(0.25, 0.55),
-	                         weight = 1L),
-    "ResIII-PD" = list(pattern = "PD.{1,25}[DE].K",
-                       expected_role = "R",
-                       expected_family = "Type III",
-                       full = "Type III Res C-terminal PD-(D/E)xK nuclease",
-                       pos_range = c(0.55, 0.98),
-                       weight = 3L),
-    "Mrr"     = list(pattern = "D.{8,15}[EQ].[KR].{20,60}[DE].{0,5}[KR]",
-                     expected_role = "R",
-                     expected_family = "Type IV",
-                     full = "Mrr-like Type IV REase (modified-DNA restriction)",
-                     pos_range = c(0.10, 0.70),
-                     weight = 2L)
-  )
+  .dnmb_rebasefinder_motif_catalog()
 }
 
 .dnmb_rebasefinder_motif_roles <- function(def) {
@@ -1332,18 +1501,23 @@
   families <- .dnmb_rebasefinder_motif_families(def)
   if (!base::length(families)) return(TRUE)
   family <- base::as.character(family)[1]
-  if (base::is.na(family) || !base::nzchar(family)) return(TRUE)
+  if (base::is.na(family) || !base::nzchar(family)) return(FALSE)
   family %in% families
 }
 
 .dnmb_rebasefinder_motif_role_match <- function(def, role, family = NA_character_) {
   role <- base::as.character(role)[1]
-  !base::is.na(role) && base::nzchar(role) &&
-    role %in% .dnmb_rebasefinder_motif_roles(def) &&
-    .dnmb_rebasefinder_motif_family_match(def, family)
+  if (base::is.na(role) || !base::nzchar(role)) return(FALSE)
+  expected <- .dnmb_rebasefinder_motif_roles(def)
+  role_match <- role %in% expected ||
+    (role == "RM" && base::any(expected %in% c("M", "R")))
+  role_match && .dnmb_rebasefinder_motif_family_match(def, family)
 }
 
 .dnmb_rebasefinder_motif_primary_role <- function(def) {
+  if (!base::is.null(def$axis) && !base::is.na(def$axis) && base::nzchar(def$axis)) {
+    return(base::as.character(def$axis)[1])
+  }
   roles <- .dnmb_rebasefinder_motif_roles(def)
   if (!base::length(roles)) NA_character_ else roles[[1]]
 }
@@ -1360,6 +1534,236 @@
   if (is.null(pos_range) || is.na(pos) || prot_len <= 0) return(TRUE)
   frac <- pos / prot_len
   frac >= pos_range[1] && frac <= pos_range[2]
+}
+
+.dnmb_rebasefinder_motif_info_positions <- function(gene_result, name, in_range_only = FALSE) {
+  info <- gene_result[[name]]
+  if (base::is.null(info) || !base::length(info$hits)) return(integer())
+  hits <- info$hits
+  if (isTRUE(in_range_only)) hits <- base::Filter(function(hit) isTRUE(hit$in_range), hits)
+  if (!base::length(hits)) integer() else base::vapply(hits, `[[`, integer(1), "pos")
+}
+
+.dnmb_rebasefinder_motif_text_count <- function(text, pattern) {
+  text <- base::tolower(base::as.character(text)[1])
+  if (base::is.na(text) || !base::nzchar(text)) return(0L)
+  hit <- base::gregexpr(pattern, text, perl = TRUE)[[1]]
+  if (!base::length(hit) || hit[[1]] < 1L) 0L else base::length(hit)
+}
+
+.dnmb_rebasefinder_motif_assessment <- function(gene_result,
+                                                 role,
+                                                 family,
+                                                 annotation = NA_character_) {
+  definitions <- .dnmb_rebasefinder_motif_definitions()
+  motif_names <- base::names(definitions)
+  supported <- stats::setNames(base::rep(FALSE, base::length(motif_names)), motif_names)
+  hint <- supported
+  derived_label <- stats::setNames(base::rep(NA_character_, base::length(motif_names)), motif_names)
+  applicable <- stats::setNames(base::vapply(definitions, function(definition) {
+    .dnmb_rebasefinder_motif_role_match(definition, role, family)
+  }, logical(1)), motif_names)
+  present <- stats::setNames(base::vapply(motif_names, function(name) {
+    info <- gene_result[[name]]
+    !base::is.null(info) && !base::is.null(info$n_hits) && info$n_hits > 0L
+  }, logical(1)), motif_names)
+
+  annotation <- base::as.character(annotation)[1]
+  if (base::is.na(annotation)) annotation <- ""
+  annotation_lower <- base::tolower(annotation)
+  flags <- .dnmb_rebasefinder_annotation_flags(annotation)
+  dna_mtase <- isTRUE(flags$dna_mtase[[1]]) && !isTRUE(flags$explicit_non_dna_mtase[[1]])
+  c5_domain <- base::grepl(
+    "pf00145|c5[-_ ]?dna[-_ ]?methyl|cytosine-5.*dna.*methyl",
+    annotation_lower,
+    perl = TRUE
+  )
+  rm_rease <- isTRUE(flags$rm_rease[[1]]) &&
+    !base::any(c(flags$repair_nuclease[[1]], flags$unrelated_helicase[[1]],
+                 flags$mobile_nuclease[[1]], flags$other_defense[[1]]))
+
+  ordered <- function(names, max_span = Inf, in_range_only = FALSE) {
+    .dnmb_rebasefinder_motif_ordered(
+      base::lapply(names, function(name) {
+        .dnmb_rebasefinder_motif_info_positions(gene_result, name, in_range_only = in_range_only)
+      }),
+      max_span = max_span
+    )
+  }
+
+  amino_pair <- present[["SAM"]] && present[["Amino-IV"]]
+  c5_pair <- ordered(c("N5C-PC", "N5C-ENV"), max_span = 250L)
+  c5_extended <- ordered(c("N5C-PC", "N5C-ENV", "N5C-QxRxR"), max_span = 450L)
+  mmei_sequence <- ordered(c("MmeI-X", "MmeI-I", "Amino-IV"), max_span = 650L)
+  mmei_domain_count <- base::sum(base::vapply(
+    c("pf20465", "pf20466", "pf20467", "pf20473"),
+    function(pattern) base::grepl(pattern, annotation_lower, fixed = TRUE),
+    logical(1)
+  ))
+  mmei_architecture <- mmei_domain_count >= 3L || (
+    base::grepl("mmei", annotation_lower, fixed = TRUE) &&
+      base::grepl("target recognition", annotation_lower, fixed = TRUE) &&
+      base::grepl("dna-methyltransferase domain", annotation_lower, fixed = TRUE)
+  )
+
+  if (dna_mtase && amino_pair) supported[c("SAM", "Amino-IV")] <- TRUE
+  if (dna_mtase && c5_pair) {
+    supported[c("N5C-PC", "N5C-ENV")] <- TRUE
+    if (c5_extended) supported[["N5C-QxRxR"]] <- TRUE
+    if (present[["SAM"]]) supported[["SAM"]] <- TRUE
+  }
+  if (mmei_architecture) {
+    supported[["MmeI-architecture"]] <- TRUE
+    derived_label[["MmeI-architecture"]] <- paste0(mmei_domain_count, "-dom")
+    for (name in c("MmeI-X", "MmeI-I", "Amino-IV", "MmeI-PDExK")) {
+      if (present[[name]]) supported[[name]] <- TRUE
+    }
+  }
+  c5_names <- c("N5C-PC", "N5C-ENV", "N5C-QxRxR")
+  if (role %in% c("M", "RM")) {
+    if (c5_domain || c5_pair) {
+      applicable[["Amino-IV"]] <- FALSE
+    } else {
+      applicable[c5_names] <- FALSE
+    }
+    if (mmei_architecture) {
+      applicable[c5_names] <- FALSE
+      applicable[c("PD-ExK", "HNH", "GIY-YIG", "PLD-HKD")] <- FALSE
+    }
+  }
+  if (dna_mtase) {
+    hint[["Amino-IV"]] <- present[["Amino-IV"]] && !supported[["Amino-IV"]]
+    hint[["SAM"]] <- present[["SAM"]] && present[["Amino-IV"]] && !supported[["SAM"]]
+    if (c5_domain && (present[["N5C-PC"]] || present[["N5C-ENV"]])) {
+      hint[["N5C-PC"]] <- present[["N5C-PC"]] && !supported[["N5C-PC"]]
+      hint[["N5C-ENV"]] <- present[["N5C-ENV"]] && !supported[["N5C-ENV"]]
+    }
+  }
+
+  hsd_s_count <- base::max(c(
+    .dnmb_rebasefinder_motif_text_count(annotation, "pf01420"),
+    .dnmb_rebasefinder_motif_text_count(annotation, "type i restriction modification dna specificity domain"),
+    .dnmb_rebasefinder_motif_text_count(annotation, "rmtype1_s_[a-z0-9_-]+")
+  ))
+  if (identical(role, "S") && identical(family, "Type I")) {
+    if (hsd_s_count >= 2L) {
+      supported[["HsdS-2TRD"]] <- TRUE
+      derived_label[["HsdS-2TRD"]] <- "2x TRD"
+    } else if (isTRUE(flags$rm_specificity[[1]])) {
+      hint[["HsdS-2TRD"]] <- TRUE
+      derived_label[["HsdS-2TRD"]] <- if (hsd_s_count == 1L) "1x TRD" else "HsdS profile"
+    }
+  }
+
+  hsd_motor <- ordered(c("P-loop", "HsdR-WB", "HsdR-MIII"), max_span = 750L, in_range_only = TRUE)
+  typeiii_motor <- ordered(c("ResIII-WA", "ResIII-WB", "ResIII-MIII"), max_span = 750L, in_range_only = TRUE)
+  if (identical(role, "R") && identical(family, "Type I") && rm_rease) {
+    if (hsd_motor) supported[c("P-loop", "HsdR-WB", "HsdR-MIII")] <- TRUE
+    motor_present <- present[c("P-loop", "HsdR-WB", "HsdR-MIII")]
+    if (base::sum(motor_present) >= 2L && !hsd_motor) {
+      hint[base::names(motor_present)[motor_present]] <- TRUE
+    }
+    hsd_pd_in_range <- base::length(.dnmb_rebasefinder_motif_info_positions(
+      gene_result, "HsdR-PD", in_range_only = TRUE
+    )) > 0L
+    if (hsd_pd_in_range) supported[["HsdR-PD"]] <- TRUE
+  }
+  if (identical(role, "R") && identical(family, "Type III") && rm_rease) {
+    if (typeiii_motor) supported[c("ResIII-WA", "ResIII-WB", "ResIII-MIII")] <- TRUE
+    motor_present <- present[c("ResIII-WA", "ResIII-WB", "ResIII-MIII")]
+    if (base::sum(motor_present) >= 2L && !typeiii_motor) {
+      hint[base::names(motor_present)[motor_present]] <- TRUE
+    }
+    typeiii_pd_in_range <- base::length(.dnmb_rebasefinder_motif_info_positions(
+      gene_result, "ResIII-PD", in_range_only = TRUE
+    )) > 0L
+    if (typeiii_pd_in_range) supported[["ResIII-PD"]] <- TRUE
+    if (present[["ResIII-PD"]] && !typeiii_pd_in_range) hint[["ResIII-PD"]] <- TRUE
+  }
+
+  hnh_domain <- base::grepl("\\bhnh\\b|h-n-h|pf01844|pf13391", annotation_lower, perl = TRUE)
+  giy_domain <- base::grepl("giy[-_ ]?yig|pf01541|pf02820", annotation_lower, perl = TRUE)
+  pld_domain <- base::grepl("pf13091|pldc_2|pld[- ]like|phospholipase d/nuclease|hkd", annotation_lower, perl = TRUE)
+  pld_count <- base::length(.dnmb_rebasefinder_motif_info_positions(gene_result, "PLD-HKD"))
+  typeii_role <- role %in% c("R", "RM") && identical(family, "Type II")
+  if (typeii_role && rm_rease) {
+    if (present[["PD-ExK"]]) supported[["PD-ExK"]] <- TRUE
+    if (present[["HNH"]] && hnh_domain) supported[["HNH"]] <- TRUE
+    if (present[["GIY-YIG"]] && (giy_domain || !base::any(c(flags$repair_nuclease[[1]], flags$mobile_nuclease[[1]])))) {
+      supported[["GIY-YIG"]] <- TRUE
+    }
+    if (pld_count >= 2L && pld_domain) supported[["PLD-HKD"]] <- TRUE
+    if (pld_count == 1L && pld_domain) hint[["PLD-HKD"]] <- TRUE
+  }
+
+  typeiv_label <- NA_character_
+  typeiv_display <- NA_character_
+  if (identical(role, "R") && identical(family, "Type IV")) {
+    resiii_pld <- base::grepl("pf04851|resiii|dexhc_re_i_iii_res", annotation_lower, perl = TRUE) && pld_domain
+    mspji <- base::grepl("mspji|pvu?rts1i|sauusi", annotation_lower, perl = TRUE)
+    mcr <- base::grepl("\\bmcr[abc]\\b", annotation_lower, perl = TRUE)
+    if (isTRUE(flags$typeiv_gmrsd[[1]])) {
+      typeiv_label <- "GmrSD domains"; typeiv_display <- "GmrSD"
+    } else if (resiii_pld) {
+      typeiv_label <- "ResIII+PLD"; typeiv_display <- "Res+PLD"
+    } else if (isTRUE(flags$typeiv_mrr[[1]])) {
+      typeiv_label <- "Mrr PF04471"; typeiv_display <- "Mrr"
+    } else if (mspji) {
+      typeiv_label <- "MspJI/PvuRts1I"; typeiv_display <- "MspJI"
+    } else if (mcr) {
+      typeiv_label <- "McrBC profile"; typeiv_display <- "McrBC"
+    }
+    if (!base::is.na(typeiv_label)) {
+      supported[["TypeIV-profile"]] <- TRUE
+      derived_label[["TypeIV-profile"]] <- typeiv_display
+    } else if (isTRUE(flags$typeiv_specific[[1]])) {
+      hint[["TypeIV-profile"]] <- TRUE
+      derived_label[["TypeIV-profile"]] <- "Type IV profile"
+    }
+  }
+
+  m_complete <- (dna_mtase && (amino_pair || c5_pair)) || (mmei_architecture && mmei_sequence)
+  typeii_nuclease <- base::any(supported[c("PD-ExK", "HNH", "GIY-YIG", "PLD-HKD")])
+  mmei_nuclease <- mmei_architecture && present[["MmeI-PDExK"]]
+  sequence_available <- base::any(base::vapply(gene_result, function(info) {
+    !base::is.null(info$prot_len) && !base::is.na(info$prot_len) && info$prot_len > 0L
+  }, logical(1)))
+  architecture_supported <- base::any(supported[c(
+    "MmeI-architecture", "HsdS-2TRD", "TypeIV-profile"
+  )])
+  verified <- if (base::is.na(role) || !base::nzchar(role) ||
+                  (!sequence_available && !architecture_supported)) {
+    NA
+  } else if (role == "M") {
+    m_complete
+  } else if (role == "S") {
+    if (identical(family, "Type I")) supported[["HsdS-2TRD"]] else NA
+  } else if (role == "RM") {
+    m_complete && (mmei_nuclease || typeii_nuclease) && mmei_architecture
+  } else if (role == "R" && identical(family, "Type I")) {
+    hsd_motor && supported[["HsdR-PD"]]
+  } else if (role == "R" && identical(family, "Type III")) {
+    typeiii_motor && supported[["ResIII-PD"]]
+  } else if (role == "R" && identical(family, "Type II")) {
+    typeii_nuclease
+  } else if (role == "R" && identical(family, "Type IV")) {
+    supported[["TypeIV-profile"]]
+  } else {
+    NA
+  }
+
+  supported <- supported & applicable
+  hint <- hint & applicable & !supported
+  list(
+    applicable = applicable,
+    present = present,
+    supported = supported,
+    hint = hint,
+    derived_label = derived_label,
+    verified = verified,
+    mtase_architecture = if (mmei_sequence) "MmeI_X-I-IV" else if (c5_extended) "C5_PCQ-ENV-QxRxR" else if (c5_pair) "C5_PCQ-ENV" else if (amino_pair) "amino_I-IV" else NA_character_,
+    typeiv_architecture = typeiv_label
+  )
 }
 
 # ====================================================================
@@ -1385,13 +1789,13 @@
   # Co-occurrence bonuses
   sam_hit <- "SAM" %in% has
   if (sam_hit && "Amino-IV" %in% has) score <- score + 3L      # amino-MTase pair
-  if (sam_hit && "N5C-PC" %in% has) score <- score + 3L        # C5-MTase pair
-  if ("HsdS-FxGxA" %in% has) score <- score + 2L               # Type I HsdS specificity signature
-  hsd_r_motifs <- c("P-loop", "DEAD", "HsdR-MIII")
+  if (all(c("N5C-PC", "N5C-ENV") %in% has)) score <- score + 3L
+  if (all(c("MmeI-X", "MmeI-I", "Amino-IV") %in% has)) score <- score + 4L
+  hsd_r_motifs <- c("P-loop", "HsdR-WB", "HsdR-MIII")
   if (all(hsd_r_motifs %in% has)) score <- score + 4L            # Type I HsdR helicase
   else if (sum(hsd_r_motifs %in% has) >= 2L) score <- score + 2L
-  if (all(c("ResIII-WA", "ResIII-WB", "ResIII-PD") %in% has)) score <- score + 4L
-  else if (sum(c("ResIII-WA", "ResIII-WB", "ResIII-PD") %in% has) >= 2L) score <- score + 2L
+  if (all(c("ResIII-WA", "ResIII-WB", "ResIII-MIII", "ResIII-PD") %in% has)) score <- score + 4L
+  else if (sum(c("ResIII-WA", "ResIII-WB", "ResIII-MIII", "ResIII-PD") %in% has) >= 2L) score <- score + 2L
   # Protein length penalty for very short ORFs
   min_len <- if (!is.na(role) && role %in% c("M", "S")) 200L else if (!is.na(role) && role == "R") 150L else 100L
   if (prot_len < min_len) score <- max(0L, score - 3L)
@@ -1410,19 +1814,25 @@
   has_family <- "REBASEfinder_family_id" %in% names(tbl)
 
   results <- lapply(seq_len(nrow(tbl)), function(i) {
-    seq <- toupper(as.character(tbl$translation[i]))
-    prot_len <- nchar(seq)
-    if (is.na(seq) || !nzchar(seq)) {
-      return(lapply(motif_names, function(mn) list(
+    seq <- .dnmb_rebasefinder_normalize_protein(tbl$translation[i])
+    prot_len <- if (is.na(seq)) 0L else nchar(seq)
+    if (is.na(seq)) {
+      return(stats::setNames(lapply(motif_names, function(mn) list(
         status = NA, hits = list(), n_hits = 0L, prot_len = 0L,
-        pos = NA_integer_, match = NA_character_, match_len = NA_integer_
-      )))
+        n_in_range = 0L, pos = NA_integer_, match = NA_character_, match_len = NA_integer_
+      )), motif_names))
     }
     role <- if (has_role) as.character(tbl$REBASEfinder_enzyme_role[i]) else NA_character_
     family <- if (has_family) as.character(tbl$REBASEfinder_family_id[i]) else NA_character_
 
-    lapply(motif_names, function(mn) {
-      m <- gregexpr(motif_defs[[mn]]$pattern, seq, perl = TRUE)[[1]]
+    stats::setNames(lapply(motif_names, function(mn) {
+      pattern <- motif_defs[[mn]]$pattern
+      if (is.null(pattern) || is.na(pattern) || !nzchar(pattern)) {
+        return(list(status = "absent", hits = list(), n_hits = 0L,
+                    prot_len = prot_len, n_in_range = 0L,
+                    pos = NA_integer_, match = NA_character_, match_len = NA_integer_))
+      }
+      m <- gregexpr(pattern, seq, perl = TRUE)[[1]]
       if (m[1] > 0) {
         mlens <- attr(m, "match.length")
         all_hits <- lapply(seq_along(m), function(k) {
@@ -1451,7 +1861,7 @@
              prot_len = prot_len, n_in_range = 0L,
              pos = NA_integer_, match = NA_character_, match_len = NA_integer_)
       }
-    })
+    }), motif_names)
   })
   stats::setNames(results, tbl$locus_tag)
 }
@@ -1493,7 +1903,7 @@
 
   vapply(seq_len(nrow(tbl)), function(i) {
     role <- if (has_role) as.character(tbl$REBASEfinder_enzyme_role[i]) else NA_character_
-    if (is.na(role) || !role %in% c("M", "S")) return(NA_character_)
+    if (is.na(role) || !role %in% c("M", "S", "RM")) return(NA_character_)
     annot$meth_type[[i]]
   }, character(1))
 }
@@ -1504,31 +1914,19 @@
 # "present*" / "present*~" = wrong role
 .dnmb_rebasefinder_motif_verified <- function(tbl) {
   detailed <- .dnmb_rebasefinder_scan_motifs_detailed(tbl)
-  if (is.null(detailed)) return(rep(TRUE, nrow(tbl)))
+  if (is.null(detailed)) return(rep(NA, nrow(tbl)))
 
   has_role <- "REBASEfinder_enzyme_role" %in% names(tbl)
   has_family <- "REBASEfinder_family_id" %in% names(tbl)
-  has_translation <- "translation" %in% names(tbl)
-  motif_defs <- .dnmb_rebasefinder_motif_definitions()
-  motif_names <- names(motif_defs)
+  annotations <- .dnmb_rebasefinder_gene_annotation_text(tbl)
 
   vapply(seq_len(nrow(tbl)), function(i) {
     role <- if (has_role) as.character(tbl$REBASEfinder_enzyme_role[i]) else NA_character_
     family <- if (has_family) as.character(tbl$REBASEfinder_family_id[i]) else NA_character_
-    if (is.na(role) || !nzchar(role)) return(TRUE)
-    prot_len <- if (has_translation) nchar(as.character(tbl$translation[i])) else 0L
-    # Co-occurrence score
-    sc <- .dnmb_rebasefinder_motif_score(detailed[[i]], role, prot_len, family = family, motif_defs = motif_defs)
-    # Require at least one role-matched motif in expected position
-    expected_idx <- which(vapply(motif_names, function(mn) {
-      .dnmb_rebasefinder_motif_role_match(motif_defs[[mn]], role, family)
-    }, logical(1)))
-    if (!length(expected_idx)) return(TRUE)
-    has_match <- any(vapply(expected_idx, function(j) {
-      s <- detailed[[i]][[j]]$status
-      !is.na(s) && grepl("^present", s)
-    }, logical(1)))
-    has_match && sc$score >= 2L
+    assessment <- .dnmb_rebasefinder_motif_assessment(
+      detailed[[i]], role = role, family = family, annotation = annotations[[i]]
+    )
+    assessment$verified
   }, logical(1))
 }
 
@@ -1536,7 +1934,282 @@
 # ====================================================================
 # Panel D: Motif Verification Tile — with residue + position
 # ====================================================================
-.dnmb_plot_rebasefinder_motif_verification <- function(tbl, display_info) {
+.dnmb_rebasefinder_core_catalytic_pairs <- function() {
+  pairs <- base::data.frame(
+    pair_group = c(
+      "amino_mtase", "c5_mtase", "mmei_mtase", "pld_nuclease",
+      "hsdr_nuclease_motor", "resiii_nuclease_motor"
+    ),
+    motif_a = c("SAM", "N5C-PC", "MmeI-I", "PLD-HKD", "HsdR-PD", "ResIII-PD"),
+    motif_b = c("Amino-IV", "N5C-ENV", "Amino-IV", "PLD-HKD", "P-loop", "ResIII-WA"),
+    stringsAsFactors = FALSE
+  )
+  pairs$pair_key <- base::vapply(base::seq_len(base::nrow(pairs)), function(i) {
+    base::paste(base::sort(c(pairs$motif_a[[i]], pairs$motif_b[[i]])), collapse = "|")
+  }, character(1))
+  pairs
+}
+
+.dnmb_rebasefinder_pair_key <- function(motif_a, motif_b) {
+  motif_a <- base::as.character(motif_a)
+  motif_b <- base::as.character(motif_b)
+  base::mapply(function(a, b) {
+    if (base::is.na(a) || base::is.na(b) || !base::nzchar(a) || !base::nzchar(b)) {
+      return(NA_character_)
+    }
+    base::paste(base::sort(c(a, b)), collapse = "|")
+  }, motif_a, motif_b, USE.NAMES = FALSE)
+}
+
+.dnmb_rebasefinder_core_pair_for_locus <- function(locus,
+                                                    tbl,
+                                                    long,
+                                                    specs) {
+  locus <- .dnmb_module_clean_annotation_key(locus)
+  tbl_locus <- .dnmb_module_clean_annotation_key(tbl$locus_tag)
+  idx <- base::match(locus, tbl_locus)
+  if (base::is.na(idx)) return(specs[0, , drop = FALSE])
+
+  value_at <- function(candidates) {
+    col <- base::intersect(candidates, base::names(tbl))
+    if (!base::length(col)) return(NA_character_)
+    base::as.character(tbl[[col[[1]]]][[idx]])
+  }
+  family <- value_at(c("REBASEfinder_family_id", "family_id"))
+  role <- value_at(c("REBASEfinder_enzyme_role", "enzyme_role"))
+  canonical_family <- .dnmb_rebasefinder_canonical_structure_family(family)
+  locus_long <- long[.dnmb_module_clean_annotation_key(long$locus_tag) == locus, , drop = FALSE]
+  motif_status <- stats::setNames(base::as.character(locus_long$status), base::as.character(locus_long$motif))
+  status_for <- function(motif) {
+    if (!motif %in% base::names(motif_status)) return(NA_character_)
+    value <- motif_status[motif]
+    if (!base::length(value)) NA_character_ else base::as.character(value[[1]])
+  }
+  relevant <- function(motifs) {
+    status <- base::vapply(motifs, status_for, character(1))
+    base::all(!base::is.na(status) & status != "na")
+  }
+  detected <- function(motifs) {
+    status <- base::vapply(motifs, status_for, character(1))
+    base::any(status %in% c("supported", "hint"))
+  }
+
+  groups <- character()
+  if (!base::is.na(role) && role %in% c("M", "RM")) {
+    mmei_signal <- relevant(c("MmeI-I", "Amino-IV")) &&
+      detected(c("MmeI-I", "MmeI-architecture"))
+    c5_signal <- relevant(c("N5C-PC", "N5C-ENV")) &&
+      detected(c("N5C-PC", "N5C-ENV"))
+    if (mmei_signal) {
+      groups <- c(groups, "mmei_mtase")
+    } else if (c5_signal) {
+      groups <- c(groups, "c5_mtase")
+    } else if (relevant(c("SAM", "Amino-IV"))) {
+      groups <- c(groups, "amino_mtase")
+    }
+  }
+  if (!base::is.na(role) && role %in% c("R", "RM")) {
+    if (base::identical(canonical_family, "Type I")) {
+      groups <- c(groups, "hsdr_nuclease_motor")
+    } else if (base::identical(canonical_family, "Type III")) {
+      groups <- c(groups, "resiii_nuclease_motor")
+    } else if (base::identical(canonical_family, "Type II") &&
+               relevant(c("PLD-HKD")) && detected(c("PLD-HKD"))) {
+      groups <- c(groups, "pld_nuclease")
+    }
+  }
+  specs[specs$pair_group %in% base::unique(groups), , drop = FALSE]
+}
+
+.dnmb_rebasefinder_catalytic_pair_boxes <- function(tbl,
+                                                     long,
+                                                     display_info,
+                                                     display_lvls,
+                                                     motif_levels,
+                                                     geometry_pairs = NULL,
+                                                     geometry_summary = NULL,
+                                                     contact_pairs = NULL) {
+  empty <- base::data.frame(
+    locus_tag = character(), pair_group = character(), motif_a = character(),
+    motif_b = character(), pair_state = character(), xmin = numeric(),
+    xmax = numeric(), ymin = numeric(), ymax = numeric(), stringsAsFactors = FALSE
+  )
+  specs <- .dnmb_rebasefinder_core_catalytic_pairs()
+  geometry_pairs <- base::as.data.frame(geometry_pairs, stringsAsFactors = FALSE)
+  geometry_summary <- base::as.data.frame(geometry_summary, stringsAsFactors = FALSE)
+  contact_pairs <- base::as.data.frame(contact_pairs, stringsAsFactors = FALSE)
+
+  observed <- specs[0, c("pair_group", "motif_a", "motif_b", "pair_key"), drop = FALSE]
+  observed$locus_tag <- character()
+  observed <- observed[, c("locus_tag", "pair_group", "motif_a", "motif_b", "pair_key"), drop = FALSE]
+  core_rows <- function(x) {
+    if (!base::nrow(x) || !base::all(c("locus_tag", "motif_a", "motif_b") %in% base::names(x))) {
+      return(observed[0, , drop = FALSE])
+    }
+    x$pair_key <- .dnmb_rebasefinder_pair_key(x$motif_a, x$motif_b)
+    idx <- base::match(x$pair_key, specs$pair_key)
+    keep <- !base::is.na(idx)
+    if (!base::any(keep)) return(observed[0, , drop = FALSE])
+    base::data.frame(
+      locus_tag = .dnmb_module_clean_annotation_key(x$locus_tag[keep]),
+      pair_group = specs$pair_group[idx[keep]],
+      motif_a = specs$motif_a[idx[keep]],
+      motif_b = specs$motif_b[idx[keep]],
+      pair_key = specs$pair_key[idx[keep]],
+      stringsAsFactors = FALSE
+    )
+  }
+  observed <- base::rbind(core_rows(geometry_pairs), core_rows(contact_pairs))
+
+  summary_loci <- if (base::nrow(geometry_summary) && "locus_tag" %in% base::names(geometry_summary)) {
+    .dnmb_module_clean_annotation_key(geometry_summary$locus_tag)
+  } else {
+    character()
+  }
+  homology_col <- base::intersect(
+    c("REBASEfinder_homology_geometry_status", "homology_geometry_status"),
+    base::names(tbl)
+  )
+  homology_loci <- if (base::length(homology_col)) {
+    status <- base::as.character(tbl[[homology_col[[1]]]])
+    .dnmb_module_clean_annotation_key(tbl$locus_tag[
+      !base::is.na(status) & base::nzchar(status) &
+        !status %in% c("not_run", "not_applicable", "no_candidate")
+    ])
+  } else {
+    character()
+  }
+  fallback_loci <- base::unique(c(summary_loci, homology_loci))
+  fallback <- if (base::length(fallback_loci)) {
+    base::do.call(base::rbind, base::lapply(fallback_loci, function(locus) {
+      inferred <- .dnmb_rebasefinder_core_pair_for_locus(locus, tbl, long, specs)
+      if (!base::nrow(inferred)) return(NULL)
+      base::data.frame(
+        locus_tag = locus,
+        pair_group = inferred$pair_group,
+        motif_a = inferred$motif_a,
+        motif_b = inferred$motif_b,
+        pair_key = inferred$pair_key,
+        stringsAsFactors = FALSE
+      )
+    }))
+  } else {
+    NULL
+  }
+  candidates <- base::rbind(observed, fallback)
+  if (base::is.null(candidates) || !base::nrow(candidates)) return(empty)
+  candidates <- candidates[
+    !base::is.na(candidates$locus_tag) & base::nzchar(candidates$locus_tag),
+    , drop = FALSE
+  ]
+  candidates <- candidates[!base::duplicated(candidates[c("locus_tag", "pair_group")]), , drop = FALSE]
+
+  geometry_status <- function(locus, pair_key) {
+    if (!base::nrow(geometry_pairs) ||
+        !base::all(c("locus_tag", "motif_a", "motif_b") %in% base::names(geometry_pairs))) {
+      return(character())
+    }
+    key <- .dnmb_rebasefinder_pair_key(geometry_pairs$motif_a, geometry_pairs$motif_b)
+    rows <- .dnmb_module_clean_annotation_key(geometry_pairs$locus_tag) == locus & key == pair_key
+    col <- base::intersect(c("combined_status", "geometry_status"), base::names(geometry_pairs))
+    if (!base::any(rows) || !base::length(col)) character() else base::as.character(geometry_pairs[[col[[1]]]][rows])
+  }
+  summary_status <- function(locus) {
+    if (!base::nrow(geometry_summary) ||
+        !base::all(c("locus_tag", "structural_adjacency_status") %in% base::names(geometry_summary))) {
+      return(character())
+    }
+    idx <- base::match(locus, .dnmb_module_clean_annotation_key(geometry_summary$locus_tag))
+    if (base::is.na(idx)) character() else base::as.character(geometry_summary$structural_adjacency_status[[idx]])
+  }
+  contact_status <- function(locus, pair_key) {
+    if (!base::nrow(contact_pairs) ||
+        !base::all(c("locus_tag", "motif_a", "motif_b", "contact_status") %in% base::names(contact_pairs))) {
+      return(character())
+    }
+    key <- .dnmb_rebasefinder_pair_key(contact_pairs$motif_a, contact_pairs$motif_b)
+    rows <- .dnmb_module_clean_annotation_key(contact_pairs$locus_tag) == locus & key == pair_key
+    base::as.character(contact_pairs$contact_status[rows])
+  }
+  homology_status <- function(locus) {
+    if (!base::length(homology_col)) return(character())
+    idx <- base::match(locus, .dnmb_module_clean_annotation_key(tbl$locus_tag))
+    if (base::is.na(idx)) character() else base::as.character(tbl[[homology_col[[1]]]][[idx]])
+  }
+  supported <- c("homology_model_supported", "3d_fold_supported", "3d_geometry_supported")
+  neutral <- c("", "no_structure", "not_applicable", "unavailable", "structure_missing")
+  candidates$pair_state <- base::vapply(base::seq_len(base::nrow(candidates)), function(i) {
+    locus <- candidates$locus_tag[[i]]
+    pair_key <- candidates$pair_key[[i]]
+    pair_geometry <- geometry_status(locus, pair_key)
+    locus_geometry <- summary_status(locus)
+    homology <- homology_status(locus)
+    contacts <- contact_status(locus, pair_key)
+    explicit_negative <- base::any(!base::is.na(c(locus_geometry, pair_geometry, homology)) &
+      !c(locus_geometry, pair_geometry, homology) %in% c(neutral, supported))
+    if (!explicit_negative &&
+        base::any(c(locus_geometry, pair_geometry) %in% supported)) {
+      return("verified")
+    }
+    if (explicit_negative) return("not_verified")
+    if (base::any(contacts %in% c("contact_strong", "contact_supportive"))) {
+      return("contact_supported")
+    }
+    "not_verified"
+  }, character(1))
+
+  x_a <- base::match(candidates$motif_a, motif_levels)
+  x_b <- base::match(candidates$motif_b, motif_levels)
+  motif_keep <- !base::is.na(x_a) & !base::is.na(x_b)
+  if (!base::any(motif_keep)) return(empty)
+  candidates <- candidates[motif_keep, , drop = FALSE]
+  candidates <- base::do.call(base::rbind, base::lapply(
+    base::split(base::seq_len(base::nrow(candidates)), candidates$locus_tag),
+    function(idx) {
+      rows <- candidates[idx, , drop = FALSE]
+      states <- base::as.character(rows$pair_state)
+      state <- if (base::any(states == "not_verified")) {
+        "not_verified"
+      } else if (base::any(states == "verified")) {
+        "verified"
+      } else {
+        "contact_supported"
+      }
+      base::data.frame(
+        locus_tag = rows$locus_tag[[1]],
+        pair_group = base::paste(base::unique(rows$pair_group), collapse = ","),
+        motif_a = base::paste(base::unique(rows$motif_a), collapse = ","),
+        motif_b = base::paste(base::unique(rows$motif_b), collapse = ","),
+        pair_key = base::paste(base::unique(rows$pair_key), collapse = ","),
+        pair_state = state,
+        stringsAsFactors = FALSE
+      )
+    }
+  ))
+  display_idx <- base::match(candidates$locus_tag, .dnmb_module_clean_annotation_key(display_info$locus_tag))
+  display <- base::as.character(display_info$display[display_idx])
+  y <- base::match(display, display_lvls)
+  keep <- !base::is.na(y)
+  if (!base::any(keep)) return(empty)
+  candidates <- candidates[keep, , drop = FALSE]
+  y <- y[keep]
+  candidates$xmin <- 0.53
+  candidates$xmax <- base::length(motif_levels) + 0.47
+  candidates$ymin <- y - 0.45
+  candidates$ymax <- y + 0.45
+  candidates$pair_state <- base::factor(
+    candidates$pair_state,
+    levels = c("verified", "contact_supported", "not_verified")
+  )
+  candidates[, base::names(empty), drop = FALSE]
+}
+
+.dnmb_plot_rebasefinder_motif_verification <- function(tbl,
+                                                       display_info,
+                                                       geometry_pairs = NULL,
+                                                       geometry_summary = NULL,
+                                                       contact_pairs = NULL,
+                                                       contact_summary = NULL) {
   detailed <- .dnmb_rebasefinder_scan_motifs_detailed(tbl)
   if (is.null(detailed)) {
     return(ggplot2::ggplot() + ggplot2::theme_void() +
@@ -1547,6 +2220,7 @@
   motif_names <- names(motif_defs)
   has_role <- "REBASEfinder_enzyme_role" %in% names(tbl)
   has_family <- "REBASEfinder_family_id" %in% names(tbl)
+  annotations <- .dnmb_rebasefinder_gene_annotation_text(tbl)
 
   # Build long table: only show motifs relevant to each gene's type and role.
   has_hit <- "REBASEfinder_hit_label" %in% names(tbl)
@@ -1560,6 +2234,9 @@
       inferred <- .dnmb_rebasefinder_role_from_hit(hn)
       if (!is.na(inferred)) role <- inferred
     }
+    assessment <- .dnmb_rebasefinder_motif_assessment(
+      detailed[[i]], role = role, family = family, annotation = annotations[[i]]
+    )
 
     do.call(rbind, lapply(seq_along(motif_names), function(j) {
       info <- detailed[[i]][[j]]
@@ -1567,16 +2244,13 @@
       expected <- .dnmb_rebasefinder_motif_role_label(def)
       expected_primary <- .dnmb_rebasefinder_motif_primary_role(def)
 
-      is_relevant <- if (is.na(role) || !nzchar(role)) TRUE else .dnmb_rebasefinder_motif_role_match(def, role, family)
-
-      if (is_relevant) {
-        status <- if (!is.na(info$status) && grepl("^present", info$status)) "found" else "missing"
-        # Distinguish positional: "found" (in range) vs "found_oop" (out of position)
-        if (status == "found" && !is.null(info$n_in_range) && info$n_in_range == 0L) {
-          status <- "found_oop"
-        }
+      is_relevant <- isTRUE(assessment$applicable[[motif_names[j]]])
+      status <- if (!is_relevant) "na" else if (isTRUE(assessment$supported[[motif_names[j]]])) {
+        "supported"
+      } else if (isTRUE(assessment$hint[[motif_names[j]]])) {
+        "hint"
       } else {
-        status <- "na"
+        "missing"
       }
 
 		      motif_tile_label <- function(h, max_residues) {
@@ -1594,7 +2268,7 @@
 		        }
 		        paste0(residue, "\n", pos_label)
 		      }
-		      if (status %in% c("found", "found_oop") && info$n_hits > 0) {
+		      if (status %in% c("supported", "hint") && info$n_hits > 0) {
 		        if (identical(expected_primary, "R")) {
 		          plot_hits <- Filter(function(h) isTRUE(h$in_range), info$hits)
 		          if (!length(plot_hits)) plot_hits <- info$hits
@@ -1617,6 +2291,10 @@
 	          }
 	        }
 	        n_found <- info$n_hits
+	      } else if (status %in% c("supported", "hint") &&
+	                 !is.na(assessment$derived_label[[motif_names[j]]])) {
+	        tile_label <- gsub(" ", "\n", assessment$derived_label[[motif_names[j]]], fixed = TRUE)
+	        n_found <- 1L
       } else {
         tile_label <- ""
         n_found <- 0L
@@ -1635,50 +2313,68 @@
     }))
   }))
 
-  display_lvls <- .dnmb_rebasefinder_display_levels(display_info)
+	  display_lvls <- .dnmb_rebasefinder_display_levels(display_info)
 	  long <- merge(long, display_info[, c("locus_tag", "display", "operon")], by = "locus_tag", sort = FALSE)
 	  long$display <- factor(as.character(long$display), levels = display_lvls)
 		  motif_short <- c(
 		    "SAM" = "SAM",
 			    "Amino-IV" = "MTase\nIV",
-		    "N5C-PC" = "C5\nPC",
-		    "HsdS-FxGxA" = "HsdS\nFxGxA",
+		    "N5C-PC" = "m5C\nPCQ",
+		    "N5C-ENV" = "m5C\nENV",
+		    "N5C-QxRxR" = "m5C\nQxRxR",
+		    "MmeI-X" = "MmeI\nX",
+		    "MmeI-I" = "MmeI\nSAM-I",
+		    "MmeI-PDExK" = "MmeI\nREase",
+		    "MmeI-architecture" = "MmeI\narch",
+		    "HsdS-2TRD" = "HsdS\n2xTRD",
+		    "HsdR-PD" = "HsdR\nPD",
 		    "PD-ExK" = "PD\nExK",
 	    "HNH" = "HNH",
 		    "GIY-YIG" = "GIY",
+		    "PLD-HKD" = "PLD\n2xHKD",
 			    "ResIII-WA" = "Res\nWA",
 			    "ResIII-WB" = "Res\nWB",
 			    "ResIII-MIII" = "Res\nMIII",
 			    "ResIII-PD" = "Res\nPD",
 			    "P-loop" = "P\nloop",
-		    "DEAD" = "DEAD",
+		    "HsdR-WB" = "HsdR\nWB",
 		    "HsdR-MIII" = "HsdR\nMIII",
-			    "Mrr" = "Mrr"
+			    "TypeIV-profile" = "Type IV\nprofile"
+			  )
+			  motif_levels <- motif_names[motif_names %in% unique(long$motif[long$status != "na"])]
+			  long <- long[long$motif %in% motif_levels, , drop = FALSE]
+			  long$motif_label <- ifelse(long$motif %in% names(motif_short), motif_short[long$motif], long$motif)
+		  motif_label_levels <- ifelse(motif_levels %in% names(motif_short), motif_short[motif_levels], motif_levels)
+		  long$motif_label <- factor(long$motif_label, levels = motif_label_levels)
+		  pair_boxes <- .dnmb_rebasefinder_catalytic_pair_boxes(
+		    tbl = tbl,
+		    long = long,
+		    display_info = display_info,
+		    display_lvls = display_lvls,
+		    motif_levels = motif_levels,
+		    geometry_pairs = geometry_pairs,
+		    geometry_summary = geometry_summary,
+		    contact_pairs = contact_pairs
 		  )
-	  motif_levels <- motif_names
-	  long$motif_label <- ifelse(long$motif %in% names(motif_short), motif_short[long$motif], long$motif)
-	  motif_label_levels <- ifelse(motif_levels %in% names(motif_short), motif_short[motif_levels], motif_levels)
-	  long$motif_label <- factor(long$motif_label, levels = motif_label_levels)
 
-  # Status palette: role-specific colors, with out-of-position variants
-  long$fill_status <- ifelse(
-    long$status == "found" & long$expected_primary_role == "R", "found_R",
-    ifelse(long$status == "found" & long$expected_primary_role == "S", "found_S",
-    ifelse(long$status == "found", "found_M",
-    ifelse(long$status == "found_oop" & long$expected_primary_role == "R", "oop_R",
-    ifelse(long$status == "found_oop" & long$expected_primary_role == "S", "oop_S",
-    ifelse(long$status == "found_oop", "oop_M", long$status)))))
-  )
+  # Status palette: green/rose/teal identify coherent role-specific evidence;
+  # amber is an isolated sequence/profile hint and never verifies a protein.
+	  long$fill_status <- ifelse(
+	    long$status == "supported" & long$expected_primary_role == "R", "supported_R",
+	    ifelse(long$status == "supported" & long$expected_primary_role == "S", "supported_S",
+	    ifelse(long$status == "supported" & long$expected_primary_role == "RM", "supported_RM",
+	    ifelse(long$status == "supported", "supported_M",
+	    ifelse(long$status == "hint", "hint", long$status))))
+	  )
 
   status_pal <- c(
-    "found_M" = "#2E7D32",   # green — MTase motif in expected position
-    "found_R" = "#C2185B",   # rose — REase motif in expected position
-    "found_S" = "#00897B",   # teal — specificity signature
-    "oop_M"   = "#A5D6A7",   # light green — MTase motif out of expected position
-    "oop_R"   = "#F48FB1",   # light pink — REase motif out of expected position
-    "oop_S"   = "#80CBC4",   # light teal — specificity signature out of expected position
-    "missing" = "#BDBDBD",   # grey
-    "na"      = "#F5F5F5"    # very light grey
+    "supported_M" = "#2E7D32",
+    "supported_R" = "#C2185B",
+    "supported_S" = "#00897B",
+	    "supported_RM" = "#6A4C93",
+	    "hint" = "#F9A825",
+	    "missing" = "#BDBDBD",   # grey
+	    "na"      = "#F5F5F5"    # very light grey
   )
 
   # Operon separators
@@ -1686,31 +2382,82 @@
     merge(display_info, data.frame(locus_tag = tbl$locus_tag), by = "locus_tag", sort = FALSE)
   )
 
-	  long$label_color <- ifelse(long$fill_status %in% c("found_M", "found_R", "found_S"),
-	                             "found", "other")
+			  long$label_color <- ifelse(grepl("^supported_", long$fill_status), "found", "other")
 
 	  p <- ggplot2::ggplot(long, ggplot2::aes(x = .data$motif_label, y = .data$display)) +
 	    ggplot2::geom_tile(ggplot2::aes(fill = .data$fill_status), color = "white", linewidth = 0.6)
+	  if (base::nrow(pair_boxes)) {
+	    p <- p + ggplot2::geom_rect(
+	      data = pair_boxes,
+	      ggplot2::aes(
+	        xmin = .data$xmin, xmax = .data$xmax,
+	        ymin = .data$ymin, ymax = .data$ymax,
+	        color = .data$pair_state, linetype = .data$pair_state
+	      ),
+	      fill = NA,
+	      linewidth = 0.525,
+	      inherit.aes = FALSE,
+	      show.legend = TRUE
+	    )
+	  }
 
   if (nrow(operon_bounds)) {
     p <- p + ggplot2::geom_hline(yintercept = operon_bounds$y, color = "grey75", linewidth = 0.3, linetype = "dotted")
   }
 
-	  p +
-	    ggplot2::geom_text(ggplot2::aes(label = .data$tile_label, color = .data$label_color),
-	                       size = 2.05, fontface = "bold", lineheight = 0.82) +
-	    ggplot2::scale_fill_manual(
-	      values = status_pal, name = "Motif",
-      labels = c("found_M" = "MTase", "found_R" = "REase", "found_S" = "Specificity",
-                 "oop_M" = "MTase (oop)", "oop_R" = "REase (oop)", "oop_S" = "Specificity (oop)",
-                 "missing" = "Missing", "na" = "N/A"),
-	      breaks = c("found_M", "found_R", "found_S", "oop_M", "oop_R", "oop_S", "missing", "na")
+	  found_labels <- long[long$label_color == "found", , drop = FALSE]
+	  other_labels <- long[long$label_color != "found", , drop = FALSE]
+	  p <- p +
+	    ggplot2::geom_text(
+	      data = found_labels,
+	      ggplot2::aes(label = .data$tile_label),
+	      color = "white", size = 2.05, fontface = "bold", lineheight = 0.82
 	    ) +
-	    ggplot2::scale_color_manual(values = c(found = "white", other = "grey15"), guide = "none") +
+	    ggplot2::geom_text(
+	      data = other_labels,
+	      ggplot2::aes(label = .data$tile_label),
+	      color = "grey15", size = 2.05, fontface = "bold", lineheight = 0.82
+	    ) +
+		    ggplot2::scale_fill_manual(
+		      values = status_pal, name = "Evidence",
+	      labels = c("supported_M" = "MTase set", "supported_R" = "Restriction evidence",
+	                 "supported_S" = "Specificity architecture", "supported_RM" = "RM fusion architecture",
+	                 "hint" = "Sequence/profile hint", "missing" = "Not detected", "na" = "N/A"),
+			      breaks = c("supported_M", "supported_R", "supported_S", "supported_RM",
+			                 "hint", "missing", "na")
+	    ) +
+	    ggplot2::scale_color_manual(
+	      values = c(
+	        verified = "#2166AC",
+	        contact_supported = "#67A9CF",
+	        not_verified = "#B2182B"
+	      ),
+	      name = "Catalytic pair",
+	      breaks = c("verified", "contact_supported", "not_verified"),
+	      labels = c(
+	        verified = "3D verified",
+	        contact_supported = "Contact-supported",
+	        not_verified = "Not 3D-verified"
+	      )
+	    ) +
+	    ggplot2::scale_linetype_manual(
+	      values = c(verified = "solid", contact_supported = "dashed", not_verified = "solid"),
+	      name = "Catalytic pair",
+	      breaks = c("verified", "contact_supported", "not_verified"),
+	      labels = c(
+	        verified = "3D verified",
+	        contact_supported = "Contact-supported",
+	        not_verified = "Not 3D-verified"
+	      )
+	    ) +
 	    ggplot2::scale_y_discrete(limits = display_lvls, drop = FALSE) +
 	    ggplot2::coord_fixed(ratio = 1, clip = "off") +
-	    ggplot2::guides(fill = ggplot2::guide_legend(nrow = 1)) +
-	    ggplot2::labs(title = "  Functional motif verification", x = NULL, y = NULL) +
+	    ggplot2::guides(
+	      fill = ggplot2::guide_legend(nrow = 2, byrow = TRUE, order = 2),
+	      color = ggplot2::guide_legend(nrow = 1, byrow = TRUE, order = 1),
+	      linetype = ggplot2::guide_legend(nrow = 1, byrow = TRUE, order = 1)
+	    ) +
+			    ggplot2::labs(title = "  Functional evidence: motifs and catalytic-pair proximity", x = NULL, y = NULL) +
     ggplot2::theme_bw(base_size = 10) +
     ggplot2::theme(
       panel.grid = ggplot2::element_blank(),
@@ -1718,15 +2465,20 @@
 	      axis.text.x = ggplot2::element_text(size = 7.5, angle = 0, hjust = 0.5, vjust = 1, lineheight = 0.82),
       axis.text.y = ggplot2::element_blank(),
       axis.ticks.y = ggplot2::element_blank(),
-      legend.position = "bottom",
-      legend.justification = "left",
-      legend.key.size = ggplot2::unit(0.3, "cm"),
+	      legend.position = "bottom",
+	      legend.justification = "left",
+	      legend.box = "vertical",
+	      legend.box.just = "left",
+	      legend.key.size = ggplot2::unit(0.3, "cm"),
       legend.title = ggplot2::element_text(size = 7),
-      legend.text = ggplot2::element_text(size = 6.5),
-      legend.spacing.x = ggplot2::unit(0.1, "cm"),
+	      legend.text = ggplot2::element_text(size = 6.5),
+	      legend.spacing.x = ggplot2::unit(0.1, "cm"),
+	      legend.spacing.y = ggplot2::unit(0.02, "cm"),
       legend.margin = ggplot2::margin(0, 0, 0, 0),
-      plot.margin = ggplot2::margin(4, 4, 4, 2)
-    )
+	      plot.margin = ggplot2::margin(4, 4, 4, 2)
+	    )
+	  base::attr(p, "dnmb_catalytic_pair_boxes") <- pair_boxes
+	  p
 }
 
 
@@ -1751,12 +2503,18 @@
       }
     }
   }
+  allow_remote <- base::tolower(base::Sys.getenv("DNMB_ALLOW_REMOTE_ANNOTATION", unset = "")) %in%
+    c("1", "true", "yes", "on")
+  if (!allow_remote) return(NULL)
 
   results <- tryCatch({
     do.call(rbind, lapply(seq_len(nrow(tbl)), function(i) {
       pid <- as.character(tbl$protein_id[i])
       lt <- tbl$locus_tag[i]
-      if (is.na(pid) || !nzchar(pid)) return(NULL)
+      valid_refseq <- !is.na(pid) && base::grepl(
+        "^(WP|NP|XP|YP|ZP|AP)_?[0-9]+([.][0-9]+)?$", pid, ignore.case = TRUE
+      )
+      if (!valid_refseq) return(NULL)
 
       url <- paste0("https://rest.uniprot.org/uniprotkb/search?query=xref:refseq-", pid,
                     "&format=json&fields=accession,ft_act_site,ft_binding,ft_domain,ft_motif,ft_site")
@@ -1801,23 +2559,30 @@
 	    "SAM"      = "#2E7D32",  # dark green (M - SAM binding)
 	    "Amino-IV" = "#9CCC65",  # amino-MTase catalytic motif IV
     "N5C-PC"   = "#1565C0",  # N5C C5-MTase catalytic PC motif
-    "HsdS-FxGxA" = "#00897B", # Type I S specificity signature
+    "N5C-ENV"  = "#00838F",
+    "N5C-QxRxR" = "#26A69A",
+    "MmeI-X" = "#558B2F",
+    "MmeI-I" = "#33691E",
+    "MmeI-PDExK" = "#B71C1C",
+    "HsdR-PD" = "#B71C1C",
     "PD-ExK"  = "#C62828",   # dark red (R)
     "HNH"     = "#EF5350",   # light red (R)
     "GIY-YIG" = "#F48FB1",   # pink (R)
 	    "P-loop"  = "#E91E63",   # rose (R)
-	    "DEAD"    = "#AD1457",   # magenta (R - Walker B)
+	    "HsdR-WB" = "#AD1457",
 	    "HsdR-MIII" = "#C2185B",
-	    "PLD"     = "#880E4F",   # dark magenta (R - PLD nuclease)
+	    "PLD-HKD" = "#880E4F",
 	    "ResIII-WA" = "#6A1B9A",
 	    "ResIII-WB" = "#8E24AA",
 	    "ResIII-MIII" = "#9C27B0",
-	    "ResIII-PD" = "#AB47BC",
-    "Mrr"     = "#5D4037"
+	    "ResIII-PD" = "#AB47BC"
   )
 
   # Build protein backbones
-  prot_lengths <- nchar(as.character(tbl$translation))
+  prot_lengths <- vapply(tbl$translation, function(sequence) {
+    normalized <- .dnmb_rebasefinder_normalize_protein(sequence)
+    if (is.na(normalized)) NA_integer_ else nchar(normalized)
+  }, integer(1))
   display_lvls <- .dnmb_rebasefinder_display_levels(display_info)
 
   backbone <- merge(
@@ -1830,17 +2595,21 @@
 
   has_role <- "REBASEfinder_enzyme_role" %in% names(tbl)
   has_family <- "REBASEfinder_family_id" %in% names(tbl)
+  annotations <- .dnmb_rebasefinder_gene_annotation_text(tbl)
 
   # Motif markers: only motifs matching each gene's R-M type and subunit role.
   markers <- do.call(rbind, lapply(seq_along(detailed), function(i) {
     lt <- names(detailed)[i]
     role <- if (has_role) as.character(tbl$REBASEfinder_enzyme_role[i]) else NA_character_
     family <- if (has_family) as.character(tbl$REBASEfinder_family_id[i]) else NA_character_
+    assessment <- .dnmb_rebasefinder_motif_assessment(
+      detailed[[i]], role = role, family = family, annotation = annotations[[i]]
+    )
     do.call(rbind, lapply(seq_along(motif_names), function(j) {
       info <- detailed[[i]][[j]]
       def <- motif_defs[[motif_names[j]]]
       if (info$n_hits <= 0) return(NULL)
-      if (!.dnmb_rebasefinder_motif_role_match(def, role, family)) return(NULL)
+      if (!isTRUE(assessment$supported[[motif_names[j]]])) return(NULL)
       plot_hits <- Filter(function(h) isTRUE(h$in_range), info$hits)
       if (!length(plot_hits)) plot_hits <- info$hits
       do.call(rbind, lapply(plot_hits, function(h) {
@@ -1852,15 +2621,17 @@
   }))
 
   if (is.null(markers) || !nrow(markers)) {
-    return(ggplot2::ggplot() + ggplot2::theme_void())
+    markers <- data.frame(
+      locus_tag = character(), pos = integer(), motif_short = character(),
+      display = factor(levels = display_lvls), prot_len = integer(), frac = numeric(),
+      stringsAsFactors = FALSE
+    )
+  } else {
+    markers <- merge(markers, display_info[, c("locus_tag", "display")], by = "locus_tag", sort = FALSE)
+    markers <- merge(markers, backbone[, c("locus_tag", "prot_len")], by = "locus_tag", sort = FALSE)
+    markers$display <- factor(as.character(markers$display), levels = display_lvls)
+    markers$frac <- markers$pos / markers$prot_len
   }
-
-  markers <- merge(markers, display_info[, c("locus_tag", "display")], by = "locus_tag", sort = FALSE)
-  markers <- merge(markers, backbone[, c("locus_tag", "prot_len")], by = "locus_tag", sort = FALSE)
-  markers$display <- factor(as.character(markers$display), levels = display_lvls)
-
-  # Normalize position to fraction of protein length
-  markers$frac <- markers$pos / markers$prot_len
   operon_blocks <- .dnmb_rebasefinder_operon_blocks(display_info)
 
   p <- ggplot2::ggplot()
@@ -1940,13 +2711,13 @@
     }
   }
 
-  p <- p +
-    # Motif position markers
-    ggplot2::geom_point(
+  if (nrow(markers)) {
+    p <- p + ggplot2::geom_point(
       data = markers,
       ggplot2::aes(x = .data$frac, y = .data$display, color = .data$motif_short),
       size = 2.5, alpha = 0.9, shape = 18
     )
+  }
 
   p <- p +
     # Protein length annotation

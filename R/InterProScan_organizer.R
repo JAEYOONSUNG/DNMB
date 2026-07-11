@@ -46,64 +46,38 @@ InterProScan_annotations <- function(InterProScan_dir = NULL) {
   })
   InterPro_search <- bind_rows(InterPro_search_list)
 
-  # standardization
-  InterPro_search$V14 <- NA
-  InterPro_search$V15 <- NA
-
-  # Move values from V1 and V2 to V14 and V15 if V3 is NA, and then remove rows where V3 is NA
-  InterPro_search <- InterPro_search %>%
-    mutate(
-      # Update V14 and V15 with values from the next row's V1 and V2 where V3 is NA
-      V14 = ifelse(is.na(lead(V3)), lead(V1), V14),
-      V15 = ifelse(is.na(lead(V3)), lead(V2), V15),
-
-      # Replace NA in V14 or V15 with "-"
-      V14 = ifelse(is.na(V14), "-", V14),
-      V15 = ifelse(is.na(V15), "-", V15),
-
-    ) %>%
-    # Remove rows where V3 is NA
-    filter(!is.na(V3))
-
-
-  # Assign column names based on the number of columns
-  if (ncol(InterPro_search) == 15) {
-    colnames(InterPro_search) <- c(
-      "query",
-      "Sequence MD5 digest",
-      "Sequence length",
-      "Analysis",
-      "Signature accession",
-      "Signature description",
-      "Start location",
-      "Stop location",
-      "Score",
-      "Status",
-      "Date",
-      "InterPro annotations - accession",
-      "InterPro annotations - description",
-      "GO annotations",
-      "Pathways annotations"
-    )
-  } else if (ncol(InterPro_search) == 13) {
-    colnames(InterPro_search) <- c(
-      "query",
-      "Sequence MD5 digest",
-      "Sequence length",
-      "Analysis",
-      "Signature accession",
-      "Signature description",
-      "Start location",
-      "Stop location",
-      "Score",
-      "Status",
-      "Date",
-      "InterPro annotations - accession",
-      "InterPro annotations - description"
-    )
-  } else {
+  # InterProScan emits 13 base columns and appends GO/pathway columns when
+  # --goterms and --pathways are enabled. Preserve those optional values when
+  # present instead of replacing V14/V15 during standardization.
+  if (ncol(InterPro_search) == 13L) {
+    InterPro_search$V14 <- "-"
+    InterPro_search$V15 <- "-"
+  } else if (ncol(InterPro_search) == 14L) {
+    InterPro_search$V15 <- "-"
+  } else if (ncol(InterPro_search) != 15L) {
     stop("Unexpected number of columns in InterPro search files.")
   }
+  InterPro_search$V14[is.na(InterPro_search$V14) | !nzchar(InterPro_search$V14)] <- "-"
+  InterPro_search$V15[is.na(InterPro_search$V15) | !nzchar(InterPro_search$V15)] <- "-"
+  InterPro_search <- InterPro_search[!is.na(InterPro_search$V3), , drop = FALSE]
+
+  colnames(InterPro_search) <- c(
+    "query",
+    "Sequence MD5 digest",
+    "Sequence length",
+    "Analysis",
+    "Signature accession",
+    "Signature description",
+    "Start location",
+    "Stop location",
+    "Score",
+    "Status",
+    "Date",
+    "InterPro annotations - accession",
+    "InterPro annotations - description",
+    "GO annotations",
+    "Pathways annotations"
+  )
 
   # Load InterProScan_Site
   # Get the list of .tsv.sites files in the directory
@@ -163,7 +137,13 @@ InterProScan_annotations <- function(InterProScan_dir = NULL) {
   InterPro <- reshape2::melt(
     InterPro_search,
     id.vars = c("query", "Analysis"),
-    measure.vars = c("Signature accession", "Signature description", "Score")
+    measure.vars = c(
+      "Signature accession",
+      "Signature description",
+      "Score",
+      "GO annotations",
+      "Pathways annotations"
+    )
   )
 
   InterPro <- reshape2::dcast(
@@ -173,8 +153,6 @@ InterProScan_annotations <- function(InterProScan_dir = NULL) {
   )
 
   # Reorder columns: make 'query' the first column
-  InterPro <- reshape2::melt(InterPro_search, id.vars=c("query","Analysis"), measure.vars=c("Signature accession","Signature description","Score"))
-  InterPro <- reshape2::dcast(InterPro, formula = `query`  ~ variable + Analysis, fun.aggregate = toString)
   InterPro <- data.table::setcolorder(InterPro, order(sub('.*_', '', names(InterPro))))
   InterPro <- arrange.vars(InterPro, c("query"=1))
 

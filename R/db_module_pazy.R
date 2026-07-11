@@ -14,6 +14,56 @@
   "https://api.pazy.eu/api/proteins/fasta/"
 }
 
+.dnmb_pazy_remote_asset_state <- function(metadata_url, fasta_url, enabled = TRUE) {
+  if (!base::isTRUE(enabled)) return(NULL)
+  urls <- c(metadata = metadata_url, fasta = fasta_url)
+  checked_at <- base::format(base::Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+  rows <- base::lapply(base::names(urls), function(asset_name) {
+    metadata <- .dnmb_remote_asset_metadata(urls[[asset_name]], insecure = FALSE)
+    tibble::tibble(
+      asset_name = asset_name,
+      url = metadata$url %||% NA_character_,
+      ok = base::isTRUE(metadata$ok),
+      last_modified = metadata$last_modified %||% NA_character_,
+      content_length = metadata$content_length %||% NA_real_,
+      etag = metadata$etag %||% NA_character_,
+      checked_at = checked_at
+    )
+  })
+  dplyr::bind_rows(rows)
+}
+
+.dnmb_pazy_remote_update_needed <- function(manifest, remote_state, max_age_days = 30) {
+  if (base::is.null(manifest) || base::is.null(remote_state) ||
+      !base::is.data.frame(remote_state) || !base::nrow(remote_state) ||
+      !base::all(remote_state$ok %in% TRUE)) {
+    return(FALSE)
+  }
+  previous <- manifest$remote_asset_state
+  if (base::is.null(previous) || !base::is.data.frame(previous) || !base::nrow(previous)) {
+    return(TRUE)
+  }
+  fields <- c("asset_name", "last_modified", "content_length", "etag")
+  previous <- previous[, base::intersect(fields, base::names(previous)), drop = FALSE]
+  current <- remote_state[, fields, drop = FALSE]
+  if (!base::all(fields %in% base::names(previous))) return(TRUE)
+  previous <- previous[base::order(previous$asset_name), , drop = FALSE]
+  current <- current[base::order(current$asset_name), , drop = FALSE]
+  base::rownames(previous) <- NULL
+  base::rownames(current) <- NULL
+  if (!base::identical(previous, current)) return(TRUE)
+
+  previous_state <- manifest$remote_asset_state
+  checked_at <- if ("checked_at" %in% base::names(previous_state)) {
+    previous_state$checked_at[[1]]
+  } else {
+    manifest$written_at %||% NA_character_
+  }
+  checked_time <- base::suppressWarnings(base::as.POSIXct(checked_at, tz = "UTC"))
+  age_days <- base::as.numeric(base::difftime(base::Sys.time(), checked_time, units = "days"))
+  base::is.na(age_days) || age_days > base::as.numeric(max_age_days)[1]
+}
+
 .dnmb_pazy_status_row <- function(component, status, detail = NA_character_) {
   tibble::tibble(
     component = as.character(component)[1],
@@ -151,7 +201,10 @@
   on.exit(base::unlink(stage_dir, recursive = TRUE, force = TRUE), add = TRUE)
   staged_faa <- base::file.path(stage_dir, "pazy_reference.faa")
   staged_db <- base::file.path(stage_dir, "pazy_reference")
-  base::file.copy(fasta_path, staged_faa, overwrite = TRUE)
+  copied_fasta <- base::file.copy(fasta_path, staged_faa, overwrite = TRUE)
+  if (!base::isTRUE(copied_fasta) || !.dnmb_nonempty_file(staged_faa)) {
+    return(list(ok = FALSE, status = "failed", detail = "Could not stage the PAZy FASTA for makeblastdb."))
+  }
   args <- c("-in", staged_faa, "-dbtype", "prot", "-out", staged_db)
   if (!base::is.null(trace_log) && base::nzchar(trace_log)) {
     .dnmb_pazy_trace(trace_log, base::sprintf("[%s] makeblastdb %s", base::Sys.time(), .dnmb_format_command("makeblastdb", args)))
@@ -164,10 +217,12 @@
     all_staged <- base::list.files(stage_dir, pattern = base::paste0("^", base::basename(staged_db), "\\."),
                                    full.names = TRUE)
     dest_dir <- base::dirname(db_prefix)
-    for (sf in all_staged) {
+    copied <- base::vapply(all_staged, function(sf) {
       dest_name <- base::file.path(dest_dir, sub(base::basename(staged_db), base::basename(db_prefix), base::basename(sf), fixed = TRUE))
-      base::file.copy(sf, dest_name, overwrite = TRUE)
-    }
+      base::isTRUE(base::file.copy(sf, dest_name, overwrite = TRUE))
+    }, logical(1))
+    ok <- base::length(copied) > 0L && base::all(copied) &&
+      base::all(base::file.exists(base::paste0(db_prefix, c(".phr", ".pin", ".psq"))))
   }
   list(
     ok = ok,
@@ -182,7 +237,8 @@ dnmb_pazy_install_module <- function(version = .dnmb_pazy_default_version(),
                                      install = TRUE,
                                      metadata_url = .dnmb_pazy_default_metadata_url(),
                                      fasta_url = .dnmb_pazy_default_fasta_url(),
-                                     asset_urls = NULL) {
+                                     asset_urls = NULL,
+                                     force = FALSE) {
   module <- .dnmb_pazy_module_name()
   module_dir <- .dnmb_db_module_dir(module, version, cache_root = cache_root, create = TRUE)
   layout <- .dnmb_pazy_asset_layout(module_dir)
@@ -191,9 +247,18 @@ dnmb_pazy_install_module <- function(version = .dnmb_pazy_default_version(),
   metadata_source <- asset_urls$metadata_tsv %||% asset_urls$metadata_json %||% metadata_url
   fasta_source <- asset_urls$fasta_faa %||% asset_urls$reference_fasta %||% fasta_url
   status <- .dnmb_pazy_empty_status()
+  manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
+  remote_state <- .dnmb_pazy_remote_asset_state(
+    metadata_url = metadata_source,
+    fasta_url = fasta_source,
+    enabled = base::isTRUE(install) &&
+      !base::file.exists(metadata_source) && !base::dir.exists(metadata_source) &&
+      !base::file.exists(fasta_source) && !base::dir.exists(fasta_source)
+  )
+  remote_refresh_needed <- .dnmb_pazy_remote_update_needed(manifest, remote_state)
 
-  if (base::all(base::file.exists(c(layout$reference_fasta, layout$metadata_tsv, layout$metadata_json, layout$blast_db_files)))) {
-    manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
+  if (base::all(base::file.exists(c(layout$reference_fasta, layout$metadata_tsv, layout$metadata_json, layout$blast_db_files))) &&
+      !base::isTRUE(force) && !base::isTRUE(remote_refresh_needed)) {
     if (!base::is.null(manifest) && base::isTRUE(manifest$install_ok)) {
       return(list(
         ok = TRUE,
@@ -225,6 +290,11 @@ dnmb_pazy_install_module <- function(version = .dnmb_pazy_default_version(),
     }
   }
 
+  stage_dir <- base::tempfile(".dnmb-pazy-generation-", tmpdir = module_dir)
+  base::dir.create(stage_dir, recursive = TRUE, showWarnings = FALSE)
+  base::on.exit(base::unlink(stage_dir, recursive = TRUE, force = TRUE), add = TRUE)
+  stage_layout <- .dnmb_pazy_asset_layout(stage_dir)
+
   metadata_flat <- if (base::dir.exists(metadata_source)) {
     utils::read.delim(base::file.path(metadata_source, "pazy_metadata.tsv"), sep = "\t", stringsAsFactors = FALSE, check.names = FALSE)
   } else if (base::file.exists(metadata_source) && grepl("\\.tsv$", metadata_source, ignore.case = TRUE)) {
@@ -234,18 +304,20 @@ dnmb_pazy_install_module <- function(version = .dnmb_pazy_default_version(),
   } else {
     .dnmb_pazy_flatten_metadata(.dnmb_pazy_fetch_metadata_pages(metadata_source))
   }
-  utils::write.table(metadata_flat, file = layout$metadata_tsv, sep = "\t", row.names = FALSE, quote = FALSE)
-  jsonlite::write_json(metadata_flat, path = layout$metadata_json, auto_unbox = TRUE, pretty = TRUE)
+  utils::write.table(metadata_flat, file = stage_layout$metadata_tsv, sep = "\t", row.names = FALSE, quote = FALSE)
+  jsonlite::write_json(metadata_flat, path = stage_layout$metadata_json, auto_unbox = TRUE, pretty = TRUE)
   status <- dplyr::bind_rows(status, .dnmb_pazy_status_row("pazy_metadata", "ok", layout$metadata_tsv))
 
-  raw_fasta <- base::file.path(module_dir, "pazy_raw.faa")
+  raw_fasta <- base::tempfile("dnmb-pazy-raw-", tmpdir = stage_dir, fileext = ".faa")
+  copied_fasta <- TRUE
   if (base::dir.exists(fasta_source)) {
-    base::file.copy(base::file.path(fasta_source, "pazy_reference.faa"), raw_fasta, overwrite = TRUE)
+    copied_fasta <- base::file.copy(base::file.path(fasta_source, "pazy_reference.faa"), raw_fasta, overwrite = TRUE)
   } else if (base::file.exists(fasta_source)) {
-    base::file.copy(fasta_source, raw_fasta, overwrite = TRUE)
+    copied_fasta <- base::file.copy(fasta_source, raw_fasta, overwrite = TRUE)
   } else {
     download <- .dnmb_download_asset(fasta_source, raw_fasta, insecure = FALSE)
-    if (!base::isTRUE(download$ok) || !base::file.exists(raw_fasta)) {
+    copied_fasta <- base::isTRUE(download$ok)
+    if (!base::isTRUE(copied_fasta) || !.dnmb_nonempty_file(raw_fasta)) {
       return(list(
         ok = FALSE,
         status = dplyr::bind_rows(status, .dnmb_pazy_status_row("pazy_fasta", "failed", download$error %||% fasta_source)),
@@ -254,14 +326,57 @@ dnmb_pazy_install_module <- function(version = .dnmb_pazy_default_version(),
       ))
     }
   }
-  .dnmb_pazy_rewrite_fasta_with_ids(raw_fasta, layout$reference_fasta, metadata_flat)
+  if (!base::isTRUE(copied_fasta) || !.dnmb_nonempty_file(raw_fasta)) {
+    return(list(
+      ok = FALSE,
+      status = dplyr::bind_rows(status, .dnmb_pazy_status_row("pazy_fasta", "failed", fasta_source)),
+      files = list(),
+      manifest = manifest
+    ))
+  }
+  .dnmb_pazy_rewrite_fasta_with_ids(raw_fasta, stage_layout$reference_fasta, metadata_flat)
   status <- dplyr::bind_rows(status, .dnmb_pazy_status_row("pazy_fasta", "ok", layout$reference_fasta))
 
-  blast_prepare <- .dnmb_pazy_prepare_blast_db(layout$reference_fasta, layout$blast_db_prefix, trace_log = trace_log)
-  status <- dplyr::bind_rows(status, .dnmb_pazy_status_row("pazy_prepare", blast_prepare$status, blast_prepare$detail))
+  blast_prepare <- .dnmb_pazy_prepare_blast_db(
+    stage_layout$reference_fasta,
+    stage_layout$blast_db_prefix,
+    trace_log = trace_log
+  )
+  status <- dplyr::bind_rows(
+    status,
+    .dnmb_pazy_status_row("pazy_prepare", blast_prepare$status, layout$blast_db_prefix)
+  )
   if (!base::isTRUE(blast_prepare$ok)) {
-    return(list(ok = FALSE, status = status, files = list(), manifest = NULL))
+    return(list(ok = FALSE, status = status, files = list(), manifest = manifest))
   }
+
+  staged_db_files <- .dnmb_pazy_find_blast_db_files(stage_layout$blast_db_prefix)
+  staged_db_files <- staged_db_files[base::file.exists(staged_db_files)]
+  staged_assets <- base::c(
+    stage_layout$reference_fasta,
+    stage_layout$metadata_json,
+    stage_layout$metadata_tsv,
+    staged_db_files
+  )
+  destination_assets <- base::file.path(module_dir, base::basename(staged_assets))
+  old_db_files <- base::list.files(
+    module_dir,
+    pattern = "^pazy_reference[.](phr|pin|psq|pdb|pot|ptf|pto)$",
+    full.names = TRUE
+  )
+  commit <- .dnmb_transactional_replace(
+    staged_paths = staged_assets,
+    destination_paths = destination_assets,
+    retire_paths = base::setdiff(old_db_files, destination_assets)
+  )
+  if (!base::isTRUE(commit$ok)) {
+    status <- dplyr::bind_rows(
+      status,
+      .dnmb_pazy_status_row("pazy_commit", "failed", commit$detail)
+    )
+    return(list(ok = FALSE, status = status, files = list(), manifest = manifest))
+  }
+  layout <- .dnmb_pazy_asset_layout(module_dir)
 
   manifest <- list(
     install_ok = TRUE,
@@ -272,7 +387,10 @@ dnmb_pazy_install_module <- function(version = .dnmb_pazy_default_version(),
     fasta_url = fasta_source,
     reference_fasta = layout$reference_fasta,
     metadata_tsv = layout$metadata_tsv,
-    blast_db_prefix = layout$blast_db_prefix
+    blast_db_prefix = layout$blast_db_prefix,
+    metadata_count = base::nrow(metadata_flat),
+    reference_md5 = base::unname(tools::md5sum(layout$reference_fasta)[[1]]),
+    remote_asset_state = remote_state
   )
   dnmb_db_write_manifest(module, version, manifest = manifest, cache_root = cache_root, overwrite = TRUE)
   .dnmb_db_autoprune_default_versions(

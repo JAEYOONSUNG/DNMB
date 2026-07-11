@@ -202,6 +202,23 @@ docker run --rm \
 
 Override any module with the `module_<Name> = TRUE/FALSE` argument.
 
+The release image pins the format-sensitive tools instead of resolving a
+floating latest version:
+
+| Tool | Pinned release |
+|---|---|
+| dbCAN | 5.2.9 |
+| eggNOG-mapper | 2.1.15 (database 5.0.2) |
+| DefenseFinder | 3.0.0 (models 3.1.0, CasFinder 3.1.0) |
+| PADLOC | 2.0.0 |
+| PhiSpy | 5.0.10 |
+| MacSyFinder | 2.1.4 |
+
+Reference-only refreshes retain the normalized DNMB output schema but can
+change hit counts and labels. Their manifests record remote asset metadata,
+local file state, and tool/model identities so these biological result changes
+remain auditable.
+
 ### Cache layout
 
 Each module owns a subdirectory of the cache:
@@ -227,10 +244,10 @@ resolved, so you can see at a glance which database/tool release the
 run is bound to, e.g.
 
 ```
-[DNMB] eggnog (data, 2026-04-08) [db=5.0.2, emapper=2.1.12]
+[DNMB] eggnog (data, 2026-07-11) [tool=2.1.15, db=5.0.2, emapper=2.1.15]
 [DNMB] padloc (current, 2026-04-07) [db=v2.0.0]
-[DNMB] defensefinder (current, 2026-04-25) [models=2.0.2, casfinder=3.1.0, casfinder_models=2.0]
-[DNMB] dbcan (current, 2026-04-01) [release=V14, dbcan=8/26/2025, cazydb=7/10/2025]
+[DNMB] defensefinder (current, 2026-07-11) [tool=3.0.0, source=v3.0.0, models=3.1.0, casfinder=3.1.0, casfinder_models=2.0]
+[DNMB] dbcan (current, 2026-07-11) [tool=5.2.9, release=V14, dbcan=8/26/2025, cazydb=7/10/2025]
 [DNMB] promotech (current, 2026-04-25) [model=RF-HOT]
 [DNMB] mrnacal (embedded — runs from R package, no cache install needed)
 ```

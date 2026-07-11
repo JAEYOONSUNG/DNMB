@@ -482,6 +482,7 @@ dnmb_clean_install_module <- function(version = .dnmb_clean_default_version(),
   module <- .dnmb_clean_module_name()
   module_dir <- .dnmb_db_module_dir(module, version, cache_root = cache_root, create = TRUE)
   layout <- .dnmb_clean_asset_layout(module_dir)
+  existing_manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
   asset_urls <- .dnmb_clean_normalize_asset_urls(asset_urls)
 
   repo_source <- asset_urls$repo %||% base_url
@@ -523,6 +524,11 @@ dnmb_clean_install_module <- function(version = .dnmb_clean_default_version(),
     file.exists(file.path(layout$pretrained_dir, .dnmb_clean_required_pretrained_files(version)))
   )) && nzchar(env_info$python)
 
+  source_tag <- .dnmb_db_git_tag(layout$repo_dir)
+  pretrained_identity <- .dnmb_db_cached_file_md5(
+    file.path(layout$pretrained_dir, .dnmb_clean_required_pretrained_files(version)),
+    manifest = existing_manifest
+  )
   manifest <- list(
     install_ok = ready,
     module = module,
@@ -534,8 +540,14 @@ dnmb_clean_install_module <- function(version = .dnmb_clean_default_version(),
     pretrained_dir = if (dir.exists(layout$pretrained_dir)) normalizePath(layout$pretrained_dir, winslash = "/", mustWork = FALSE) else layout$pretrained_dir,
     required_pretrained = .dnmb_clean_required_pretrained_files(version),
     repo_source = repo_source,
+    source_tag = source_tag,
+    source_commit = .dnmb_db_git_commit(layout$repo_dir),
+    tool_version = source_tag,
     esm_source = esm_source,
-    pretrained_bundle_url = pretrained_bundle_url
+    esm_source_commit = .dnmb_db_git_commit(layout$esm_repo_dir),
+    pretrained_bundle_url = pretrained_bundle_url,
+    asset_state = pretrained_identity$asset_state,
+    asset_md5 = pretrained_identity$asset_md5
   )
   dnmb_db_write_manifest(module, version, manifest = manifest, cache_root = cache_root, overwrite = TRUE)
   .dnmb_db_autoprune_default_versions(

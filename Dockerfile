@@ -68,7 +68,7 @@ RUN python3 -m pip install --no-cache-dir \
     progressbar2 \
     'scikit-learn<1.3'
 
-RUN git clone --branch v2.0.1 --depth 1 https://github.com/mdmparis/defense-finder.git /opt/vendor/defense-finder
+RUN git clone --branch v3.0.0 --depth 1 https://github.com/mdmparis/defense-finder.git /opt/vendor/defense-finder
 
 # Conda env at /opt/biotools holds the bioinformatics binaries that
 # eggnog-mapper / padloc / phispy / GapMind expect on PATH. The cache lives
@@ -82,9 +82,15 @@ RUN curl -fsSL "https://github.com/conda-forge/miniforge/releases/latest/downloa
     /opt/miniforge/bin/conda create -y -p /opt/biotools \
         -c bioconda -c conda-forge \
         python=3.10 \
-        eggnog-mapper \
+        dbcan=5.2.9 \
         phispy \
         entrez-direct && \
+    /opt/miniforge/bin/conda create -y -p /opt/biotools/envs/eggnog \
+        -c bioconda -c conda-forge \
+        python=3.11 \
+        eggnog-mapper=2.1.15 && \
+    ln -sf /opt/biotools/envs/eggnog/bin/emapper.py /opt/biotools/bin/emapper.py && \
+    ln -sf /opt/biotools/envs/eggnog/bin/download_eggnog_data.py /opt/biotools/bin/download_eggnog_data.py && \
     /opt/miniforge/bin/conda create -y -p /opt/biotools/envs/padloc \
         -c bioconda -c conda-forge \
         padloc && \

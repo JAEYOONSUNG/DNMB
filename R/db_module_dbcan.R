@@ -6,6 +6,10 @@
   "current"
 }
 
+.dnmb_dbcan_required_tool_version <- function() {
+  "5.2.9"
+}
+
 .dnmb_dbcan_default_base_url <- function() {
   "https://pro.unl.edu/dbCAN2/download/Databases"
 }
@@ -99,7 +103,7 @@
   # `https://bcb.unl.edu/dbCAN2/download/...` is dead — every path
   # 302-redirects to a landing page and downloads save HTML instead
   # of the actual HMM/DIAMOND/TSV files.
-  "https://dbcan.s3.us-west-2.amazonaws.com/db_v5-2_9-13-2025"
+  "https://dbcan.s3.us-west-2.amazonaws.com/db_v5-2-9_5-5-2026"
 }
 
 .dnmb_dbcan_asset_urls <- function(base_url = .dnmb_dbcan_default_base_url(),
@@ -169,6 +173,13 @@
     found = isTRUE(detection$found),
     version = version
   )
+}
+
+.dnmb_dbcan_tool_version <- function() {
+  detection <- dnmb_detect_binary("run_dbcan", required = FALSE)
+  if (!isTRUE(detection$found)) return(NA_character_)
+  run <- dnmb_run_external(detection$path, args = "version", required = FALSE)
+  .dnmb_parse_tool_version(c(run$stdout, run$stderr))
 }
 
 .dnmb_dbcan_prepare_hmm_db <- function(hmm_path, force = FALSE, trace_log = NULL) {
@@ -267,10 +278,13 @@
   info <- release_info %||% .dnmb_dbcan_fallback_release_info()
 
   list(
+    expected_tool_version = .dnmb_dbcan_required_tool_version(),
+    tool_version = .dnmb_dbcan_tool_version(),
     hmmpress_path = if (isTRUE(hmmpress$found) && nzchar(hmmpress$path)) hmmpress$path else "",
     hmmpress_version = hmmpress$version %||% NA_character_,
     hmmpress_args = as.character(args),
-    resolved_release_version = info$version %||% NA_character_,
+    resolved_release_version = if (identical(info$source %||% "", "fallback")) NA_character_ else info$version %||% NA_character_,
+    release_info_source = info$source %||% NA_character_,
     dbcan_release_date = info$dbcan_release_date %||% NA_character_,
     cazydb_release_date = info$cazydb_release_date %||% NA_character_,
     release_note = info$release_note %||% NA_character_
@@ -1218,6 +1232,10 @@ dnmb_dbcan_install_module <- function(version = .dnmb_dbcan_default_version(),
     } else {
       isTRUE(!is.null(manifest$install_ok) && manifest$install_ok) || .dnmb_dbcan_is_hmm(layout$hmm_path)
     }
+    asset_identity <- .dnmb_db_cached_file_md5(
+      c(layout$hmm_path, layout$mapping_path),
+      manifest = manifest
+    )
     manifest_fields <- unclass(manifest)
     manifest_fields[c("module", "version", "module_dir", "manifest_path", "written_at")] <- NULL
     manifest_fields <- utils::modifyList(
@@ -1227,6 +1245,8 @@ dnmb_dbcan_install_module <- function(version = .dnmb_dbcan_default_version(),
         list(
           hmmpress_files = layout$hmmpress_files[file.exists(layout$hmmpress_files)],
           prepared_with_hmmpress = isTRUE(!is.null(prepare_result) && prepare_result$status %in% c("ok", "cached") && length(prepare_result$hmmpress_files) == 4L),
+          asset_state = asset_identity$asset_state,
+          asset_md5 = asset_identity$asset_md5,
           remote_asset_state = remote_asset_state,
           install_ok = cached_ok
         )
@@ -1295,6 +1315,10 @@ dnmb_dbcan_install_module <- function(version = .dnmb_dbcan_default_version(),
   }
 
   mapping_available <- file.exists(layout$mapping_path) && .dnmb_dbcan_is_mapping(layout$mapping_path)
+  asset_identity <- .dnmb_db_cached_file_md5(
+    c(layout$hmm_path, layout$mapping_path),
+    manifest = manifest
+  )
   manifest_payload <- c(
     list(
       source = "dbcan",
@@ -1307,6 +1331,8 @@ dnmb_dbcan_install_module <- function(version = .dnmb_dbcan_default_version(),
       hmmpress_files = layout$hmmpress_files[file.exists(layout$hmmpress_files)],
       prepared_with_hmmpress = isTRUE(!is.null(prepare_result) && prepare_result$status %in% c("ok", "cached") && length(prepare_result$hmmpress_files) == 4L),
       mapping_available = mapping_available,
+      asset_state = asset_identity$asset_state,
+      asset_md5 = asset_identity$asset_md5,
       remote_asset_state = remote_asset_state
     ),
     .dnmb_dbcan_manifest_diagnostics(layout, prepare_result = prepare_result, release_info = release_info),

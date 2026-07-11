@@ -247,6 +247,186 @@ dnmb_db_read_manifest <- function(module, version, cache_root = NULL, required =
   manifest
 }
 
+.dnmb_db_manifest_scalar <- function(manifest, fields, skip_symbolic = FALSE) {
+  if (!is.list(manifest)) {
+    return(list(value = NA_character_, field = NA_character_))
+  }
+
+  for (field in as.character(fields)) {
+    value <- manifest[[field]]
+    if (is.null(value) || !length(value)) next
+    value <- trimws(as.character(value)[1])
+    if (is.na(value) || !nzchar(value)) next
+    if (isTRUE(skip_symbolic) && .dnmb_db_is_symbolic_version(value)) next
+    return(list(value = value, field = field))
+  }
+
+  list(value = NA_character_, field = NA_character_)
+}
+
+.dnmb_db_is_symbolic_version <- function(x) {
+  value <- tolower(trimws(as.character(x)[1]))
+  is.na(value) || !nzchar(value) || value %in% c(
+    "current", "latest", "default", "auto", "embedded", "unknown", "na", "n/a"
+  )
+}
+
+.dnmb_db_normalize_release_id <- function(x) {
+  value <- trimws(as.character(x)[1])
+  if (is.na(value) || !nzchar(value)) return(NA_character_)
+  value <- sub("^refs/tags/", "", value, ignore.case = TRUE)
+  value <- sub("^[vV](?=[0-9])", "", value, perl = TRUE)
+  tolower(value)
+}
+
+.dnmb_db_release_ids_equal <- function(local, remote, kind = c("release", "commit")) {
+  kind <- match.arg(kind)
+  local <- trimws(as.character(local)[1])
+  remote <- trimws(as.character(remote)[1])
+  if (is.na(local) || !nzchar(local) || is.na(remote) || !nzchar(remote)) return(NA)
+
+  if (identical(kind, "commit")) {
+    local <- tolower(local)
+    remote <- tolower(remote)
+    if (!grepl("^[0-9a-f]{7,64}$", local) || !grepl("^[0-9a-f]{7,64}$", remote)) {
+      return(FALSE)
+    }
+    prefix_length <- min(nchar(local), nchar(remote))
+    return(substr(local, 1L, prefix_length) == substr(remote, 1L, prefix_length))
+  }
+
+  identical(.dnmb_db_normalize_release_id(local), .dnmb_db_normalize_release_id(remote))
+}
+
+.dnmb_db_remote_identity_result <- function(remote_version,
+                                            local_identity,
+                                            kind = c("release", "commit"),
+                                            remote_label = remote_version) {
+  kind <- match.arg(kind)
+  remote_version <- trimws(as.character(remote_version)[1])
+  if (is.na(remote_version) || !nzchar(remote_version)) return(NULL)
+
+  local_value <- local_identity$value %||% NA_character_
+  same <- .dnmb_db_release_ids_equal(local_value, remote_version, kind = kind)
+  list(
+    remote_version = as.character(remote_label)[1],
+    local_version = local_value,
+    local_version_field = local_identity$field %||% NA_character_,
+    update_available = if (is.na(same)) NA else !same
+  )
+}
+
+.dnmb_db_combine_update_states <- function(...) {
+  states <- unlist(list(...), use.names = FALSE)
+  states <- as.logical(states)
+  if (any(states %in% TRUE, na.rm = TRUE)) return(TRUE)
+  if (length(states) && all(states %in% FALSE)) return(FALSE)
+  NA
+}
+
+.dnmb_db_read_json_url <- function(url) {
+  curl <- dnmb_detect_binary("curl", required = FALSE)
+  if (isTRUE(curl$found)) {
+    token <- Sys.getenv("GITHUB_TOKEN", unset = "")
+    args <- c(
+      "-fsSL",
+      "-H", "Accept: application/vnd.github+json",
+      "-H", "User-Agent: DNMB",
+      if (nzchar(token)) c("-H", paste0("Authorization: Bearer ", token)) else character(),
+      url
+    )
+    run <- tryCatch(dnmb_run_external(curl$path, args = args, required = FALSE), error = function(e) NULL)
+    if (!is.null(run) && isTRUE(run$ok) && length(run$stdout)) {
+      return(tryCatch(jsonlite::fromJSON(paste(run$stdout, collapse = "\n"), simplifyVector = TRUE), error = function(e) NULL))
+    }
+    return(NULL)
+  }
+  tryCatch(suppressWarnings(jsonlite::fromJSON(url, simplifyVector = TRUE)), error = function(e) NULL)
+}
+
+.dnmb_db_github_latest_release <- function(repo) {
+  repo <- trimws(as.character(repo)[1])
+  if (is.na(repo) || !nzchar(repo)) return(NULL)
+  json <- .dnmb_db_read_json_url(paste0("https://api.github.com/repos/", repo, "/releases/latest"))
+  if (is.null(json)) return(NULL)
+  tag <- json$tag_name %||% json$name %||% ""
+  tag <- trimws(as.character(tag)[1])
+  if (!nzchar(tag)) return(NULL)
+  list(tag = tag, name = as.character(json$name %||% tag)[1])
+}
+
+.dnmb_db_github_commit <- function(repo, ref = "HEAD") {
+  repo <- trimws(as.character(repo)[1])
+  ref <- trimws(as.character(ref)[1])
+  if (is.na(repo) || !nzchar(repo) || is.na(ref) || !nzchar(ref)) return(NA_character_)
+  json <- .dnmb_db_read_json_url(paste0(
+    "https://api.github.com/repos/", repo, "/commits/", utils::URLencode(ref, reserved = TRUE)
+  ))
+  sha <- json$sha %||% NA_character_
+  sha <- trimws(as.character(sha)[1])
+  if (is.na(sha) || !grepl("^[0-9a-fA-F]{7,64}$", sha)) NA_character_ else tolower(sha)
+}
+
+.dnmb_db_git_value <- function(repo_dir, args) {
+  repo_dir <- path.expand(as.character(repo_dir)[1])
+  if (is.na(repo_dir) || !dir.exists(repo_dir)) return(NA_character_)
+  run <- tryCatch(
+    dnmb_run_external("git", args = c("-C", repo_dir, args), required = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(run) || !isTRUE(run$ok)) return(NA_character_)
+  value <- .dnmb_nonempty_lines(run$stdout)
+  if (!length(value)) NA_character_ else trimws(value[[1]])
+}
+
+.dnmb_db_git_commit <- function(repo_dir) {
+  value <- .dnmb_db_git_value(repo_dir, c("rev-parse", "HEAD"))
+  if (is.na(value) || !grepl("^[0-9a-fA-F]{7,64}$", value)) NA_character_ else tolower(value)
+}
+
+.dnmb_db_git_tag <- function(repo_dir) {
+  .dnmb_db_git_value(repo_dir, c("describe", "--tags", "--exact-match", "HEAD"))
+}
+
+.dnmb_db_file_md5 <- function(paths) {
+  paths <- unique(path.expand(as.character(paths)))
+  paths <- paths[!is.na(paths) & nzchar(paths) & file.exists(paths) & !dir.exists(paths)]
+  if (!length(paths)) return(character())
+  hashes <- unname(tools::md5sum(paths))
+  stats::setNames(as.character(hashes), basename(paths))
+}
+
+.dnmb_db_local_asset_state <- function(paths) {
+  paths <- unique(path.expand(as.character(paths)))
+  paths <- paths[!is.na(paths) & nzchar(paths) & file.exists(paths) & !dir.exists(paths)]
+  if (!length(paths)) {
+    return(data.frame(
+      asset_name = character(), size = numeric(), modified = character(),
+      stringsAsFactors = FALSE
+    ))
+  }
+  info <- file.info(paths)
+  data.frame(
+    asset_name = basename(paths),
+    size = as.numeric(info$size),
+    modified = format(info$mtime, "%Y-%m-%dT%H:%M:%OS6Z", tz = "UTC"),
+    stringsAsFactors = FALSE
+  )
+}
+
+.dnmb_db_cached_file_md5 <- function(paths, manifest = NULL) {
+  state <- .dnmb_db_local_asset_state(paths)
+  previous_state <- manifest$asset_state %||% NULL
+  previous_md5 <- manifest$asset_md5 %||% character()
+  can_reuse <- is.data.frame(previous_state) && identical(previous_state, state) &&
+    length(previous_md5) == nrow(state) &&
+    setequal(names(previous_md5), state$asset_name)
+  list(
+    asset_state = state,
+    asset_md5 = if (can_reuse) previous_md5 else .dnmb_db_file_md5(paths)
+  )
+}
+
 #' Check DB freshness and warn if stale
 #'
 #' @param module Module name.
@@ -307,8 +487,11 @@ dnmb_db_check_freshness <- function(module, version, cache_root = NULL, verbose 
     if (!is.null(remote_info) && isTRUE(remote_info$update_available)) {
       message("[DNMB] ", module, " (", local_ver, ", ", date_str, ")", ver_suffix,
               " — update available (", remote_info$remote_version, ")")
-    } else if (!is.null(remote_info) && !isTRUE(remote_info$update_available)) {
+    } else if (!is.null(remote_info) && identical(remote_info$update_available, FALSE)) {
       message("[DNMB] ", module, " (", local_ver, ", ", date_str, ")", ver_suffix, " — latest")
+    } else if (!is.null(remote_info) && is.na(remote_info$update_available %||% NA)) {
+      message("[DNMB] ", module, " (", local_ver, ", ", date_str, ")", ver_suffix,
+              " - remote ", remote_info$remote_version, "; local release identity unavailable")
     } else {
       message("[DNMB] ", module, " (", local_ver, ", ", date_str, ")", ver_suffix)
     }
@@ -323,6 +506,9 @@ dnmb_db_check_freshness <- function(module, version, cache_root = NULL, verbose 
 .dnmb_db_manifest_version_label <- function(manifest) {
   if (!is.list(manifest)) return("")
   fields <- c(
+    tool_version            = "tool",
+    source_tag              = "source",
+    source_commit           = "commit",
     db_version              = "db",
     db_release              = "db",
     models_version          = "models",
@@ -341,6 +527,7 @@ dnmb_db_check_freshness <- function(module, version, cache_root = NULL, verbose 
     if (is.null(v) || !length(v)) next
     val <- as.character(v)[1]
     if (is.na(val) || !nzchar(val)) next
+    if (identical(key, "source_commit")) val <- substr(val, 1L, 12L)
     parts <- c(parts, paste0(fields[[key]], "=", val))
   }
   paste(parts, collapse = ", ")
@@ -364,20 +551,78 @@ dnmb_db_check_freshness <- function(module, version, cache_root = NULL, verbose 
 }
 
 .dnmb_db_remote_check_dbcan <- function(manifest) {
-  # Scrape dbCAN release page for latest version
-  html <- tryCatch(readLines("https://pro.unl.edu/dbCAN2/download/Databases/", warn = FALSE), error = function(e) NULL)
-  if (is.null(html)) return(NULL)
-  ver_match <- regmatches(paste(html, collapse = ""), regexpr("V[0-9]+", paste(html, collapse = "")))
-  if (!length(ver_match)) return(NULL)
-  remote_ver <- ver_match[[1]]
-  local_ver <- manifest$version %||% ""
-  list(remote_version = remote_ver, update_available = !identical(toupper(local_ver), toupper(remote_ver)))
+  # `version` is commonly the symbolic cache key "current". Compare the
+  # actual run_dbcan and HMM database releases instead; otherwise report an
+  # unknown state rather than a permanent false update.
+  tool_release <- .dnmb_db_github_latest_release("bcb-unl/run_dbcan")
+  release_info <- tryCatch(.dnmb_dbcan_release_info(), error = function(e) NULL)
+  if (!is.null(release_info) && identical(release_info$source %||% "", "fallback")) {
+    release_info <- NULL
+  }
+  if (is.null(tool_release) && is.null(release_info)) return(NULL)
+
+  tool_result <- if (is.null(tool_release)) NULL else .dnmb_db_remote_identity_result(
+    tool_release$tag,
+    .dnmb_db_manifest_scalar(manifest, c("tool_version", "dbcan_tool_version"), skip_symbolic = TRUE)
+  )
+  db_result <- if (is.null(release_info)) NULL else .dnmb_db_remote_identity_result(
+    release_info$version %||% "",
+    .dnmb_db_manifest_scalar(
+      manifest,
+      c("db_version", "resolved_release_version", "db_release", "asset_release_version", "version"),
+      skip_symbolic = TRUE
+    )
+  )
+  tool_state <- if (is.null(tool_release)) logical() else tool_result$update_available %||% NA
+  db_state <- if (is.null(release_info)) logical() else db_result$update_available %||% NA
+  labels <- c(
+    if (!is.null(tool_release)) paste0("tool:", tool_release$tag),
+    if (!is.null(release_info)) paste0("db:", release_info$version)
+  )
+  list(
+    remote_version = paste(labels, collapse = " "),
+    local_tool_version = tool_result$local_version %||% NA_character_,
+    local_db_version = db_result$local_version %||% NA_character_,
+    update_available = .dnmb_db_combine_update_states(tool_state, db_state)
+  )
 }
 
 .dnmb_db_remote_check_url_changed <- function(manifest) {
   # Compare stored ETag/content-length against remote HEAD
   if (is.null(manifest$remote_asset_state)) return(NULL)
   saved <- manifest$remote_asset_state
+  if (is.data.frame(saved)) {
+    required <- c("asset_name", "url")
+    if (!all(required %in% names(saved)) || !nrow(saved)) return(NULL)
+    rows <- lapply(seq_len(nrow(saved)), function(i) {
+      metadata <- .dnmb_remote_asset_metadata(saved$url[[i]], insecure = FALSE)
+      data.frame(
+        asset_name = as.character(saved$asset_name[[i]]),
+        ok = isTRUE(metadata$ok),
+        last_modified = metadata$last_modified %||% NA_character_,
+        content_length = metadata$content_length %||% NA_real_,
+        etag = metadata$etag %||% NA_character_,
+        stringsAsFactors = FALSE
+      )
+    })
+    current <- dplyr::bind_rows(rows)
+    if (!nrow(current) || !all(current$ok %in% TRUE)) return(NULL)
+    fields <- c("last_modified", "content_length", "etag")
+    changed <- vapply(seq_len(nrow(current)), function(i) {
+      old <- saved[saved$asset_name == current$asset_name[[i]], , drop = FALSE]
+      if (!nrow(old)) return(TRUE)
+      any(vapply(fields, function(field) {
+        if (!field %in% names(old)) return(FALSE)
+        new_value <- as.character(current[[field]][[i]])
+        old_value <- as.character(old[[field]][[1]])
+        !is.na(new_value) && nzchar(new_value) && !identical(old_value, new_value)
+      }, logical(1)))
+    }, logical(1))
+    return(list(
+      remote_version = if (any(changed)) "newer version" else "same",
+      update_available = any(changed)
+    ))
+  }
   url <- saved$url %||% NULL
   if (is.null(url) || !nzchar(url)) return(NULL)
   headers <- tryCatch({
@@ -396,43 +641,84 @@ dnmb_db_check_freshness <- function(module, version, cache_root = NULL, verbose 
 }
 
 .dnmb_db_remote_check_eggnog <- function(manifest) {
-  # Check eggnog-mapper PyPI for latest version
-  json <- tryCatch({
-    con <- url("https://pypi.org/pypi/eggnog-mapper/json")
-    on.exit(close(con))
-    jsonlite::fromJSON(readLines(con, warn = FALSE))
-  }, error = function(e) NULL)
-  if (is.null(json)) return(NULL)
-  remote_ver <- json$info$version
-  local_ver <- manifest$emapper_version %||% manifest$version %||% ""
-  list(remote_version = remote_ver, update_available = !identical(local_ver, remote_ver))
+  # Bioconda is the installation channel used by DNMB. PyPI can lag behind
+  # Bioconda and must not make a newer local build look stale.
+  bioconda <- .dnmb_db_read_json_url(
+    "https://api.anaconda.org/package/bioconda/eggnog-mapper"
+  )
+  remote_ver <- bioconda$latest_version %||% NULL
+  if (is.null(remote_ver) || !nzchar(as.character(remote_ver)[1])) {
+    pypi <- .dnmb_db_read_json_url("https://pypi.org/pypi/eggnog-mapper/json")
+    remote_ver <- pypi$info$version %||% NULL
+  }
+  if (is.null(remote_ver) || !nzchar(as.character(remote_ver)[1])) return(NULL)
+  remote_ver <- as.character(remote_ver)[1]
+  local_identity <- .dnmb_db_manifest_scalar(
+    manifest,
+    c("tool_version", "emapper_version", "resolved_release_version"),
+    skip_symbolic = TRUE
+  )
+  result <- .dnmb_db_remote_identity_result(remote_ver, local_identity)
+  local_ver <- local_identity$value %||% NA_character_
+  if (!is.na(local_ver) && nzchar(local_ver)) {
+    comparison <- tryCatch(
+      utils::compareVersion(
+        .dnmb_db_normalize_release_id(remote_ver),
+        .dnmb_db_normalize_release_id(local_ver)
+      ),
+      error = function(e) NA_integer_
+    )
+    if (!is.na(comparison)) result$update_available <- comparison > 0L
+  }
+  result
 }
 
 .dnmb_db_remote_check_gapmind <- function(manifest) {
+  if (!is.null(manifest$remote_asset_state)) {
+    state_result <- .dnmb_db_remote_check_url_changed(manifest)
+    if (!is.null(state_result)) return(state_result)
+  }
   # GapMind is hosted at genomics.lbl.gov — check if files changed
-  url <- "https://papers.genomics.lbl.gov/tmp/path.aa/steps.db"
+  dataset <- manifest$version %||% "aa"
+  if (!dataset %in% c("aa", "carbon")) dataset <- "aa"
+  url <- paste0("https://papers.genomics.lbl.gov/tmp/path.", dataset, "/steps.db")
   headers <- tryCatch({
     run <- dnmb_run_external("curl", args = c("-sI", "-L", "-k", url), required = FALSE)
     if (isTRUE(run$ok)) run$stdout else NULL
   }, error = function(e) NULL)
   if (is.null(headers)) return(NULL)
   remote_date <- sub(".*Last-Modified:\\s*", "", grep("Last-Modified:", headers, value = TRUE, ignore.case = TRUE)[1])
-  local_date <- manifest$written_at %||% ""
   if (is.na(remote_date) || !nzchar(remote_date)) return(NULL)
-  list(remote_version = trimws(remote_date), update_available = FALSE) # informational only
+  list(remote_version = trimws(remote_date), update_available = NA) # informational until asset state is recorded
 }
 
 .dnmb_db_remote_check_clean <- function(manifest) {
-  # CLEAN uses a fixed pretrained model — check GitHub for new releases
-  json <- tryCatch({
-    con <- url("https://api.github.com/repos/tttianhao/CLEAN/releases/latest")
-    on.exit(close(con))
-    jsonlite::fromJSON(readLines(con, warn = FALSE))
-  }, error = function(e) NULL)
-  if (is.null(json)) return(NULL)
-  remote_tag <- json$tag_name %||% json$name %||% ""
-  local_ver <- manifest$version %||% ""
-  list(remote_version = remote_tag, update_available = nzchar(remote_tag) && remote_tag != local_ver)
+  # CLEAN is installed from the repository default branch. `split100` is a
+  # pretrained model key, not the CLEAN tool version, so compare Git commits.
+  repo_source <- manifest$repo_source %||% "https://github.com/tttianhao/CLEAN.git"
+  if (!grepl("github\\.com[/:]tttianhao/CLEAN(?:\\.git)?/?$", repo_source, ignore.case = TRUE, perl = TRUE)) {
+    return(NULL)
+  }
+  local_commit <- .dnmb_db_manifest_scalar(manifest, "source_commit")
+  if (!is.na(local_commit$value)) {
+    remote_commit <- .dnmb_db_github_commit("tttianhao/CLEAN", "HEAD")
+    if (is.na(remote_commit)) return(NULL)
+    return(.dnmb_db_remote_identity_result(
+      remote_commit,
+      local_commit,
+      kind = "commit",
+      remote_label = paste0("commit:", substr(remote_commit, 1L, 12L))
+    ))
+  }
+
+  release <- .dnmb_db_github_latest_release("tttianhao/CLEAN")
+  if (is.null(release)) return(NULL)
+  local_release <- .dnmb_db_manifest_scalar(
+    manifest,
+    c("tool_version", "source_tag", "resolved_release_version"),
+    skip_symbolic = TRUE
+  )
+  .dnmb_db_remote_identity_result(release$tag, local_release)
 }
 
 .dnmb_db_remote_check_prophage <- function(manifest) {
@@ -448,36 +734,57 @@ dnmb_db_check_freshness <- function(module, version, cache_root = NULL, verbose 
 }
 
 .dnmb_db_remote_check_defensefinder <- function(manifest) {
-  # Check both tool and models repos
-  tool_ver <- tryCatch({
-    con <- url("https://api.github.com/repos/mdmparis/defense-finder/releases/latest")
-    on.exit(close(con))
-    j <- jsonlite::fromJSON(readLines(con, warn = FALSE))
-    j$tag_name %||% ""
-  }, error = function(e) "")
-  model_ver <- tryCatch({
-    con <- url("https://api.github.com/repos/mdmparis/defense-finder-models/releases/latest")
-    on.exit(close(con))
-    j <- jsonlite::fromJSON(readLines(con, warn = FALSE))
-    j$tag_name %||% ""
-  }, error = function(e) "")
-  remote_info <- paste0("tool:", tool_ver, " models:", model_ver)
-  local_models <- manifest$models_version %||% ""
-  updated <- (nzchar(model_ver) && model_ver != local_models) || (nzchar(tool_ver) && !grepl(gsub("^v", "", tool_ver), manifest$written_at %||% "", fixed = TRUE))
-  list(remote_version = remote_info, update_available = updated)
+  tool_release <- .dnmb_db_github_latest_release("mdmparis/defense-finder")
+  model_release <- .dnmb_db_github_latest_release("mdmparis/defense-finder-models")
+  if (is.null(tool_release) && is.null(model_release)) return(NULL)
+
+  tool_result <- NULL
+  if (!is.null(tool_release)) {
+    local_tool <- .dnmb_db_manifest_scalar(
+      manifest,
+      c("tool_version", "source_tag", "resolved_release_version", "version"),
+      skip_symbolic = TRUE
+    )
+    if (is.na(local_tool$value)) {
+      local_tool <- .dnmb_db_manifest_scalar(manifest, "source_commit")
+      if (!is.na(local_tool$value)) {
+        remote_commit <- .dnmb_db_github_commit("mdmparis/defense-finder", tool_release$tag)
+        if (!is.na(remote_commit)) {
+          tool_result <- .dnmb_db_remote_identity_result(remote_commit, local_tool, kind = "commit")
+        }
+      }
+    } else {
+      tool_result <- .dnmb_db_remote_identity_result(tool_release$tag, local_tool)
+    }
+  }
+
+  model_result <- if (is.null(model_release)) NULL else .dnmb_db_remote_identity_result(
+    model_release$tag,
+    .dnmb_db_manifest_scalar(manifest, c("models_version", "models_release"), skip_symbolic = TRUE)
+  )
+  tool_state <- if (is.null(tool_release)) logical() else tool_result$update_available %||% NA
+  model_state <- if (is.null(model_release)) logical() else model_result$update_available %||% NA
+  labels <- c(
+    if (!is.null(tool_release)) paste0("tool:", tool_release$tag),
+    if (!is.null(model_release)) paste0("models:", model_release$tag)
+  )
+  list(
+    remote_version = paste(labels, collapse = " "),
+    local_tool_version = tool_result$local_version %||% NA_character_,
+    local_models_version = model_result$local_version %||% NA_character_,
+    update_available = .dnmb_db_combine_update_states(tool_state, model_state)
+  )
 }
 
 .dnmb_db_remote_check_interproscan <- function(manifest) {
-  # Check GitHub for latest InterProScan5 release
-  json <- tryCatch({
-    con <- url("https://api.github.com/repos/ebi-pf-team/interproscan/releases/latest")
-    on.exit(close(con))
-    jsonlite::fromJSON(readLines(con, warn = FALSE))
-  }, error = function(e) NULL)
-  if (is.null(json)) return(NULL)
-  remote_tag <- json$tag_name %||% json$name %||% ""
-  local_ver <- manifest$version %||% ""
-  list(remote_version = remote_tag, update_available = nzchar(remote_tag) && remote_tag != local_ver)
+  release <- .dnmb_db_github_latest_release("ebi-pf-team/interproscan")
+  if (is.null(release)) return(NULL)
+  local_identity <- .dnmb_db_manifest_scalar(
+    manifest,
+    c("tool_version", "resolved_release_version", "source_tag", "version"),
+    skip_symbolic = TRUE
+  )
+  .dnmb_db_remote_identity_result(release$tag, local_identity)
 }
 
 dnmb_db_list_registry <- function(cache_root = NULL) {

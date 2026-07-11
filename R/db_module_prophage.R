@@ -645,14 +645,32 @@ dnmb_prophage_parse_coordinates <- function(path) {
     return(data.frame())
   }
   out <- tryCatch(
-    utils::read.delim(path, sep = "\t", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE),
+    utils::read.delim(
+      path,
+      sep = "\t",
+      header = FALSE,
+      stringsAsFactors = FALSE,
+      check.names = FALSE,
+      quote = "",
+      comment.char = "",
+      fill = TRUE
+    ),
     error = function(e) data.frame()
   )
-  if (!base::is.data.frame(out) || !base::nrow(out)) {
-    out <- tryCatch(
-      utils::read.delim(path, sep = "\t", header = FALSE, stringsAsFactors = FALSE, check.names = FALSE),
-      error = function(e) data.frame()
-    )
+  if (!base::is.data.frame(out) || !base::nrow(out) || base::ncol(out) < 4L) {
+    return(out)
+  }
+
+  first_fields <- base::tolower(base::trimws(base::as.character(out[1L, 1:4, drop = TRUE])))
+  has_header <- base::grepl("prophage", first_fields[[1L]]) &&
+    base::grepl("contig", first_fields[[2L]]) &&
+    base::grepl("start", first_fields[[3L]]) &&
+    base::grepl("stop|end", first_fields[[4L]])
+  if (base::isTRUE(has_header)) {
+    header <- base::trimws(base::as.character(out[1L, , drop = TRUE]))
+    header[!base::nzchar(header)] <- base::paste0("V", base::which(!base::nzchar(header)))
+    base::names(out) <- base::make.unique(header)
+    out <- out[-1L, , drop = FALSE]
   }
   out
 }

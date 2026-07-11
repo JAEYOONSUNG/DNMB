@@ -85,6 +85,42 @@ NULL
 # Detection & installation
 # ---------------------------------------------------------------------------
 
+.dnmb_eggnog_required_version <- function() {
+  "2.1.15"
+}
+
+.dnmb_eggnog_database_release <- function() {
+  "5.0.2"
+}
+
+.dnmb_eggnog_version_is_supported <- function(version) {
+  base::identical(base::as.character(version)[1], .dnmb_eggnog_required_version())
+}
+
+.dnmb_eggnog_conda_package_version <- function(emapper_path) {
+  emapper_path <- base::normalizePath(emapper_path, winslash = "/", mustWork = FALSE)
+  metadata_dir <- base::file.path(base::dirname(base::dirname(emapper_path)), "conda-meta")
+  metadata_files <- base::list.files(
+    metadata_dir,
+    pattern = "^eggnog-mapper-.*\\.json$",
+    full.names = TRUE
+  )
+  if (!base::length(metadata_files)) {
+    return(NA_character_)
+  }
+  for (metadata_path in base::rev(base::sort(metadata_files))) {
+    metadata <- tryCatch(
+      jsonlite::fromJSON(metadata_path, simplifyVector = TRUE),
+      error = function(e) NULL
+    )
+    if (!base::is.null(metadata) && base::identical(metadata$name, "eggnog-mapper") &&
+        !base::is.null(metadata$version) && base::nzchar(base::as.character(metadata$version)[1])) {
+      return(base::as.character(metadata$version)[1])
+    }
+  }
+  NA_character_
+}
+
 #' Detect eggnog-mapper (emapper.py)
 #'
 #' Searches PATH and common conda environments for emapper.py. Returns a list
@@ -94,7 +130,13 @@ NULL
 #' @return A list with components `found`, `path`, `version`.
 #' @export
 dnmb_detect_emapper <- function(required = FALSE) {
-  result <- list(found = FALSE, path = NA_character_, version = NA_character_)
+  result <- list(
+    found = FALSE,
+    path = NA_character_,
+    version = NA_character_,
+    cli_version = NA_character_,
+    package_version = NA_character_
+  )
 
   # Try emapper.py on current PATH
   detection <- dnmb_detect_binary("emapper.py", required = FALSE)
@@ -105,7 +147,8 @@ dnmb_detect_emapper <- function(required = FALSE) {
       file.path(Sys.getenv("HOME"), "miniforge3"),
       file.path(Sys.getenv("HOME"), "miniconda3"),
       file.path(Sys.getenv("HOME"), "anaconda3"),
-      "/opt/conda"
+      "/opt/conda",
+      "/opt/biotools"
     )
     for (root in conda_roots) {
       env_dirs <- list.dirs(file.path(root, "envs"), recursive = FALSE, full.names = TRUE)
@@ -143,8 +186,48 @@ dnmb_detect_emapper <- function(required = FALSE) {
     m <- regmatches(ver_match[1], regexpr("[0-9]+\\.[0-9]+\\.[0-9]+", ver_match[1]))
     if (length(m)) result$version <- m
   }
+  result$cli_version <- result$version
+  result$package_version <- .dnmb_eggnog_conda_package_version(result$path)
+  if (!base::is.na(result$package_version)) {
+    # Conda metadata is the authoritative release identity for packaged builds.
+    result$version <- result$package_version
+  }
 
   result
+}
+
+.dnmb_eggnog_database_release_from_db <- function(data_dir) {
+  annotation_db <- base::file.path(data_dir, "eggnog.db")
+  if (!.dnmb_nonempty_file(annotation_db)) return(NA_character_)
+
+  query <- "SELECT version FROM version LIMIT 1;"
+  sqlite <- dnmb_detect_binary("sqlite3", required = FALSE)
+  if (base::isTRUE(sqlite$found)) {
+    run <- dnmb_run_external(sqlite$path, args = c(annotation_db, query), required = FALSE)
+    value <- .dnmb_nonempty_lines(run$stdout)
+    if (base::isTRUE(run$ok) && base::length(value)) return(base::trimws(value[[1]]))
+  }
+
+  python_query <- paste0(
+    "import sqlite3,sys; ",
+    "row=sqlite3.connect(sys.argv[1]).execute('SELECT version FROM version LIMIT 1').fetchone(); ",
+    "print(row[0] if row else '')"
+  )
+  python_paths <- unique(c(
+    dnmb_detect_binary("python3", required = FALSE)$path,
+    dnmb_detect_binary("python", required = FALSE)$path
+  ))
+  python_paths <- python_paths[!base::is.na(python_paths) & base::nzchar(python_paths)]
+  for (python_path in python_paths) {
+    run <- dnmb_run_external(
+      python_path,
+      args = c("-c", python_query, annotation_db),
+      required = FALSE
+    )
+    value <- .dnmb_nonempty_lines(run$stdout)
+    if (base::isTRUE(run$ok) && base::length(value)) return(base::trimws(value[[1]]))
+  }
+  NA_character_
 }
 
 #' Check or download eggnog-mapper databases
@@ -156,11 +239,13 @@ dnmb_detect_emapper <- function(required = FALSE) {
 #'   (`~/.local/share/eggnog-mapper/`).
 #' @param db_name Database name (default: "bact").
 #' @param install Whether to download missing databases.
+#' @param cache_root Optional DNMB cache root.
 #' @return A list with `ok`, `data_dir`, `db_name`.
 #' @export
 dnmb_eggnog_ensure_database <- function(data_dir = NULL,
                                         db_name = .dnmb_eggnog_default_db(),
-                                        install = TRUE) {
+                                        install = TRUE,
+                                        cache_root = NULL) {
   if (is.null(data_dir)) {
     # Check EGGNOG_DATA_DIR env var first
     env_dir <- Sys.getenv("EGGNOG_DATA_DIR", unset = "")
@@ -168,8 +253,8 @@ dnmb_eggnog_ensure_database <- function(data_dir = NULL,
       data_dir <- env_dir
     } else {
       # Use DNMB cache root → db_modules/eggnog/ (same level as other modules)
-      cache_root <- .dnmb_db_cache_root(create = TRUE)
-      data_dir <- file.path(cache_root, "eggnog", "data")
+      db_root <- .dnmb_db_cache_root(cache_root = cache_root, create = TRUE)
+      data_dir <- file.path(db_root, "eggnog", "data")
       dir.create(data_dir, recursive = TRUE, showWarnings = FALSE)
     }
   }
@@ -177,7 +262,9 @@ dnmb_eggnog_ensure_database <- function(data_dir = NULL,
   # Check if database files exist
   diamond_db <- file.path(data_dir, "eggnog_proteins.dmnd")
   taxa_db <- file.path(data_dir, "eggnog.taxa.db")
-  db_ok <- file.exists(diamond_db) || file.exists(taxa_db)
+  annotation_db <- file.path(data_dir, "eggnog.db")
+  required_db_files <- c(diamond_db, annotation_db, taxa_db)
+  db_ok <- base::all(base::vapply(required_db_files, .dnmb_nonempty_file, logical(1)))
 
   if (!db_ok && isTRUE(install)) {
     message("[DNMB EggNOG] Downloading eggnog-mapper databases to: ", data_dir)
@@ -193,7 +280,7 @@ dnmb_eggnog_ensure_database <- function(data_dir = NULL,
     dl_run <- dnmb_run_external(dl_cmd, args = c("-y", "--data_dir", data_dir), required = FALSE)
 
     # Re-check after download_eggnog_data.py
-    db_ok <- file.exists(diamond_db) || file.exists(taxa_db)
+    db_ok <- base::all(base::vapply(required_db_files, .dnmb_nonempty_file, logical(1)))
 
     # Fallback: direct download (eggnogdb.embl.de sometimes down, use eggnog5 mirror)
     if (!db_ok) {
@@ -207,7 +294,35 @@ dnmb_eggnog_ensure_database <- function(data_dir = NULL,
     }
   }
 
-  list(ok = db_ok, data_dir = data_dir, db_name = db_name)
+  manifest <- NULL
+  if (base::isTRUE(db_ok)) {
+    emapper <- dnmb_detect_emapper(required = FALSE)
+    db_files <- c(
+      diamond_db,
+      taxa_db,
+      annotation_db
+    )
+    db_files <- db_files[base::file.exists(db_files)]
+    manifest <- list(
+      install_ok = TRUE,
+      data_dir = base::normalizePath(data_dir, winslash = "/", mustWork = FALSE),
+      tool_version = emapper$version %||% NA_character_,
+      emapper_version = emapper$version %||% NA_character_,
+      expected_tool_version = .dnmb_eggnog_required_version(),
+      expected_db_release = .dnmb_eggnog_database_release(),
+      db_release = .dnmb_eggnog_database_release_from_db(data_dir),
+      asset_state = .dnmb_db_local_asset_state(db_files)
+    )
+    dnmb_db_write_manifest(
+      "eggnog", "data",
+      manifest = manifest,
+      cache_root = cache_root,
+      overwrite = TRUE
+    )
+    manifest <- dnmb_db_read_manifest("eggnog", "data", cache_root = cache_root, required = TRUE)
+  }
+
+  list(ok = db_ok, data_dir = data_dir, db_name = db_name, manifest = manifest)
 }
 
 # ---------------------------------------------------------------------------
@@ -277,8 +392,12 @@ dnmb_eggnog_ensure_database <- function(data_dir = NULL,
   }
 
   # Verify
-  file.exists(file.path(data_dir, "eggnog_proteins.dmnd")) ||
-    file.exists(file.path(data_dir, "eggnog.taxa.db"))
+  required <- c("eggnog_proteins.dmnd", "eggnog.db", "eggnog.taxa.db")
+  base::all(base::vapply(
+    base::file.path(data_dir, required),
+    .dnmb_nonempty_file,
+    logical(1)
+  ))
 }
 
 # ---------------------------------------------------------------------------
@@ -286,31 +405,35 @@ dnmb_eggnog_ensure_database <- function(data_dir = NULL,
 # ---------------------------------------------------------------------------
 
 .dnmb_eggnog_auto_install_emapper <- function(verbose = TRUE) {
-  # Strategy: try pip first (works in most envs), then conda/mamba
+  required_version <- .dnmb_eggnog_required_version()
+  conda_spec <- base::paste0("eggnog-mapper=", required_version)
   installers <- list(
-    list(name = "pip", cmd = "pip", args = c("install", "eggnog-mapper")),
-    list(name = "pip3", cmd = "pip3", args = c("install", "eggnog-mapper")),
-    list(name = "mamba", cmd = "mamba", args = c("install", "-y", "-c", "bioconda", "eggnog-mapper")),
-    list(name = "conda", cmd = "conda", args = c("install", "-y", "-c", "bioconda", "eggnog-mapper"))
+    list(name = "mamba", cmd = "mamba", args = c("install", "-y", "-c", "bioconda", "-c", "conda-forge", conda_spec)),
+    list(name = "conda", cmd = "conda", args = c("install", "-y", "-c", "bioconda", "-c", "conda-forge", conda_spec))
   )
 
   for (inst in installers) {
     check <- dnmb_detect_binary(inst$cmd, required = FALSE)
     if (!isTRUE(check$found)) next
 
-    if (isTRUE(verbose)) message("[DNMB EggNOG] Trying: ", inst$cmd, " install eggnog-mapper")
+    if (isTRUE(verbose)) message("[DNMB EggNOG] Trying ", inst$name, " for eggNOG-mapper ", required_version)
     run <- dnmb_run_external(inst$cmd, args = inst$args, required = FALSE)
     if (isTRUE(run$ok)) {
       # Re-detect after install
       emapper <- dnmb_detect_emapper(required = FALSE)
-      if (isTRUE(emapper$found)) {
+      if (isTRUE(emapper$found) && .dnmb_eggnog_version_is_supported(emapper$version)) {
         if (isTRUE(verbose)) message("[DNMB EggNOG] Installed via ", inst$name, " (v", emapper$version %||% "?", ")")
         return(emapper)
       }
     }
   }
 
-  if (isTRUE(verbose)) message("[DNMB EggNOG] Auto-install failed. Please install manually: conda install -c bioconda eggnog-mapper")
+  if (isTRUE(verbose)) {
+    message(
+      "[DNMB EggNOG] Auto-install failed. Please install manually: conda install -c bioconda -c conda-forge ",
+      conda_spec
+    )
+  }
   list(found = FALSE, path = NA_character_, version = NA_character_)
 }
 
@@ -335,6 +458,7 @@ dnmb_eggnog_ensure_database <- function(data_dir = NULL,
 #'   Default: "mid-sensitive".
 #' @param evalue E-value threshold (default: 1e-3).
 #' @param verbose Print progress messages.
+#' @param cache_root Optional DNMB cache root.
 #'
 #' @return A list with `ok`, `status`, `output_table`, `hits`, `files`.
 #' @export
@@ -347,7 +471,8 @@ dnmb_run_eggnog_module <- function(genes,
                                    install = TRUE,
                                    sensmode = "mid-sensitive",
                                    evalue = 1e-3,
-                                   verbose = TRUE) {
+                                   verbose = TRUE,
+                                   cache_root = NULL) {
 
   module_name <- .dnmb_eggnog_module_name()
 
@@ -382,14 +507,24 @@ dnmb_run_eggnog_module <- function(genes,
 
   # 1. Detect emapper.py — auto-install if missing and install=TRUE
   emapper <- dnmb_detect_emapper(required = FALSE)
-  if (!isTRUE(emapper$found) && isTRUE(install)) {
-    if (isTRUE(verbose)) message("[DNMB EggNOG] emapper.py not found, attempting auto-install...")
+  emapper_supported <- isTRUE(emapper$found) && .dnmb_eggnog_version_is_supported(emapper$version)
+  if (!isTRUE(emapper_supported) && isTRUE(install)) {
+    if (isTRUE(verbose)) {
+      message(
+        "[DNMB EggNOG] eggNOG-mapper ", .dnmb_eggnog_required_version(),
+        " is required; attempting a pinned install (found ", emapper$version %||% "none", ")."
+      )
+    }
     emapper <- .dnmb_eggnog_auto_install_emapper(verbose = verbose)
   }
-  if (!isTRUE(emapper$found)) {
+  emapper_supported <- isTRUE(emapper$found) && .dnmb_eggnog_version_is_supported(emapper$version)
+  if (!isTRUE(emapper_supported)) {
     .add_status("emapper_detection", FALSE,
-                paste0("emapper.py not found in PATH",
-                       if (isTRUE(install)) "; auto-install failed — run: conda install -c bioconda eggnog-mapper" else ""))
+                paste0(
+                  "eggNOG-mapper ", .dnmb_eggnog_required_version(), " is required; found ",
+                  emapper$version %||% "none",
+                  if (isTRUE(install)) "; pinned auto-install failed" else ""
+                ))
     return(list(
       ok = FALSE,
       status = do.call(rbind, status),
@@ -401,7 +536,7 @@ dnmb_run_eggnog_module <- function(genes,
 
   # 2. Check databases
   db_check <- dnmb_eggnog_ensure_database(
-    data_dir = data_dir, db_name = db_name, install = install
+    data_dir = data_dir, db_name = db_name, install = install, cache_root = cache_root
   )
   if (!isTRUE(db_check$ok)) {
     .add_status("database", FALSE, db_check$error %||% "databases not found")
@@ -482,7 +617,21 @@ dnmb_run_eggnog_module <- function(genes,
     }
 
     emapper_cmd <- if (!is.na(emapper$path) && nzchar(emapper$path)) emapper$path else "emapper.py"
-    run <- dnmb_run_external(emapper_cmd, args = emapper_args, required = FALSE, stream_stderr = TRUE)
+    emapper_path <- base::normalizePath(emapper_cmd, winslash = "/", mustWork = FALSE)
+    emapper_env_path <- base::paste(
+      unique(c(
+        base::dirname(emapper_path),
+        base::strsplit(base::Sys.getenv("PATH"), .Platform$path.sep, fixed = TRUE)[[1]]
+      )),
+      collapse = .Platform$path.sep
+    )
+    run <- dnmb_run_external(
+      emapper_cmd,
+      args = emapper_args,
+      env = c(PATH = emapper_env_path),
+      required = FALSE,
+      stream_stderr = TRUE
+    )
 
     if (!isTRUE(run$ok) || !file.exists(annotations_file)) {
       stderr_msg <- paste(utils::tail(run$stderr, 5), collapse = "; ")

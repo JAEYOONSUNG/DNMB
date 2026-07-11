@@ -244,10 +244,60 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
   NULL
 }
 
+.dnmb_interproscan_write_manifest <- function(version,
+                                              ipr_dir,
+                                              cache_root = NULL,
+                                              source_url = NA_character_,
+                                              archive_md5 = NA_character_) {
+  existing <- dnmb_db_read_manifest(
+    "interproscan",
+    version,
+    cache_root = cache_root,
+    required = FALSE
+  )
+  fields <- if (is.null(existing)) list() else unclass(existing)
+  fields[c("module", "version", "module_dir", "manifest_path", "written_at")] <- NULL
+  launcher <- file.path(ipr_dir, "interproscan.sh")
+  identity <- list(
+    install_ok = file.exists(launcher),
+    tool_version = as.character(version)[1],
+    resolved_release_version = as.character(version)[1],
+    source_url = as.character(source_url)[1],
+    launcher_md5 = unname(.dnmb_db_file_md5(launcher)[1]),
+    archive_md5 = as.character(archive_md5)[1]
+  )
+  if (!is.null(existing) && all(vapply(
+    names(identity),
+    function(field) identical(existing[[field]], identity[[field]]),
+    logical(1)
+  ))) {
+    return(invisible(existing$manifest_path))
+  }
+  fields <- utils::modifyList(
+    fields,
+    identity
+  )
+  dnmb_db_write_manifest(
+    "interproscan",
+    version,
+    manifest = fields,
+    cache_root = cache_root,
+    overwrite = TRUE
+  )
+}
+
 .dnmb_ensure_interproscan <- function(cache_root = NULL, version = .dnmb_interproscan_default_version()) {
   ipr_dir <- file.path(.dnmb_interproscan_cache_root(cache_root = cache_root, create = TRUE), version)
   ipr_sh <- file.path(ipr_dir, "interproscan.sh")
   if (file.exists(ipr_sh)) {
+    existing_manifest <- dnmb_db_read_manifest("interproscan", version, cache_root = cache_root)
+    .dnmb_interproscan_write_manifest(
+      version = version,
+      ipr_dir = ipr_dir,
+      cache_root = cache_root,
+      source_url = existing_manifest$source_url %||% NA_character_,
+      archive_md5 = existing_manifest$archive_md5 %||% NA_character_
+    )
     .dnmb_db_autoprune_default_versions(
       module = "interproscan",
       version = version,
@@ -276,6 +326,7 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
   if (!isTRUE(dl$ok) || !file.exists(dest)) {
     stop("[InterProScan] Download failed. Check internet connection.", call. = FALSE)
   }
+  archive_md5 <- unname(.dnmb_db_file_md5(dest)[1])
 
   message("[InterProScan] Extracting...")
   ex <- dnmb_run_external("tar", args = c("-xzf", dest, "--strip-components=1", "-C", ipr_dir), required = FALSE)
@@ -292,6 +343,13 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
   }
 
   if (file.exists(ipr_sh)) {
+    .dnmb_interproscan_write_manifest(
+      version = version,
+      ipr_dir = ipr_dir,
+      cache_root = cache_root,
+      source_url = url,
+      archive_md5 = archive_md5
+    )
     .dnmb_db_autoprune_default_versions(
       module = "interproscan",
       version = version,

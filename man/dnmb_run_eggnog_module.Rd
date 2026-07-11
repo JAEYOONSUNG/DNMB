@@ -14,7 +14,8 @@ dnmb_run_eggnog_module(
   install = TRUE,
   sensmode = "mid-sensitive",
   evalue = 0.001,
-  verbose = TRUE
+  verbose = TRUE,
+  cache_root = NULL
 )
 }
 \arguments{
@@ -39,6 +40,8 @@ Default: "mid-sensitive".}
 \item{evalue}{E-value threshold (default: 1e-3).}
 
 \item{verbose}{Print progress messages.}
+
+\item{cache_root}{Optional DNMB cache root.}
 }
 \value{
 A list with \code{ok}, \code{status}, \code{output_table}, \code{hits}, \code{files}.

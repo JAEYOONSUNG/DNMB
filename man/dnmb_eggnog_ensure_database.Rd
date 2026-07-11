@@ -7,7 +7,8 @@
 dnmb_eggnog_ensure_database(
   data_dir = NULL,
   db_name = .dnmb_eggnog_default_db(),
-  install = TRUE
+  install = TRUE,
+  cache_root = NULL
 )
 }
 \arguments{
@@ -17,9 +18,11 @@ dnmb_eggnog_ensure_database(
 \item{db_name}{Database name (default: "bact").}
 
 \item{install}{Whether to download missing databases.}
+
+\item{cache_root}{Optional DNMB cache root.}
 }
 \value{
-A list with \code{ok}, \code{data_dir}, \code{db_name}.
+A list with \code{ok}, \code{data_dir}, \code{db_name}, and the database manifest.
 }
 \description{
 Verifies the eggnog-mapper database directory exists; optionally downloads

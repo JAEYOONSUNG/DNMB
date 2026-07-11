@@ -2341,6 +2341,217 @@
   NULL
 }
 
+.dnmb_rebasefinder_reference_url <- function() {
+  "ftp://ftp.neb.com/pub/rebase/protein_seqs.txt"
+}
+
+.dnmb_rebasefinder_reference_state_path <- function(cache_root = NULL) {
+  base::file.path(
+    .dnmb_rebasefinder_cache_dir(cache_root = cache_root, create = TRUE),
+    "rebase_reference_state.rds"
+  )
+}
+
+.dnmb_rebasefinder_reference_needs_refresh <- function(raw_path,
+                                                       remote_metadata,
+                                                       state = NULL,
+                                                       force = FALSE) {
+  if (base::isTRUE(force) || !.dnmb_nonempty_file(raw_path)) return(TRUE)
+  if (base::is.null(remote_metadata) || !base::isTRUE(remote_metadata$ok)) return(FALSE)
+
+  local_info <- base::file.info(raw_path)
+  remote_size <- base::suppressWarnings(base::as.numeric(remote_metadata$content_length %||% NA_real_))
+  if (!base::is.na(remote_size) && !base::identical(base::as.numeric(local_info$size), remote_size)) {
+    return(TRUE)
+  }
+
+  if (base::is.list(state)) {
+    for (field in c("last_modified", "content_length", "etag")) {
+      old <- base::as.character(state[[field]] %||% NA_character_)[1]
+      new <- base::as.character(remote_metadata[[field]] %||% NA_character_)[1]
+      if (!base::is.na(new) && base::nzchar(new) && !base::identical(old, new)) return(TRUE)
+    }
+    return(FALSE)
+  }
+
+  remote_time <- base::suppressWarnings(base::as.POSIXct(
+    remote_metadata$last_modified %||% NA_character_,
+    format = "%a, %d %b %Y %H:%M:%S",
+    tz = "GMT"
+  ))
+  !base::is.na(remote_time) && remote_time > local_info$mtime
+}
+
+.dnmb_rebasefinder_refresh_reference <- function(cache_root = NULL,
+                                                  force = FALSE,
+                                                  check_max_age_days = 1,
+                                                  verbose = FALSE) {
+  cache_dir <- .dnmb_rebasefinder_cache_dir(cache_root = cache_root, create = TRUE)
+  raw_path <- base::file.path(cache_dir, "REBASE_protein_seqs.txt")
+  rds_path <- base::file.path(cache_dir, "rebase_data.rds")
+  fasta_path <- base::file.path(cache_dir, "rebase_db.fasta")
+  state_path <- .dnmb_rebasefinder_reference_state_path(cache_root)
+  state <- if (base::file.exists(state_path)) {
+    tryCatch(base::readRDS(state_path), error = function(e) NULL)
+  } else {
+    NULL
+  }
+
+  state_age <- if (base::is.list(state) && !base::is.null(state$checked_at)) {
+    checked <- base::suppressWarnings(base::as.POSIXct(state$checked_at, tz = "UTC"))
+    base::as.numeric(base::difftime(base::Sys.time(), checked, units = "days"))
+  } else {
+    Inf
+  }
+  if (!base::isTRUE(force) && .dnmb_nonempty_file(raw_path) && .dnmb_nonempty_file(rds_path) &&
+      .dnmb_nonempty_file(fasta_path) &&
+      !base::is.na(state_age) && state_age <= base::as.numeric(check_max_age_days)[1]) {
+    return(list(ok = TRUE, refreshed = FALSE, detail = "REBASE reference check is current.", state = state))
+  }
+
+  remote <- .dnmb_remote_asset_metadata(.dnmb_rebasefinder_reference_url(), insecure = FALSE)
+  raw_needs_download <- .dnmb_rebasefinder_reference_needs_refresh(
+    raw_path = raw_path,
+    remote_metadata = remote,
+    state = state,
+    force = force
+  )
+  data_needs_rebuild <- .dnmb_nonempty_file(raw_path) &&
+    (!.dnmb_nonempty_file(rds_path) || !.dnmb_nonempty_file(fasta_path) ||
+       base::file.info(raw_path)$mtime > base::file.info(rds_path)$mtime)
+  needs_refresh <- base::isTRUE(raw_needs_download) || base::isTRUE(data_needs_rebuild)
+  next_state <- list(
+    url = .dnmb_rebasefinder_reference_url(),
+    checked_at = base::format(base::Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+    last_modified = remote$last_modified %||% NA_character_,
+    content_length = remote$content_length %||% NA_real_,
+    etag = remote$etag %||% NA_character_,
+    local_size = if (.dnmb_nonempty_file(raw_path)) base::file.info(raw_path)$size else NA_real_
+  )
+
+  if (!base::isTRUE(needs_refresh)) {
+    if (.dnmb_nonempty_file(raw_path) && .dnmb_nonempty_file(rds_path)) {
+      saved_state <- next_state
+      if (!base::isTRUE(remote$ok)) {
+        saved_state <- state
+        if (base::is.list(saved_state)) saved_state$checked_at <- next_state$checked_at
+      }
+      if (base::is.list(saved_state)) {
+        tryCatch(base::saveRDS(saved_state, state_path), error = function(e) NULL)
+      }
+      detail <- if (base::isTRUE(remote$ok)) "REBASE reference is current." else "Offline; using the validated cached REBASE reference."
+      return(list(ok = TRUE, refreshed = FALSE, detail = detail, state = saved_state))
+    }
+    return(list(ok = FALSE, refreshed = FALSE, detail = remote$error %||% "REBASE reference is unavailable.", state = state))
+  }
+
+  if (!requireNamespace("DefenseViz", quietly = TRUE)) {
+    return(list(ok = FALSE, refreshed = FALSE, detail = "DefenseViz is required to parse the REBASE reference.", state = state))
+  }
+  stage_raw <- if (base::isTRUE(raw_needs_download)) {
+    base::tempfile("rebase-reference-", tmpdir = cache_dir, fileext = ".txt")
+  } else {
+    raw_path
+  }
+  stage_rds <- base::tempfile("rebase-reference-", tmpdir = cache_dir, fileext = ".rds")
+  stage_fasta <- base::tempfile("rebase-reference-", tmpdir = cache_dir, fileext = ".fasta")
+  stage_state <- base::tempfile("rebase-reference-", tmpdir = cache_dir, fileext = ".state.rds")
+  cleanup <- c(
+    if (base::isTRUE(raw_needs_download)) stage_raw else character(),
+    stage_rds,
+    stage_fasta,
+    stage_state
+  )
+  base::on.exit(base::unlink(cleanup, force = TRUE), add = TRUE)
+
+  expected_size <- base::suppressWarnings(base::as.numeric(remote$content_length %||% NA_real_))
+  if (base::isTRUE(raw_needs_download)) {
+    download <- .dnmb_download_asset(.dnmb_rebasefinder_reference_url(), stage_raw, insecure = FALSE)
+    downloaded_size <- if (.dnmb_nonempty_file(stage_raw)) base::file.info(stage_raw)$size else NA_real_
+    size_ok <- .dnmb_nonempty_file(stage_raw) &&
+      (base::is.na(expected_size) || base::identical(base::as.numeric(downloaded_size), expected_size))
+    if (!base::isTRUE(download$ok) || !base::isTRUE(size_ok)) {
+      return(list(ok = .dnmb_nonempty_file(rds_path), refreshed = FALSE,
+                  detail = download$error %||% "REBASE download was incomplete; the previous cache was preserved.", state = state))
+    }
+  }
+
+  parsed <- tryCatch(DefenseViz::parse_rebase_sequences(stage_raw), error = function(e) e)
+  required_columns <- c("enzyme_name", "sequence")
+  if (inherits(parsed, "error") || !base::is.data.frame(parsed) || !base::nrow(parsed) ||
+      !base::all(required_columns %in% base::names(parsed))) {
+    detail <- if (inherits(parsed, "error")) conditionMessage(parsed) else "Parsed REBASE data failed schema validation."
+    return(list(ok = .dnmb_nonempty_file(rds_path), refreshed = FALSE, detail = detail, state = state))
+  }
+  rds_written <- tryCatch({
+    base::saveRDS(parsed, stage_rds)
+    .dnmb_nonempty_file(stage_rds)
+  }, error = function(e) FALSE)
+  if (!base::isTRUE(rds_written)) {
+    return(list(ok = .dnmb_nonempty_file(rds_path), refreshed = FALSE,
+                detail = "Could not stage the parsed REBASE data; the previous cache was preserved.", state = state))
+  }
+
+  fasta_data <- parsed
+  fasta_data$locus_tag <- fasta_data$enzyme_name
+  fasta_data$translation <- fasta_data$sequence
+  write_fasta <- base::get("write_fasta_for_blast", envir = base::asNamespace("DefenseViz"))
+  fasta_result <- tryCatch(
+    write_fasta(fasta_data, stage_fasta, id_col = "locus_tag", seq_col = "translation"),
+    error = function(e) NULL
+  )
+  if (base::is.null(fasta_result) || !.dnmb_nonempty_file(stage_fasta)) {
+    return(list(ok = .dnmb_nonempty_file(rds_path), refreshed = FALSE,
+                detail = "Could not create a FASTA file from the refreshed REBASE data.", state = state))
+  }
+
+  next_state$local_size <- base::file.info(stage_raw)$size
+  next_state$sequence_count <- base::nrow(parsed)
+  state_written <- tryCatch({
+    base::saveRDS(next_state, stage_state)
+    staged_state <- base::readRDS(stage_state)
+    base::is.list(staged_state) && base::identical(staged_state$sequence_count, base::nrow(parsed))
+  }, error = function(e) FALSE)
+  if (!base::isTRUE(state_written)) {
+    return(list(ok = .dnmb_nonempty_file(rds_path), refreshed = FALSE,
+                detail = "Could not stage REBASE reference state; the previous cache was preserved.", state = state))
+  }
+
+  replacements <- c(
+    if (base::isTRUE(raw_needs_download)) c(raw_path = stage_raw) else character(),
+    rds_path = stage_rds,
+    fasta_path = stage_fasta,
+    state_path = stage_state
+  )
+  destinations <- c(
+    if (base::isTRUE(raw_needs_download)) raw_path else character(),
+    rds_path,
+    fasta_path,
+    state_path
+  )
+  db_sidecars <- base::list.files(cache_dir, pattern = "^rebase_db[.]fasta[.]", full.names = TRUE)
+  commit <- .dnmb_transactional_replace(
+    staged_paths = replacements,
+    destination_paths = destinations,
+    retire_paths = db_sidecars
+  )
+  if (!base::isTRUE(commit$ok)) {
+    return(list(
+      ok = .dnmb_nonempty_file(rds_path),
+      refreshed = FALSE,
+      detail = commit$detail,
+      state = state
+    ))
+  }
+  if (base::exists("rmscan_rebase_db", envir = .GlobalEnv, inherits = FALSE)) {
+    base::rm("rmscan_rebase_db", envir = .GlobalEnv)
+  }
+  if (base::isTRUE(verbose)) {
+    message("[REBASEfinder] Refreshed REBASE reference: ", base::nrow(parsed), " sequences")
+  }
+  list(ok = TRUE, refreshed = TRUE, detail = base::paste0("sequences=", base::nrow(parsed)), state = next_state)
+}
+
 .dnmb_rebasefinder_set_defenseviz_cache <- function(cache_root = NULL, verbose = FALSE) {
   cache_dir <- .dnmb_rebasefinder_cache_dir(cache_root = cache_root, create = TRUE)
   if (!requireNamespace("DefenseViz", quietly = TRUE)) return(cache_dir)
@@ -2510,13 +2721,11 @@
       !base::is.data.frame(rebase_data) &&
       isTRUE(download_rebase_if_missing) &&
       requireNamespace("DefenseViz", quietly = TRUE)) {
-    rebase_data <- tryCatch(
-      DefenseViz::get_rebase_data(force_download = FALSE, verbose = verbose),
-      error = function(e) {
-        if (isTRUE(verbose)) message("[REBASEfinder] Could not load/download REBASE data for supplemental BLAST: ", conditionMessage(e))
-        NULL
-      }
-    )
+    refresh <- .dnmb_rebasefinder_refresh_reference(cache_root = cache_root, verbose = verbose)
+    rebase_data <- .dnmb_rebasefinder_cached_rebase_data(cache_root)
+    if (!base::isTRUE(refresh$ok) && isTRUE(verbose)) {
+      message("[REBASEfinder] Could not load/download REBASE data for supplemental BLAST: ", refresh$detail)
+    }
     rebase_fasta <- .dnmb_rebasefinder_rebase_fasta(cache_root = cache_root)
   }
   if (base::is.na(rebase_fasta) && base::is.data.frame(rebase_data) && base::nrow(rebase_data)) {
@@ -3813,6 +4022,15 @@ dnmb_run_rebasefinder_module <- function(genes,
   # Override DefenseViz cache dir -> DNMB's db_modules/rebasefinder/cache.
   # This works regardless of DefenseViz version (no env var dependency).
   .dnmb_rebasefinder_set_defenseviz_cache(cache_root = cache_root, verbose = verbose)
+
+  if (base::isTRUE(compare_rebase) && base::isTRUE(install)) {
+    reference_refresh <- .dnmb_rebasefinder_refresh_reference(cache_root = cache_root, verbose = verbose)
+    status <- dplyr::bind_rows(status, .dnmb_rebasefinder_status_row(
+      "rebase_reference",
+      if (base::isTRUE(reference_refresh$refreshed)) "updated" else if (base::isTRUE(reference_refresh$ok)) "cached" else "failed",
+      reference_refresh$detail
+    ))
+  }
 
   input_path <- .dnmb_rebasefinder_prepare_input(genes, output_dir)
 

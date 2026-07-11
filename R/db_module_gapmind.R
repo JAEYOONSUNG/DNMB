@@ -78,6 +78,74 @@ dnmb_gapmind_carbohydrate_pathways <- function() {
   base::paste0("https://papers.genomics.lbl.gov/tmp/path.", version)
 }
 
+.dnmb_gapmind_remote_asset_state <- function(urls, enabled = TRUE) {
+  if (!base::isTRUE(enabled) || !base::length(urls)) return(NULL)
+  rows <- base::lapply(base::names(urls), function(asset_name) {
+    metadata <- .dnmb_remote_asset_metadata(urls[[asset_name]], insecure = FALSE)
+    tibble::tibble(
+      asset_name = asset_name,
+      url = metadata$url %||% NA_character_,
+      ok = base::isTRUE(metadata$ok),
+      last_modified = metadata$last_modified %||% NA_character_,
+      content_length = metadata$content_length %||% NA_real_,
+      etag = metadata$etag %||% NA_character_
+    )
+  })
+  dplyr::bind_rows(rows)
+}
+
+.dnmb_gapmind_changed_assets <- function(manifest, remote_state, local_paths) {
+  if (base::is.null(remote_state) || !base::is.data.frame(remote_state) || !base::nrow(remote_state)) {
+    return(character())
+  }
+  previous <- if (base::is.list(manifest)) manifest$remote_asset_state else NULL
+  changed <- character()
+  for (asset_name in base::names(local_paths)) {
+    current_row <- remote_state[remote_state$asset_name == asset_name & remote_state$ok %in% TRUE, , drop = FALSE]
+    if (!base::nrow(current_row)) next
+    current_row <- current_row[1, , drop = FALSE]
+    previous_row <- if (base::is.data.frame(previous)) {
+      previous[previous$asset_name == asset_name, , drop = FALSE]
+    } else {
+      base::data.frame()
+    }
+    if (!base::nrow(previous_row)) {
+      local_size <- if (base::file.exists(local_paths[[asset_name]])) {
+        base::file.info(local_paths[[asset_name]])$size
+      } else {
+        NA_real_
+      }
+      remote_size <- base::suppressWarnings(base::as.numeric(current_row$content_length[[1]]))
+      remote_time <- base::suppressWarnings(base::as.POSIXct(
+        current_row$last_modified[[1]],
+        format = "%a, %d %b %Y %H:%M:%S",
+        tz = "GMT"
+      ))
+      local_time <- if (base::file.exists(local_paths[[asset_name]])) {
+        base::file.info(local_paths[[asset_name]])$mtime
+      } else {
+        base::as.POSIXct(NA)
+      }
+      if (base::is.na(local_size) || base::is.na(remote_size) ||
+          !base::identical(base::as.numeric(local_size), remote_size) ||
+          (!base::is.na(remote_time) && !base::is.na(local_time) && remote_time > local_time)) {
+        changed <- c(changed, asset_name)
+      }
+      next
+    }
+    fields <- c("last_modified", "content_length", "etag")
+    values_differ <- base::vapply(fields, function(field) {
+      if (!field %in% base::names(previous_row) || !field %in% base::names(current_row)) return(FALSE)
+      old <- base::as.character(previous_row[[field]][[1]])
+      new <- base::as.character(current_row[[field]][[1]])
+      if (base::is.na(new) || !base::nzchar(new)) return(FALSE)
+      !base::identical(old, new)
+    }, logical(1))
+    if (base::any(values_differ)) changed <- c(changed, asset_name)
+  }
+  base::unique(changed)
+}
+
 .dnmb_gapmind_status_row <- function(component, status, detail = NA_character_) {
   tibble::tibble(
     component = base::as.character(component)[1],
@@ -184,24 +252,40 @@ dnmb_gapmind_carbohydrate_pathways <- function() {
     return(.dnmb_gapmind_status_row("gapmind_repo", "cached", layout$repo_dir))
   }
 
-  if (base::dir.exists(layout$repo_dir) && base::isTRUE(force)) {
-    unlink(layout$repo_dir, recursive = TRUE, force = TRUE)
-  }
+  stage_repo <- base::tempfile(".dnmb-gapmind-repo-", tmpdir = base::dirname(layout$repo_dir))
+  base::on.exit(base::unlink(stage_repo, recursive = TRUE, force = TRUE), add = TRUE)
 
   if (base::dir.exists(repo_source)) {
-    .dnmb_gapmind_copy_dir_contents(repo_source, layout$repo_dir)
-    return(.dnmb_gapmind_status_row("gapmind_repo", "ok", layout$repo_dir))
+    copied <- tryCatch({
+      .dnmb_gapmind_copy_dir_contents(repo_source, stage_repo)
+      TRUE
+    }, error = function(e) FALSE)
+    if (!base::isTRUE(copied)) {
+      return(.dnmb_gapmind_status_row("gapmind_repo", "failed", repo_source))
+    }
+  } else {
+    run <- dnmb_run_external(
+      "git",
+      args = c("clone", "--depth", "1", repo_source, stage_repo),
+      required = FALSE
+    )
+    if (!base::isTRUE(run$ok) || !base::dir.exists(stage_repo)) {
+      return(.dnmb_gapmind_status_row(
+        "gapmind_repo",
+        if (!base::nzchar(run$resolved_command)) "missing" else "failed",
+        run$error %||% repo_source
+      ))
+    }
   }
 
-  run <- dnmb_run_external(
-    "git",
-    args = c("clone", "--depth", "1", repo_source, layout$repo_dir),
-    required = FALSE
+  commit <- .dnmb_transactional_replace(
+    staged_paths = stage_repo,
+    destination_paths = layout$repo_dir
   )
   .dnmb_gapmind_status_row(
     "gapmind_repo",
-    if (base::isTRUE(run$ok)) "ok" else if (!base::nzchar(run$resolved_command)) "missing" else "failed",
-    if (base::isTRUE(run$ok)) layout$repo_dir else (run$error %||% repo_source)
+    if (base::isTRUE(commit$ok)) "ok" else "failed",
+    if (base::isTRUE(commit$ok)) layout$repo_dir else commit$detail
   )
 }
 
@@ -217,9 +301,9 @@ dnmb_gapmind_carbohydrate_pathways <- function() {
   base::file.path(layout$repo_dir, "gaps", layout$version, "requires.tsv")
 }
 
-.dnmb_gapmind_extract_hmms <- function(layout) {
+.dnmb_gapmind_extract_hmms <- function(layout, force = FALSE) {
   existing <- base::list.files(layout$path_dir, pattern = "[.]hmm$", full.names = TRUE)
-  if (base::length(existing)) {
+  if (base::length(existing) && !base::isTRUE(force)) {
     return(.dnmb_gapmind_status_row("gapmind_hmms", "cached", base::paste0("count=", base::length(existing))))
   }
 
@@ -232,12 +316,26 @@ dnmb_gapmind_carbohydrate_pathways <- function() {
     ))
   }
   script_path <- base::file.path(layout$repo_dir, "bin", "extractHmms.pl")
+  output_dir <- layout$path_dir
+  stage_dir <- NULL
+  if (base::isTRUE(force) && base::length(existing)) {
+    stage_dir <- base::tempfile("dnmb-gapmind-hmms-")
+    base::dir.create(stage_dir, recursive = TRUE, showWarnings = FALSE)
+    base::on.exit(base::unlink(stage_dir, recursive = TRUE, force = TRUE), add = TRUE)
+    output_dir <- stage_dir
+  }
   run <- dnmb_run_external(
     perl_path,
-    args = c(script_path, layout$steps_db, layout$path_dir),
+    args = c(script_path, layout$steps_db, output_dir),
     env = .dnmb_gapmind_runtime_env(perl_path = perl_path),
     required = FALSE
   )
+  produced <- base::list.files(output_dir, pattern = "[.]hmm$", full.names = TRUE)
+  if (base::isTRUE(run$ok) && base::length(produced) && !base::is.null(stage_dir)) {
+    base::unlink(existing, force = TRUE)
+    copied <- base::file.copy(produced, layout$path_dir, overwrite = TRUE)
+    if (!base::all(copied)) run$ok <- FALSE
+  }
   existing <- base::list.files(layout$path_dir, pattern = "[.]hmm$", full.names = TRUE)
   .dnmb_gapmind_status_row(
     "gapmind_hmms",
@@ -246,16 +344,25 @@ dnmb_gapmind_carbohydrate_pathways <- function() {
   )
 }
 
-.dnmb_gapmind_prepare_diamond_db <- function(layout) {
-  if (base::file.exists(layout$curated_dmnd)) {
+.dnmb_gapmind_prepare_diamond_db <- function(layout, force = FALSE) {
+  if (base::file.exists(layout$curated_dmnd) && !base::isTRUE(force)) {
     return(.dnmb_gapmind_status_row("gapmind_diamond", "cached", layout$curated_dmnd))
   }
 
+  stage_dir <- base::tempfile("dnmb-gapmind-diamond-")
+  base::dir.create(stage_dir, recursive = TRUE, showWarnings = FALSE)
+  base::on.exit(base::unlink(stage_dir, recursive = TRUE, force = TRUE), add = TRUE)
+  staged_prefix <- base::file.path(stage_dir, "curated")
   run <- dnmb_run_external(
     "diamond",
-    args = c("makedb", "--in", layout$curated_faa, "-d", sub("[.]dmnd$", "", layout$curated_dmnd)),
+    args = c("makedb", "--in", layout$curated_faa, "-d", staged_prefix),
     required = FALSE
   )
+  staged_dmnd <- base::paste0(staged_prefix, ".dmnd")
+  if (base::isTRUE(run$ok) && base::file.exists(staged_dmnd)) {
+    copied <- base::file.copy(staged_dmnd, layout$curated_dmnd, overwrite = TRUE)
+    if (!base::isTRUE(copied)) run$ok <- FALSE
+  }
   .dnmb_gapmind_status_row(
     "gapmind_diamond",
     if (base::isTRUE(run$ok) && base::file.exists(layout$curated_dmnd)) "ok" else "failed",
@@ -278,12 +385,36 @@ dnmb_gapmind_install_module <- function(version = .dnmb_gapmind_default_version(
   asset_urls <- .dnmb_gapmind_normalize_asset_urls(asset_urls)
   status <- .dnmb_gapmind_empty_status()
 
+  url_map <- list(
+    curated_faa = asset_urls$curated_faa %||% base::paste0(resource_base_url, "/curated.faa"),
+    curated_db = asset_urls$curated_db %||% base::paste0(resource_base_url, "/curated.db"),
+    steps_db = asset_urls$steps_db %||% base::paste0(resource_base_url, "/steps.db")
+  )
+  dest_map <- list(
+    curated_faa = layout$curated_faa,
+    curated_db = layout$curated_db,
+    steps_db = layout$steps_db
+  )
+  manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
+  remote_state <- .dnmb_gapmind_remote_asset_state(
+    url_map,
+    enabled = base::isTRUE(install) && base::all(!base::vapply(url_map, base::file.exists, logical(1)))
+  )
+  changed_assets <- .dnmb_gapmind_changed_assets(manifest, remote_state, dest_map)
+  remote_refresh_needed <- base::length(changed_assets) > 0L
+
   if (base::all(base::file.exists(.dnmb_gapmind_required_paths(layout))) &&
       base::file.exists(.dnmb_gapmind_bundled_table(layout)) &&
       base::dir.exists(layout$repo_dir) &&
-      !base::isTRUE(force)) {
-    manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = FALSE)
+      !base::isTRUE(force) && !base::isTRUE(remote_refresh_needed)) {
     if (!base::is.null(manifest) && base::isTRUE(manifest$install_ok)) {
+      if (base::is.data.frame(remote_state) && base::nrow(remote_state) &&
+          (base::is.null(manifest$remote_asset_state) || !base::is.data.frame(manifest$remote_asset_state))) {
+        manifest$remote_asset_state <- remote_state
+        manifest$asset_md5 <- base::unname(tools::md5sum(base::unlist(dest_map)))
+        dnmb_db_write_manifest(module, version, manifest = manifest, cache_root = cache_root, overwrite = TRUE)
+        manifest <- dnmb_db_read_manifest(module, version, cache_root = cache_root, required = TRUE)
+      }
       return(list(
         ok = TRUE,
         status = .dnmb_gapmind_status_row("gapmind_install", "cached", module_dir),
@@ -334,34 +465,54 @@ dnmb_gapmind_install_module <- function(version = .dnmb_gapmind_default_version(
     return(list(ok = FALSE, status = status, files = list(), manifest = NULL))
   }
 
-  url_map <- list(
-    curated_faa = asset_urls$curated_faa %||% base::paste0(resource_base_url, "/curated.faa"),
-    curated_db = asset_urls$curated_db %||% base::paste0(resource_base_url, "/curated.db"),
-    steps_db = asset_urls$steps_db %||% base::paste0(resource_base_url, "/steps.db")
+  stage_path_dir <- base::tempfile(
+    base::paste0(".dnmb-gapmind-path-", version, "-"),
+    tmpdir = module_dir
   )
-  dest_map <- list(
-    curated_faa = layout$curated_faa,
-    curated_db = layout$curated_db,
-    steps_db = layout$steps_db
+  base::dir.create(stage_path_dir, recursive = TRUE, showWarnings = FALSE)
+  base::on.exit(base::unlink(stage_path_dir, recursive = TRUE, force = TRUE), add = TRUE)
+  if (base::dir.exists(layout$path_dir)) {
+    .dnmb_gapmind_copy_dir_contents(layout$path_dir, stage_path_dir)
+  }
+  stage_layout <- layout
+  stage_layout$path_dir <- stage_path_dir
+  stage_layout$curated_faa <- base::file.path(stage_path_dir, "curated.faa")
+  stage_layout$curated_db <- base::file.path(stage_path_dir, "curated.db")
+  stage_layout$steps_db <- base::file.path(stage_path_dir, "steps.db")
+  stage_layout$curated_dmnd <- base::file.path(stage_path_dir, "curated.faa.dmnd")
+  stage_dest_map <- list(
+    curated_faa = stage_layout$curated_faa,
+    curated_db = stage_layout$curated_db,
+    steps_db = stage_layout$steps_db
   )
 
   for (asset_name in base::names(url_map)) {
-    dest <- dest_map[[asset_name]]
+    live_dest <- dest_map[[asset_name]]
+    dest <- stage_dest_map[[asset_name]]
     source <- url_map[[asset_name]]
     ok <- FALSE
-    detail <- dest
-    if (base::file.exists(dest) && !base::isTRUE(force)) {
+    detail <- live_dest
+    if (base::file.exists(live_dest) && !base::isTRUE(force) && !asset_name %in% changed_assets) {
       ok <- TRUE
-      status <- dplyr::bind_rows(status, .dnmb_gapmind_status_row(asset_name, "cached", dest))
+      status <- dplyr::bind_rows(status, .dnmb_gapmind_status_row(asset_name, "cached", live_dest))
       next
     }
+    staged_dest <- base::tempfile(base::paste0("dnmb-gapmind-", asset_name, "-"), tmpdir = stage_path_dir)
     if (base::file.exists(source)) {
-      ok <- base::file.copy(source, dest, overwrite = TRUE)
-      detail <- if (ok) dest else source
+      ok <- base::file.copy(source, staged_dest, overwrite = TRUE)
+      detail <- if (ok) staged_dest else source
     } else {
-      download <- .dnmb_download_asset(source, dest, insecure = FALSE)
-      ok <- base::isTRUE(download$ok) && base::file.exists(dest)
-      detail <- if (ok) dest else (download$error %||% source)
+      download <- .dnmb_download_asset(source, staged_dest, insecure = FALSE)
+      ok <- base::isTRUE(download$ok) && .dnmb_nonempty_file(staged_dest)
+      detail <- if (ok) staged_dest else (download$error %||% source)
+    }
+    if (base::isTRUE(ok)) {
+      replaced <- base::file.copy(staged_dest, dest, overwrite = TRUE)
+      base::unlink(staged_dest, force = TRUE)
+      ok <- base::isTRUE(replaced) && .dnmb_nonempty_file(dest)
+      detail <- if (ok) live_dest else base::paste0("Could not stage ", live_dest)
+    } else {
+      base::unlink(staged_dest, force = TRUE)
     }
     status <- dplyr::bind_rows(status, .dnmb_gapmind_status_row(asset_name, if (ok) "ok" else "failed", detail))
     if (!ok) {
@@ -369,16 +520,33 @@ dnmb_gapmind_install_module <- function(version = .dnmb_gapmind_default_version(
     }
   }
 
-  hmm_status <- .dnmb_gapmind_extract_hmms(layout)
+  rebuild_hmms <- base::isTRUE(force) || "steps_db" %in% changed_assets
+  hmm_status <- .dnmb_gapmind_extract_hmms(stage_layout, force = rebuild_hmms)
   status <- dplyr::bind_rows(status, hmm_status)
   if (!hmm_status$status %in% c("ok", "cached")) {
     return(list(ok = FALSE, status = status, files = list(), manifest = NULL))
   }
 
-  diamond_status <- .dnmb_gapmind_prepare_diamond_db(layout)
+  rebuild_diamond <- base::isTRUE(force) || "curated_faa" %in% changed_assets
+  diamond_status <- .dnmb_gapmind_prepare_diamond_db(stage_layout, force = rebuild_diamond)
+  if (diamond_status$status %in% c("ok", "cached")) {
+    diamond_status$detail <- layout$curated_dmnd
+  }
   status <- dplyr::bind_rows(status, diamond_status)
   if (!diamond_status$status %in% c("ok", "cached")) {
     return(list(ok = FALSE, status = status, files = list(), manifest = NULL))
+  }
+
+  commit <- .dnmb_transactional_replace(
+    staged_paths = stage_path_dir,
+    destination_paths = layout$path_dir
+  )
+  if (!base::isTRUE(commit$ok)) {
+    status <- dplyr::bind_rows(
+      status,
+      .dnmb_gapmind_status_row("gapmind_commit", "failed", commit$detail)
+    )
+    return(list(ok = FALSE, status = status, files = list(), manifest = manifest))
   }
 
   manifest <- list(
@@ -395,7 +563,9 @@ dnmb_gapmind_install_module <- function(version = .dnmb_gapmind_default_version(
     pathway_table = .dnmb_gapmind_bundled_table(layout),
     requires_tsv = .dnmb_gapmind_bundled_requires(layout),
     resource_base_url = resource_base_url,
-    repo_url = repo_url
+    repo_url = repo_url,
+    asset_md5 = base::unname(tools::md5sum(base::unlist(dest_map))),
+    remote_asset_state = remote_state
   )
   dnmb_db_write_manifest(module, version, manifest = manifest, cache_root = cache_root, overwrite = TRUE)
 

@@ -624,6 +624,7 @@ run_module_set <- function(db = NULL,
       dnmb_run_eggnog_module(
         genes = genes,
         output_dir = .dnmb_module_output_dir("EggNOG", output_dir = output_dir),
+        cache_root = module_cache_root,
         cpu = as.integer(module_cpu)[1],
         genbank = genbank,
         install = isTRUE(module_install),

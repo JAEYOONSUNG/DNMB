@@ -585,6 +585,18 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
     dbCAN = c(
       "dbcan_hit",
       "family_id",
+      "dbcan_all_families",
+      "dbcan_primary_family",
+      "dbcan_domain_architecture",
+      "dbcan_hmm_domain_architecture",
+      "dbcan_hmm_domain_count",
+      "dbcan_evidence_tier",
+      "dbcan_evidence_sources",
+      "dbcan_tool_count",
+      "dbcan_consensus",
+      "dbcan_ec",
+      "substrate_label",
+      "dbcan_substrate_source",
       "support",
       "profile_id",
       "evalue",
@@ -596,6 +608,7 @@ dnmb_module_block_columns <- function(genbank_table, prefix) {
       "gene_start",
       "gene_end",
       "dbcan_cgc_id",
+      "dbcan_contig_key",
       "dbcan_cgc_gene_type",
       "dbcan_cgc_protein_family",
       "dbcan_pul_id",
@@ -1206,12 +1219,15 @@ dnmb_module_details_dbcan <- function(genbank_table, base_cols) {
   out$primary_call <- if ("dbCAN_dbcan_hit" %in% names(genbank_table)) as.character(genbank_table$dbCAN_dbcan_hit[keep]) else as.character(genbank_table$dbCAN_family_id[keep])
   out$reference_id <- dnmb_detail_join(
     if ("dbCAN_profile_id" %in% names(genbank_table)) paste0("profile=", as.character(genbank_table$dbCAN_profile_id[keep])) else NA_character_,
-    if ("dbCAN_family_id" %in% names(genbank_table)) paste0("family=", as.character(genbank_table$dbCAN_family_id[keep])) else NA_character_
+    if ("dbCAN_family_id" %in% names(genbank_table)) paste0("family=", as.character(genbank_table$dbCAN_family_id[keep])) else NA_character_,
+    if ("dbCAN_dbcan_domain_architecture" %in% names(genbank_table)) paste0("domains=", as.character(genbank_table$dbCAN_dbcan_domain_architecture[keep])) else NA_character_
   )
   out$significance <- dnmb_detail_key_value("evalue", if ("dbCAN_evalue" %in% names(genbank_table)) genbank_table$dbCAN_evalue[keep] else NA, digits = 3)
   out$score_summary <- dnmb_detail_join(
     dnmb_detail_key_value("coverage", if ("dbCAN_coverage" %in% names(genbank_table)) genbank_table$dbCAN_coverage[keep] else NA, digits = 3),
-    if ("dbCAN_support" %in% names(genbank_table)) paste0("support=", as.character(genbank_table$dbCAN_support[keep])) else NA_character_
+    if ("dbCAN_support" %in% names(genbank_table)) paste0("support=", as.character(genbank_table$dbCAN_support[keep])) else NA_character_,
+    if ("dbCAN_dbcan_evidence_tier" %in% names(genbank_table)) paste0("tier=", as.character(genbank_table$dbCAN_dbcan_evidence_tier[keep])) else NA_character_,
+    if ("dbCAN_dbcan_tool_count" %in% names(genbank_table)) paste0("tools=", as.character(genbank_table$dbCAN_dbcan_tool_count[keep])) else NA_character_
   )
   out$alignment_summary <- dnmb_detail_join(
     dnmb_detail_span("profile", if ("dbCAN_profile_start" %in% names(genbank_table)) genbank_table$dbCAN_profile_start[keep] else NA, if ("dbCAN_profile_end" %in% names(genbank_table)) genbank_table$dbCAN_profile_end[keep] else NA, if ("dbCAN_profile_length" %in% names(genbank_table)) genbank_table$dbCAN_profile_length[keep] else NA),
@@ -1226,7 +1242,9 @@ dnmb_module_details_dbcan <- function(genbank_table, base_cols) {
     dnmb_detail_key_value("pul_bitscore", if ("dbCAN_dbcan_pul_bitscore" %in% names(genbank_table)) genbank_table$dbCAN_dbcan_pul_bitscore[keep] else NA, digits = 3),
     if ("dbCAN_dbcan_pul_signature_pairs" %in% names(genbank_table)) paste0("signature=", as.character(genbank_table$dbCAN_dbcan_pul_signature_pairs[keep])) else NA_character_,
     if ("dbCAN_dbcan_sub_substrate" %in% names(genbank_table)) paste0("dbcan_sub=", as.character(genbank_table$dbCAN_dbcan_sub_substrate[keep])) else NA_character_,
-    if ("dbCAN_dbcan_sub_score" %in% names(genbank_table)) paste0("dbcan_sub_score=", as.character(genbank_table$dbCAN_dbcan_sub_score[keep])) else NA_character_
+    if ("dbCAN_dbcan_sub_score" %in% names(genbank_table)) paste0("dbcan_sub_score=", as.character(genbank_table$dbCAN_dbcan_sub_score[keep])) else NA_character_,
+    if ("dbCAN_substrate_label" %in% names(genbank_table)) paste0("substrate=", as.character(genbank_table$dbCAN_substrate_label[keep])) else NA_character_,
+    if ("dbCAN_dbcan_substrate_source" %in% names(genbank_table)) paste0("substrate_source=", as.character(genbank_table$dbCAN_dbcan_substrate_source[keep])) else NA_character_
   )
   out
 }

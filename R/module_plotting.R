@@ -5,7 +5,8 @@
 }
 
 .dnmb_module_plot_save <- function(plot, pdf_path, width = 12, height = 6,
-                                   min_dim = 4, max_dim = 45) {
+                                   min_dim = 4, max_dim = 45,
+                                   device = NULL) {
   ar <- width / height
   width  <- max(min_dim, min(max_dim, width))
   height <- max(min_dim, min(max_dim, height))
@@ -17,7 +18,12 @@
       width <- min(max_dim, max(min_dim, height * ar))
     }
   }
-  ggplot2::ggsave(pdf_path, plot, width = width, height = height, bg = "white")
+  save_args <- list(
+    filename = pdf_path, plot = plot,
+    width = width, height = height, bg = "white"
+  )
+  if (!is.null(device)) save_args$device <- device
+  do.call(ggplot2::ggsave, save_args)
 }
 
 .dnmb_module_plot_save_multi <- function(plots, pdf_path, labels = "AUTO", ncol = 1, rel_heights = NULL, width = 12, height = 8) {
@@ -358,7 +364,11 @@ dnmb_render_module_plots <- function(genbank_table, output_dir = getwd(), cache_
   }
 
   run_plot("GapMindAA",        function() .dnmb_plot_gapmind_aa_pathway_map(genbank_table, output_dir = output_dir))
-  run_plot("CAZyTransport",    function() .dnmb_plot_cazy_carbon_transport_map(genbank_table, output_dir = output_dir))
+  run_plot("CAZyTransport", function() .dnmb_plot_cazy_carbon_transport_map(
+    genbank_table,
+    output_dir = output_dir,
+    file_stub = "CAZy_overview"
+  ))
   run_plot("DefenseFinder",    function() .dnmb_plot_defensefinder_module(genbank_table, output_dir = output_dir))
   run_plot("dbAPIS",           function() .dnmb_plot_dbapis_module(genbank_table, output_dir = output_dir))
   run_plot("AcrFinder",        function() .dnmb_plot_acrfinder_module(genbank_table, output_dir = output_dir))

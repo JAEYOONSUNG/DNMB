@@ -2138,7 +2138,8 @@
     NAG = "glcnac", Glucosamine = "glcnac", Fructose = "fructose",
     Sucrose = "fructose", Mannitol = "mannose", Glycerol = "glycerol",
     Xylose = "xylose", Arabinose = "arabinose", Ribose = "ribose",
-    Fucose = "fucose", Rhamnose = "rhamnose", Gluconate = "glca"
+    Deoxyribose = "deoxyribose", Fucose = "fucose",
+    Rhamnose = "rhamnose", Gluconate = "glca"
   )
   cs_ids <- names(cs_xs)
   rows <- lapply(cs_ids, function(id) {
@@ -2191,8 +2192,12 @@
  }
  
 # ---------------------------------------------------------------------------
-# SNFG polygon-based symbol rendering (ggplot2-only, no ggstar dependency)
+# SNFG symbol rendering (native circles + polygons, no ggstar dependency)
 # ---------------------------------------------------------------------------
+
+# One residue has one map footprint in every zone. Composite carbohydrates
+# grow horizontally by residue count; their individual units are not shrunk.
+.dnmb_cct_sugar_icon_radius <- function() 0.10
 
 #' Return polygon vertex coordinates for an SNFG shape
 #' @param shape_type One of "circle", "square", "diamond", "triangle", "star"
@@ -2200,52 +2205,54 @@
 #' @param size Radius / half-width of the symbol (plot units)
 #' @return data.frame with columns \code{x}, \code{y}
 #' @keywords internal
-.dnmb_snfg_polygon_coords_v2 <- function(shape_type, x = 0, y = 0, size = 0.075) {
+.dnmb_snfg_polygon_coords_v2 <- function(
+    shape_type, x = 0, y = 0,
+    size = .dnmb_cct_sugar_icon_radius()) {
+  normalize_bbox <- function(unit_x, unit_y) {
+    x_range <- range(unit_x)
+    y_range <- range(unit_y)
+    scale <- 2 * size / max(diff(x_range), diff(y_range))
+    data.frame(
+      x = x + (unit_x - mean(x_range)) * scale,
+      y = y + (unit_y - mean(y_range)) * scale
+    )
+  }
 
   switch(shape_type,
     circle = {
       # 20-gon approximation
       theta <- seq(0, 2 * pi, length.out = 21L)[-21L]
-      data.frame(x = x + size * cos(theta),
-                 y = y + size * sin(theta))
+      normalize_bbox(cos(theta), sin(theta))
     },
     square = {
       # axis-aligned square
-      hs <- size  # half-side
-      data.frame(x = x + c(-hs, hs, hs, -hs),
-                 y = y + c(-hs, -hs, hs, hs))
+      normalize_bbox(c(-1, 1, 1, -1), c(-1, -1, 1, 1))
     },
     diamond = {
       # 45-degree rotated square
-      data.frame(x = x + size * c(0, 1, 0, -1),
-                 y = y + size * c(1, 0, -1, 0))
+      normalize_bbox(c(0, 1, 0, -1), c(1, 0, -1, 0))
     },
     triangle = {
-      # equilateral, pointing up
+      # Equilateral, pointing up. Bbox normalization preserves the shape while
+      # giving it the same maximum footprint as circles and squares.
       angles <- c(pi / 2, pi / 2 + 2 * pi / 3, pi / 2 + 4 * pi / 3)
-      data.frame(x = x + size * cos(angles),
-                 y = y + size * sin(angles))
+      normalize_bbox(cos(angles), sin(angles))
     },
     star = {
       # 5-pointed star: 10 vertices, alternating outer / inner radius
-      outer_r <- size
-      inner_r <- size * 0.38  # classic pentagram ratio
       angles  <- seq(pi / 2, pi / 2 + 2 * pi, length.out = 11L)[-11L]
-      radii   <- rep(c(outer_r, inner_r), 5L)
-      data.frame(x = x + radii * cos(angles),
-                 y = y + radii * sin(angles))
+      radii   <- rep(c(1, 0.38), 5L)
+      normalize_bbox(radii * cos(angles), radii * sin(angles))
     },
     pentagon = {
       # regular pentagon, point up
       angles <- seq(pi / 2, pi / 2 + 2 * pi, length.out = 6L)[-6L]
-      data.frame(x = x + size * cos(angles),
-                 y = y + size * sin(angles))
+      normalize_bbox(cos(angles), sin(angles))
     },
     # fallback: small circle
     {
       theta <- seq(0, 2 * pi, length.out = 21L)[-21L]
-      data.frame(x = x + size * cos(theta),
-                 y = y + size * sin(theta))
+      normalize_bbox(cos(theta), sin(theta))
     }
   )
 }
@@ -2274,6 +2281,7 @@
     glca         = list(shape = "diamond",  fill = "#0072BC", color = "#004A7C", half_fill = TRUE),
     gala         = list(shape = "diamond",  fill = "#FFD400", color = "#CCA800", half_fill = TRUE),
     ribose       = list(shape = "star",     fill = "#F69EA1", color = "#C47078"),
+    deoxyribose  = list(shape = "star",     fill = "#D7A1C4", color = "#8A5879"),
     glycerol     = list(shape = "circle",   fill = "#3182BD", color = "#1B5A8A"),
     glucosamine  = list(shape = "square",   fill = "#0072BC", color = "#004A7C", crossed = TRUE),
     trehalose    = list(shape = "circle",   fill = "#0072BC", color = "#004A7C"),
@@ -2297,6 +2305,28 @@
   sp
 }
 
+.dnmb_native_circle_layer_v2 <- function(x, y, radius, fill, color = NA,
+                                         linewidth = 0, alpha = 1) {
+  radius <- max(0, as.numeric(radius)[1])
+  ggplot2::annotation_custom(
+    grob = grid::circleGrob(
+      x = grid::unit(0.5, "npc"),
+      y = grid::unit(0.5, "npc"),
+      r = grid::unit(0.5, "npc"),
+      gp = grid::gpar(
+        fill = fill,
+        col = color,
+        lwd = as.numeric(linewidth)[1] * 72.27 / 25.4,
+        alpha = as.numeric(alpha)[1]
+      )
+    ),
+    xmin = x - radius,
+    xmax = x + radius,
+    ymin = y - radius,
+    ymax = y + radius
+  )
+}
+
 #' Build ggplot2 layers for a single SNFG symbol (polygon + optional badge)
 #'
 #' For half-filled diamonds (GlcA / GalA) a smaller white diamond is drawn
@@ -2307,51 +2337,75 @@
 #' @param size Radius of the symbol
 #' @return A list of ggplot2 layers
 #' @keywords internal
-.dnmb_snfg_symbol_layers_v2 <- function(x, y, sugar_type, size = 0.075, label = NULL) {
+.dnmb_snfg_symbol_layers_v2 <- function(
+    x, y, sugar_type, size = .dnmb_cct_sugar_icon_radius(),
+    label = NULL, alpha = 1) {
 
-  sp    <- .dnmb_snfg_sugar_spec_v2(sugar_type)
-  verts <- .dnmb_snfg_polygon_coords_v2(sp$shape, x, y, size)
-  halo_verts <- .dnmb_snfg_polygon_coords_v2(sp$shape, x, y, size * 1.18)
+  sp <- .dnmb_snfg_sugar_spec_v2(sugar_type)
 
-  layers <- list(
-    ggplot2::geom_polygon(
-      data    = halo_verts,
-      mapping = ggplot2::aes(x = .data[["x"]], y = .data[["y"]]),
-      fill    = "#FFFFFF",
-      color   = NA,
-      alpha   = 0.92,
-      inherit.aes = FALSE
-    )
-  )
-
-  shape_layers <- if (isTRUE(sp$half_fill) && identical(sp$shape, "diamond")) {
-    .dnmb_snfg_split_diamond_layers(
-      cx = x, cy = y, r = size,
-      fill_color = sp$fill, border_color = sp$color, border_lw = 0.3
+  if (identical(sp$shape, "circle")) {
+    layers <- list(
+      .dnmb_native_circle_layer_v2(
+        x, y, radius = size * 1.18,
+        fill = "#FFFFFF", color = NA, linewidth = 0, alpha = 0.92 * alpha
+      ),
+      .dnmb_native_circle_layer_v2(
+        x, y, radius = size,
+        fill = sp$fill, color = sp$color, linewidth = 0.30, alpha = alpha
+      )
     )
   } else {
-    list(
+    verts <- .dnmb_snfg_polygon_coords_v2(sp$shape, x, y, size)
+    halo_verts <- .dnmb_snfg_polygon_coords_v2(sp$shape, x, y, size * 1.18)
+    layers <- list(
       ggplot2::geom_polygon(
-        data    = verts,
+        data = halo_verts,
         mapping = ggplot2::aes(x = .data[["x"]], y = .data[["y"]]),
-        fill    = sp$fill,
-        color   = sp$color,
-        linewidth = 0.3,
+        fill = "#FFFFFF", color = NA, alpha = 0.92 * alpha,
         inherit.aes = FALSE
       )
     )
+    shape_layers <- if (isTRUE(sp$half_fill) && identical(sp$shape, "diamond")) {
+      .dnmb_snfg_split_diamond_layers(
+        cx = x, cy = y, r = size,
+        fill_color = sp$fill, border_color = sp$color, border_lw = 0.3,
+        alpha = alpha
+      )
+    } else {
+      list(
+        ggplot2::geom_polygon(
+          data = verts,
+          mapping = ggplot2::aes(x = .data[["x"]], y = .data[["y"]]),
+          fill = sp$fill, color = sp$color, linewidth = 0.3, alpha = alpha,
+          inherit.aes = FALSE
+        )
+      )
+    }
+    layers <- c(layers, shape_layers)
   }
-  layers <- c(layers, shape_layers)
 
   # Abbreviation label inside the symbol
   if (!is.null(label) && nzchar(label)) {
     # White text for dark fills, black for light fills
     txt_col <- if (mean(grDevices::col2rgb(sp$fill)) < 180) "white" else "#333333"
+    label_lines <- strsplit(as.character(label), "\n", fixed = TRUE)[[1]]
+    max_chars <- max(nchar(label_lines))
+    text_scale <- if (max_chars <= 3L) {
+      11.0
+    } else if (max_chars <= 5L) {
+      9.5
+    } else if (max_chars <= 7L) {
+      7.8
+    } else {
+      6.6
+    }
     lbl_df <- data.frame(x = x, y = y, label = label)
     layers[[length(layers) + 1L]] <- ggplot2::geom_text(
       data = lbl_df,
       mapping = ggplot2::aes(x = .data[["x"]], y = .data[["y"]], label = .data[["label"]]),
-      size = size * 10, fontface = "bold", color = txt_col, inherit.aes = FALSE)
+      size = size * text_scale, fontface = "bold", color = txt_col, alpha = alpha,
+      lineheight = 0.82,
+      inherit.aes = FALSE)
   }
 
   # Crossed square (hexosamine): diagonal line from top-left to bottom-right
@@ -2403,9 +2457,130 @@
 #' @param r Radius of the symbol (plot units)
 #' @return The modified ggplot2 object with symbol layers added
 #' @keywords internal
-.dnmb_snfg_render_symbol_v2 <- function(p, cx, cy, sugar_name, r = 0.075, label = NULL) {
-  layers <- .dnmb_snfg_symbol_layers_v2(cx, cy, sugar_name, size = r, label = label)
+.dnmb_snfg_render_symbol_v2 <- function(
+    p, cx, cy, sugar_name, r = .dnmb_cct_sugar_icon_radius(),
+    label = NULL, alpha = 1) {
+  layers <- .dnmb_snfg_symbol_layers_v2(
+    cx, cy, sugar_name, size = r, label = label, alpha = alpha
+  )
   for (ly in layers) p <- p + ly
+  p
+}
+
+# Cytoplasmic carbon sources need their own visible glyphs even when several
+# substrates converge on the same downstream sugar-family hub. Disaccharides
+# are represented by their two constituent SNFG symbols; the remaining carbon
+# sources use one substrate-specific symbol.
+.dnmb_cct_carbon_source_render_catalog <- function() {
+  list(
+    Maltose = list(components = c("glucose", "glucose"), bond = "alpha"),
+    Cellobiose = list(components = c("glucose", "glucose"), bond = "beta"),
+    Galactose = list(components = "galactose", bond = NA_character_),
+    Trehalose = list(components = c("glucose", "glucose"), bond = "alpha"),
+    Lactose = list(components = c("galactose", "glucose"), bond = "beta"),
+    Mannose = list(components = "mannose", bond = NA_character_),
+    NAG = list(components = "glcnac", bond = NA_character_),
+    Glucosamine = list(components = "glucosamine", bond = NA_character_),
+    Fructose = list(components = "fructose", bond = NA_character_),
+    Sucrose = list(components = c("glucose", "fructose"), bond = "alpha"),
+    Mannitol = list(components = "mannitol", bond = NA_character_),
+    Glycerol = list(components = "glycerol", bond = NA_character_),
+    Xylose = list(components = "xylose", bond = NA_character_),
+    Arabinose = list(components = "arabinose", bond = NA_character_),
+    Ribose = list(components = "ribose", bond = NA_character_),
+    Deoxyribose = list(components = "deoxyribose", bond = NA_character_),
+    Fucose = list(components = "fucose", bond = NA_character_),
+    Rhamnose = list(components = "rhamnose", bond = NA_character_),
+    Gluconate = list(components = "gluconate", bond = NA_character_)
+  )
+}
+
+.dnmb_cct_carbon_source_render_spec <- function(source_id) {
+  source_id <- trimws(as.character(source_id)[1])
+  catalog <- .dnmb_cct_carbon_source_render_catalog()
+  catalog_names <- names(catalog)
+  catalog_idx <- match(tolower(source_id), tolower(catalog_names))
+  registered <- !is.na(catalog_idx)
+  if (registered) {
+    canonical_id <- catalog_names[catalog_idx]
+    item <- catalog[[catalog_idx]]
+  } else {
+    canonical_id <- source_id
+    item <- list(components = tolower(source_id), bond = NA_character_)
+  }
+  n_comp <- length(item$components)
+  data.frame(
+    source_id = rep(canonical_id, n_comp),
+    component_index = seq_len(n_comp),
+    sugar_type = as.character(item$components),
+    x_offset_r = seq(
+      -(n_comp - 1) / 2, (n_comp - 1) / 2,
+      length.out = n_comp
+    ) * 2.18,
+    bond = rep(as.character(item$bond)[1], n_comp),
+    registered = rep(registered, n_comp),
+    stringsAsFactors = FALSE,
+    row.names = NULL
+  )
+}
+
+.dnmb_cct_render_carbon_source_node <- function(p, x, y, source_id,
+                                                 r = .dnmb_cct_sugar_icon_radius(),
+                                                 alpha = 1) {
+  spec <- .dnmb_cct_carbon_source_render_spec(source_id)
+  component_r <- r
+  component_x <- x + spec$x_offset_r * r
+  source_abbr <- .dnmb_cct_carbon_source_abbreviation(source_id)
+
+  if (nrow(spec) > 1L) {
+    bond_style <- if (identical(spec$bond[1], "beta")) "dashed" else "solid"
+    bond_df <- data.frame(
+      x = head(component_x, -1L), xend = tail(component_x, -1L),
+      y = rep(y, nrow(spec) - 1L), yend = rep(y, nrow(spec) - 1L)
+    )
+    p <- p +
+      ggplot2::geom_segment(
+        data = bond_df,
+        ggplot2::aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$yend),
+        color = "white", linewidth = 1.25, alpha = 0.92 * alpha,
+        lineend = "round", inherit.aes = FALSE
+      ) +
+      ggplot2::geom_segment(
+        data = bond_df,
+        ggplot2::aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$yend),
+        color = "#4F5963", linewidth = 0.42, linetype = bond_style,
+        alpha = alpha, lineend = "round", inherit.aes = FALSE
+      )
+  }
+
+  for (i in seq_len(nrow(spec))) {
+    component_label <- if (nrow(spec) == 1L) {
+      .dnmb_cct_compact_inside_label(source_abbr, max_chars = 5L)
+    } else {
+      NULL
+    }
+    p <- .dnmb_snfg_render_symbol_v2(
+      p, component_x[i], y, spec$sugar_type[i], r = component_r,
+      label = component_label, alpha = alpha
+    )
+  }
+
+  if (nrow(spec) > 1L && nzchar(source_abbr)) {
+    label_df <- data.frame(x = x, y = y, label = source_abbr)
+    p <- p +
+      ggplot2::geom_text(
+        data = label_df,
+        ggplot2::aes(x = .data$x, y = .data$y, label = .data$label),
+        size = r * 12.0, fontface = "bold", color = "white",
+        alpha = alpha, lineheight = 0.82, inherit.aes = FALSE
+      ) +
+      ggplot2::geom_text(
+        data = label_df,
+        ggplot2::aes(x = .data$x, y = .data$y, label = .data$label),
+        size = r * 9.2, fontface = "bold", color = "#263238",
+        alpha = alpha, lineheight = 0.82, inherit.aes = FALSE
+      )
+  }
   p
 }
 
@@ -2413,15 +2588,140 @@
 .dnmb_snfg_abbreviation_v2 <- function(sugar_type) {
   abbr <- c(
     glucose = "Glc", galactose = "Gal", mannose = "Man", fructose = "Fru",
-    glcnac = "NAc", galnac = "NAc", fucose = "Fuc", rhamnose = "Rha",
-    xylose = "Xyl", arabinose = "Ara", glca = "GA", gala = "GA",
-    ribose = "Rib", glycerol = "Gly", glucosamine = "GlN",
+    glcnac = "GlcNAc", galnac = "GalNAc", fucose = "Fuc", rhamnose = "Rha",
+    xylose = "Xyl", arabinose = "Ara", glca = "GlcA", gala = "GalA",
+    ribose = "Rib", deoxyribose = "dRib", glycerol = "Gro",
+    glucosamine = "GlcN", nag = "GlcNAc",
     trehalose = "Tre", sucrose = "Suc", maltose = "Mal",
     cellobiose = "Cel", lactose = "Lac", mannitol = "Mtl",
     gluconate = "Gnt", intermediate = "", organic_acid = "",
     phospho_sugar = "", generic = "")
   key <- tolower(sugar_type)
   if (key %in% names(abbr)) unname(abbr[key]) else ""
+}
+
+.dnmb_cct_carbon_source_abbreviation <- function(source_id) {
+  source_id <- tolower(trimws(as.character(source_id)[1]))
+  abbr <- c(
+    maltose = "Mal", cellobiose = "Cel", galactose = "Gal",
+    trehalose = "Tre", lactose = "Lac", mannose = "Man",
+    nag = "GlcNAc", glucosamine = "GlcN", fructose = "Fru",
+    sucrose = "Suc", mannitol = "Mtl", glycerol = "Gro",
+    xylose = "Xyl", arabinose = "Ara", ribose = "Rib",
+    deoxyribose = "dRib", fucose = "Fuc", rhamnose = "Rha",
+    gluconate = "Gnt"
+  )
+  if (source_id %in% names(abbr)) unname(abbr[source_id]) else ""
+}
+
+.dnmb_cct_compact_inside_label <- function(label, max_chars = 7L) {
+  label <- trimws(as.character(label)[1])
+  if (is.na(label) || !nzchar(label)) return("")
+  if (max(nchar(strsplit(label, "\n", fixed = TRUE)[[1]])) <= max_chars) {
+    return(label)
+  }
+  if (grepl("-", label, fixed = TRUE)) {
+    return(sub("^([^-]+)-", "\\1-\n", label))
+  }
+  if (identical(label, "GlcNAc")) return("Glc\nNAc")
+  if (identical(label, "GalNAc")) return("Gal\nNAc")
+  label
+}
+
+# Cytoplasmic sugar and sugar-phosphate nodes carry their abbreviation inside
+# the glyph. Non-sugar endpoints retain their external labels.
+.dnmb_cct_cytoplasmic_inside_label <- function(id, label, type, sugar_type) {
+  id <- as.character(id)[1]
+  type <- as.character(type)[1]
+  if (!type %in% c("backbone", "ppp", "entry_intermediate", "ed")) return("")
+  if (id %in% c("Pyruvate", "Acetyl-CoA")) return("")
+
+  short_by_id <- c(
+    Glucose = "Glc",
+    Xylulose = "Xul",
+    Ribulose = "Rul",
+    `Deoxyribose-5-P` = "dRib-5-P",
+    Fuculose = "Fucol",
+    Rhamnulose = "Rhul",
+    `Glycerol-3-P` = "Gro-3-P"
+  )
+  short <- if (id %in% names(short_by_id)) {
+    unname(short_by_id[id])
+  } else {
+    as.character(label)[1]
+  }
+  .dnmb_cct_compact_inside_label(short, max_chars = 7L)
+}
+
+.dnmb_cct_snfg_legend_catalog <- function() {
+  data.frame(
+    sugar = c(
+      "glucose", "galactose", "mannose", "fructose", "glcnac", "galnac",
+      "glucosamine", "fucose", "rhamnose", "xylose", "arabinose", "ribose",
+      "deoxyribose", "glca", "gala", "glycerol", "mannitol", "gluconate",
+      "trehalose", "sucrose", "maltose", "cellobiose", "lactose"
+    ),
+    label = c(
+      "D-Glucose (Glc)", "D-Galactose (Gal)", "D-Mannose (Man)",
+      "D-Fructose (Fru)", "N-Acetyl-D-glucosamine (GlcNAc)",
+      "N-Acetyl-D-galactosamine (GalNAc)", "D-Glucosamine (GlcN)",
+      "L-Fucose (Fuc)", "L-Rhamnose (Rha)", "D-Xylose (Xyl)",
+      "L-Arabinose (Ara)", "D-Ribose (Rib)",
+      "2-Deoxy-D-ribose (dRib)", "D-Glucuronic acid (GlcA)",
+      "D-Galacturonic acid (GalA)", "Glycerol (Gro)",
+      "D-Mannitol (Mtl)", "D-Gluconate", "Trehalose (Tre)",
+      "Sucrose (Suc)", "Maltose (Mal)", "Cellobiose (Cel)", "Lactose (Lac)"
+    ),
+    stringsAsFactors = FALSE,
+    row.names = NULL
+  )
+}
+
+.dnmb_cct_used_snfg_types <- function(cyto_nodes = NULL, source_ids = NULL,
+                                      monomer_ids = NULL, extra_chains = NULL,
+                                      extra_branches = NULL) {
+  used <- character(0)
+  if (is.data.frame(cyto_nodes) && "sugar_type" %in% names(cyto_nodes)) {
+    used <- c(used, as.character(cyto_nodes$sugar_type))
+  }
+  if (length(source_ids)) {
+    source_components <- unlist(lapply(source_ids, function(source_id) {
+      .dnmb_cct_carbon_source_render_spec(source_id)$sugar_type
+    }), use.names = FALSE)
+    used <- c(used, source_components)
+  }
+  if (length(monomer_ids)) used <- c(used, as.character(monomer_ids))
+  if (length(extra_chains)) used <- c(used, unlist(extra_chains, use.names = FALSE))
+  if (length(extra_branches)) {
+    branch_types <- unlist(lapply(extra_branches, function(branches) {
+      if (is.null(branches) || !length(branches)) return(character(0))
+      vapply(branches, function(branch) as.character(branch$sugar)[1], character(1))
+    }), use.names = FALSE)
+    used <- c(used, branch_types)
+  }
+  used <- unique(.dnmb_cct_canonical_sugar_id(used))
+  used <- used[!is.na(used) & nzchar(used)]
+  setdiff(used, c("generic", "intermediate", "organic_acid", "phospho_sugar"))
+}
+
+.dnmb_cct_snfg_legend_data <- function(sugar_types) {
+  used <- unique(.dnmb_cct_canonical_sugar_id(sugar_types))
+  used <- used[!is.na(used) & nzchar(used)]
+  used <- setdiff(used, c("generic", "intermediate", "organic_acid", "phospho_sugar"))
+  catalog <- .dnmb_cct_snfg_legend_catalog()
+  known <- catalog[catalog$sugar %in% used, , drop = FALSE]
+  unknown <- setdiff(used, catalog$sugar)
+  if (length(unknown)) {
+    unknown_df <- data.frame(
+      sugar = unknown,
+      label = tools::toTitleCase(gsub("_", " ", unknown, fixed = TRUE)),
+      stringsAsFactors = FALSE,
+      row.names = NULL
+    )
+    known <- rbind(known, unknown_df)
+  }
+  rownames(known) <- NULL
+  known
 }
 
 .dnmb_cct_canonical_sugar_id <- function(sugar_type) {
@@ -2440,6 +2740,169 @@
   }
   sp <- .dnmb_snfg_sugar_spec_v2(tolower(as.character(sugar_type)))
   if (!is.null(sp$color) && nzchar(sp$color)) sp$color else fallback
+}
+
+.dnmb_cct_monomer_lane_map <- function() {
+  c(
+    glucose = "glucose", galactose = "galactose", mannose = "mannose",
+    fructose = "fructose", glcnac = "glcnac", xylose = "xylose",
+    arabinose = "arabinose", ribose = "ribose", fucose = "fucose",
+    rhamnose = "rhamnose", glca = "glca", gala = "glca",
+    glycerol = "glycerol", glucosamine = "glcnac",
+    deoxyribose = "deoxyribose"
+  )
+}
+
+.dnmb_cct_extracellular_monomer_ids <- function() {
+  c(
+    "glucose", "galactose", "mannose", "fructose", "glcnac",
+    "xylose", "arabinose", "ribose", "deoxyribose", "fucose",
+    "rhamnose", "glca", "gala"
+  )
+}
+
+.dnmb_cct_transporter_pathway_map <- function() {
+  c(
+    glucose = "Glucose", maltose = "Maltose",
+    cellobiose = "Cellobiose", galactose = "Galactose",
+    trehalose = "Trehalose", lactose = "Lactose",
+    mannose = "Mannose", nag = "NAG",
+    glucosamine = "Glucosamine", fructose = "Fructose",
+    sucrose = "Sucrose", mannitol = "Mannitol",
+    glycerol = "Glycerol", xylose = "Xylose",
+    arabinose = "Arabinose", ribose = "Ribose",
+    fucose = "Fucose", rhamnose = "Rhamnose",
+    gluconate = "Gluconate", deoxyribose = "Deoxyribose"
+  )
+}
+
+.dnmb_cct_transporter_route_id <- function(cs_id, target_key) {
+  paste(
+    "transport", trimws(as.character(cs_id)[1L]),
+    trimws(as.character(target_key)[1L]), sep = ":"
+  )
+}
+
+# Resolve the visible extracellular source for each selected transporter lane.
+# Existing chains and monomer glyphs are preferred; a source with no visible
+# extracellular representation receives an explicit substrate glyph at y_mono.
+.dnmb_cct_transporter_source_anchors <- function(cs_ids, carbon_src,
+                                                 mono_x_map, y_mono,
+                                                 extra_center_map = numeric(),
+                                                 extra_y_map = numeric()) {
+  empty <- data.frame(
+    cs_id = character(), source_kind = character(), source_id = character(),
+    source_x = numeric(), source_y = numeric(), create_glyph = logical(),
+    glyph_source_id = character(), sugar_type = character(),
+    cyto_x = numeric(), cyto_y = numeric(), stringsAsFactors = FALSE
+  )
+  cs_ids <- unique(trimws(as.character(cs_ids)))
+  cs_ids <- cs_ids[!is.na(cs_ids) & nzchar(cs_ids)]
+  if (!length(cs_ids) || is.null(carbon_src) || !nrow(carbon_src)) return(empty)
+
+  source_sugar <- c(
+    Glucose = "glucose", Maltose = "maltose", Cellobiose = "cellobiose",
+    Galactose = "galactose", Trehalose = "trehalose",
+    Lactose = "lactose", Mannose = "mannose", NAG = "glcnac",
+    Glucosamine = "glucosamine", Fructose = "fructose",
+    Sucrose = "sucrose", Mannitol = "mannitol", Glycerol = "glycerol",
+    Xylose = "xylose", Arabinose = "arabinose", Ribose = "ribose",
+    Deoxyribose = "deoxyribose", Fucose = "fucose",
+    Rhamnose = "rhamnose", Gluconate = "gluconate"
+  )
+  chain_names <- names(extra_center_map)
+  mono_names <- names(mono_x_map)
+  rows <- lapply(cs_ids, function(cs_id) {
+    cyto_idx <- match(tolower(cs_id), tolower(as.character(carbon_src$id)))
+    if (is.na(cyto_idx)) return(NULL)
+    cyto_x <- suppressWarnings(as.numeric(carbon_src$x[cyto_idx]))
+    cyto_y <- suppressWarnings(as.numeric(carbon_src$y[cyto_idx]))
+    if (!is.finite(cyto_x) || !is.finite(cyto_y)) return(NULL)
+
+    chain_idx <- match(tolower(cs_id), tolower(chain_names))
+    if (!is.na(chain_idx)) {
+      source_x <- suppressWarnings(as.numeric(extra_center_map[chain_idx]))
+      source_y <- suppressWarnings(as.numeric(extra_y_map[chain_idx]))
+      if (is.finite(source_x) && is.finite(source_y)) {
+        return(data.frame(
+          cs_id = cs_id, source_kind = "complex_chain",
+          source_id = chain_names[chain_idx], source_x = source_x,
+          source_y = source_y, create_glyph = FALSE,
+          glyph_source_id = cs_id,
+          sugar_type = unname(source_sugar[cs_id]) %||% tolower(cs_id),
+          cyto_x = cyto_x, cyto_y = cyto_y,
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+
+    sugar_id <- unname(source_sugar[cs_id])
+    if (is.na(sugar_id) || !nzchar(sugar_id)) sugar_id <- tolower(cs_id)
+    mono_idx <- match(tolower(sugar_id), tolower(mono_names))
+    if (!is.na(mono_idx)) {
+      source_x <- suppressWarnings(as.numeric(mono_x_map[mono_idx]))
+      if (is.finite(source_x) && is.finite(y_mono)) {
+        return(data.frame(
+          cs_id = cs_id, source_kind = "monosaccharide",
+          source_id = mono_names[mono_idx], source_x = source_x,
+          source_y = as.numeric(y_mono), create_glyph = FALSE,
+          glyph_source_id = cs_id, sugar_type = sugar_id,
+          cyto_x = cyto_x, cyto_y = cyto_y,
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+
+    data.frame(
+      cs_id = cs_id, source_kind = "explicit_source",
+      source_id = paste0("uptake:", tolower(cs_id)), source_x = cyto_x,
+      source_y = as.numeric(y_mono), create_glyph = TRUE,
+      glyph_source_id = cs_id, sugar_type = sugar_id,
+      cyto_x = cyto_x, cyto_y = cyto_y,
+      stringsAsFactors = FALSE
+    )
+  })
+  out <- dplyr::bind_rows(rows)
+  if (!nrow(out)) return(empty)
+  explicit_idx <- which(out$create_glyph)
+  if (length(explicit_idx)) {
+    occupied_x <- suppressWarnings(as.numeric(mono_x_map))
+    occupied_x <- occupied_x[is.finite(occupied_x)]
+    explicit_idx <- explicit_idx[order(out$source_x[explicit_idx], out$cs_id[explicit_idx])]
+    candidate_offsets <- c(0, as.vector(rbind(seq(0.5, 4, by = 0.5), -seq(0.5, 4, by = 0.5))))
+    for (idx in explicit_idx) {
+      desired <- .dnmb_cct_snap_to_grid(out$source_x[idx], step = 0.25)
+      candidates <- desired + candidate_offsets
+      free <- vapply(candidates, function(candidate) {
+        !length(occupied_x) || all(abs(candidate - occupied_x) >= 0.50 - 1e-10)
+      }, logical(1))
+      chosen <- if (any(free)) candidates[which(free)[1L]] else desired
+      out$source_x[idx] <- chosen
+      occupied_x <- c(occupied_x, chosen)
+    }
+  }
+  out[order(out$source_x, out$cs_id), , drop = FALSE]
+}
+
+.dnmb_cct_separate_lanes <- function(x, min_gap = 0.5, snap_step = 0.25) {
+  original_names <- names(x)
+  x <- as.numeric(x)
+  names(x) <- if (!is.null(original_names)) original_names else as.character(seq_along(x))
+  finite <- is.finite(x)
+  if (sum(finite) < 2L) return(x)
+
+  idx <- which(finite)
+  ord <- idx[order(x[idx], idx)]
+  target <- .dnmb_cct_snap_to_grid(x[ord], step = snap_step)
+  placed <- target
+  for (i in seq_along(placed)[-1L]) {
+    placed[i] <- max(target[i], placed[i - 1L] + min_gap)
+  }
+  placed <- placed + .dnmb_cct_snap_to_grid(
+    mean(target) - mean(placed), step = snap_step
+  )
+  x[ord] <- placed
+  x
 }
 
 .dnmb_cct_reference_gray <- function(strength = c("light", "mid", "dark")) {
@@ -2528,9 +2991,9 @@
 .dnmb_cct_is_transport_like_step <- function(step_id, gene_name = NA_character_, is_pts = FALSE) {
   if (isTRUE(is_pts)) return(TRUE)
   # Generic keywords (match anywhere in step_id or gene_name)
-  generic_re <- "transport|permease|porter|uptake|symporter|antiporter|binding.protein|\\bsbp\\b|\\babc\\b|\\bmfs\\b|\\bpts\\b|\\beiic|\\beiib|\\beiia"
+  generic_re <- "transport|permease|porter|uptake|symporter|antiporter|binding.protein|sodium.?solute|\\bsbp\\b|\\babc\\b|\\bmfs\\b|\\bsss\\b|\\bpts\\b|\\beiic|\\beiib|\\beiia"
   # Specific gene names (use word boundaries, check each field separately)
-  gene_re <- "\\b(mgl[ABC]|msiK|malE|malF|malG|malK|thu[EFGK]|rbs[ABC]|xyl[FGH]|ggu[AB]|glc[TUVP]|galP|lac[PEFG]|chvE|gts[ABCD]|kguT|ara[ESTUV]|mtl[AEK]|fucP|nagE|nagF|nagPcb|fruA|fruB|fruD|scrT|sacP|cscB|treB|manP|bglF|celB|ascB|ptsG|ptsH|ptsI|crr)\\b"
+  gene_re <- "\\b(mgl[ABC]|msiK|malE|malF|malG|malK|thu[EFGK]|rbs[ABC]|xyl[FGHT]|ggu[AB]|glc[TUVP]|galP|lac[PEFG]|chvE|gts[ABCD]|kguT|ara[ESTUV]|mtl[AEK]|fucP|deoP|nagE|nagF|nagPcb|fruA|fruB|fruD|scrT|sacP|cscB|treB|manP|bglF|celB|ascB|ptsG|ptsH|ptsI|crr)\\b"
   sid <- as.character(step_id)[1]
   gnm <- as.character(gene_name)[1]
   if (grepl(generic_re, sid, ignore.case = TRUE)) return(TRUE)
@@ -2540,11 +3003,123 @@
   FALSE
 }
 
+# Build one physical transporter entity per locus while retaining every
+# supported locus/pathway/model relationship in a separate membership table.
+.dnmb_cct_transporter_entities <- function(transporters) {
+  empty_entities <- data.frame(
+    entity_id = character(), locus_tag = character(),
+    model_names = character(), substrate_names = character(),
+    pathway_names = character(), n_models = integer(),
+    n_substrates = integer(), n_memberships = integer(),
+    shared = logical(), label = character(),
+    stringsAsFactors = FALSE
+  )
+  empty_memberships <- data.frame(
+    entity_id = character(), locus_tag = character(),
+    pathway = character(), step = character(), cs_id = character(),
+    confidence = character(), step_score = numeric(),
+    shared = logical(), stringsAsFactors = FALSE
+  )
+  if (is.null(transporters) || !is.data.frame(transporters) || !nrow(transporters)) {
+    return(list(entities = empty_entities, memberships = empty_memberships))
+  }
+
+  required <- c("locus_tag", "pathway", "step")
+  missing_required <- setdiff(required, names(transporters))
+  if (length(missing_required)) {
+    stop(
+      "transporter entity construction requires columns: ",
+      paste(required, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  rows <- as.data.frame(transporters, stringsAsFactors = FALSE, row.names = NULL)
+  rows$.source_order <- seq_len(nrow(rows))
+  rows$locus_tag <- trimws(.dnmb_cct_normalize_locus_tag(rows$locus_tag))
+  rows$pathway <- trimws(as.character(rows$pathway))
+  rows$step <- trimws(as.character(rows$step))
+  if (!"cs_id" %in% names(rows)) rows$cs_id <- rows$pathway
+  rows$cs_id <- trimws(as.character(rows$cs_id))
+  missing_cs <- is.na(rows$cs_id) | !nzchar(rows$cs_id)
+  rows$cs_id[missing_cs] <- rows$pathway[missing_cs]
+
+  if (!"confidence" %in% names(rows)) rows$confidence <- NA_character_
+  rows$confidence <- tolower(trimws(as.character(rows$confidence)))
+  if (!"step_score" %in% names(rows)) rows$step_score <- NA_real_
+  rows$step_score <- suppressWarnings(as.numeric(rows$step_score))
+  rows$.confidence_rank <- unname(c(none = 0L, low = 1L, medium = 2L, high = 3L)[rows$confidence])
+  rows$.confidence_rank[is.na(rows$.confidence_rank)] <- 0L
+
+  valid_locus <- !is.na(rows$locus_tag) & nzchar(rows$locus_tag)
+  valid_membership <- !is.na(rows$pathway) & nzchar(rows$pathway) &
+    !is.na(rows$step) & nzchar(rows$step) &
+    !is.na(rows$cs_id) & nzchar(rows$cs_id)
+  foreground <- rows$confidence %in% c("high", "medium") |
+    (!is.na(rows$step_score) & rows$step_score >= 1)
+  rows <- rows[valid_locus & valid_membership & foreground, , drop = FALSE]
+  if (!nrow(rows)) {
+    return(list(entities = empty_entities, memberships = empty_memberships))
+  }
+
+  score_order <- ifelse(is.na(rows$step_score), -Inf, rows$step_score)
+  rows <- rows[order(
+    rows$locus_tag, rows$pathway, rows$step,
+    -rows$.confidence_rank, -score_order, rows$.source_order
+  ), , drop = FALSE]
+  membership_key <- paste(rows$locus_tag, rows$pathway, rows$step, sep = "\r")
+  rows <- rows[!duplicated(membership_key), , drop = FALSE]
+
+  entity_rows <- lapply(split(seq_len(nrow(rows)), rows$locus_tag), function(idx) {
+    member <- rows[idx, , drop = FALSE]
+    models <- unique(member$step)
+    substrates <- unique(member$cs_id)
+    pathways <- unique(member$pathway)
+    is_shared <- length(substrates) > 1L
+    locus <- member$locus_tag[1]
+    model_text <- paste(models, collapse = " | ")
+    substrate_text <- paste(substrates, collapse = " | ")
+    data.frame(
+      entity_id = locus,
+      locus_tag = locus,
+      model_names = model_text,
+      substrate_names = substrate_text,
+      pathway_names = paste(pathways, collapse = " | "),
+      n_models = length(models),
+      n_substrates = length(substrates),
+      n_memberships = nrow(member),
+      shared = is_shared,
+      label = paste0(
+        locus,
+        "\nModels: ", model_text,
+        "\nSubstrates: ", substrate_text,
+        "\nShared: ", if (is_shared) "yes" else "no"
+      ),
+      stringsAsFactors = FALSE
+    )
+  })
+  entities <- do.call(rbind, entity_rows)
+  rownames(entities) <- NULL
+  entities <- entities[order(entities$locus_tag), , drop = FALSE]
+
+  rows$entity_id <- rows$locus_tag
+  rows$shared <- entities$shared[match(rows$locus_tag, entities$locus_tag)]
+  private_columns <- c(".source_order", ".confidence_rank")
+  key_columns <- c(
+    "entity_id", "locus_tag", "pathway", "step", "cs_id",
+    "confidence", "step_score", "shared"
+  )
+  memberships <- rows[, c(key_columns, setdiff(names(rows), c(key_columns, private_columns))), drop = FALSE]
+  rownames(memberships) <- NULL
+
+  list(entities = entities, memberships = memberships)
+}
+
 .dnmb_cct_transporter_half_span <- function(step_id, gene_name = NA_character_, is_pts = FALSE) {
   txt <- paste(step_id, gene_name)
   if (isTRUE(is_pts)) return(0.34)
   if (grepl("abc|sbp|binding|malE|mgl[ABC]|rbs[ABC]|xyl[FGH]|thu[EFG]", txt, ignore.case = TRUE)) return(0.30)
-  if (grepl("mfs|permease|symporter|transporter|porter|gnt|lac|gal|man|srl|iolT|kgtP", txt, ignore.case = TRUE)) return(0.26)
+  if (grepl("mfs|sss|sodium.?solute|permease|symporter|transporter|porter|xylT|gnt|lac|gal|man|srl|iolT|kgtP", txt, ignore.case = TRUE)) return(0.26)
   0.22
 }
 
@@ -2626,7 +3201,7 @@
   if (grepl("abc|sbp|binding|malE|mgl[ABC]|rbs[ABC]|xyl[FGH]|thu[EFG]|pot[ABCD]", txt, ignore.case = TRUE)) {
     return("ABC")
   }
-  if (grepl("mfs|permease|symporter|transporter|porter|gnt|lac|gal|man|srl|iolT|kgtP|thuK|glpO", txt, ignore.case = TRUE)) {
+  if (grepl("mfs|sss|sodium.?solute|permease|symporter|transporter|porter|xylT|gnt|lac|gal|man|srl|iolT|kgtP|thuK|glpO", txt, ignore.case = TRUE)) {
     return("MFS")
   }
   "GEN"
@@ -2910,92 +3485,771 @@
 }
 
 .dnmb_cct_pack_transporters_lane <- function(center_x, half_spans, lane_ranks,
-                                            label_widths = NULL,
-                                            label_dx = NULL,
-                                            desired_x = NULL) {
+                                             label_widths = NULL,
+                                             label_dx = NULL,
+                                             desired_x = NULL,
+                                             stable_ids = NULL,
+                                             y_memb = 8.5,
+                                             xlim = NULL,
+                                             min_gap = 0.08,
+                                             coincident_tolerance = 1e-6,
+                                             coincident_fan_gap = 0.22,
+                                             row_step = 0.12,
+                                             max_rows = 3L) {
   n <- length(half_spans)
   if (n == 0) return(data.frame(tx = numeric(0), ty = numeric(0), row_id = integer(0)))
-  if (n == 1) return(data.frame(tx = center_x, ty = 8.50, row_id = 1L))
-
-  priorities <- if (missing(lane_ranks) || length(lane_ranks) != n) rep(1, n) else lane_ranks
-  priorities <- rank(-priorities, ties.method = "first")
-  weight <- rev(priorities) + 1
-  if (is.null(label_widths) || length(label_widths) != n) label_widths <- rep(0.4, n)
-  if (is.null(label_dx) || length(label_dx) != n) label_dx <- rep(0, n)
-  if (is.null(desired_x) || length(desired_x) != n) desired_x <- rep(center_x, n)
-
-  row_patterns <- switch(as.character(n),
-    `2` = list(c(2L), c(1L, 1L)),
-    `3` = list(c(2L, 1L), c(1L, 2L), c(1L, 1L, 1L)),
-    `4` = list(c(2L, 2L), c(1L, 2L, 1L), c(2L, 1L, 1L), c(1L, 1L, 2L), c(1L, 1L, 1L, 1L)),
-    list(rep(1L, n))
-  )
-  perms <- .dnmb_cct_small_permutations(seq_len(n))
-
-  pack_rows <- function(row_groups) {
-    y_levels <- c(8.56, 8.44, 8.32)
-    tx <- numeric(n)
-    ty <- numeric(n)
-    row_id <- integer(n)
-    gap <- 0.08
-    for (rr in seq_along(row_groups)) {
-      idx <- row_groups[[rr]]
-      spans <- half_spans[idx]
-      widths <- 2 * spans
-      total_w <- sum(widths) + gap * max(0, length(idx) - 1L)
-      left <- center_x - total_w / 2
-      cur <- left
-      for (j in seq_along(idx)) {
-        ii <- idx[j]
-        tx[ii] <- cur + widths[j] / 2
-        ty[ii] <- y_levels[rr]
-        row_id[ii] <- rr
-        cur <- tx[ii] + widths[j] / 2 + gap
-      }
-    }
-    data.frame(tx = tx, ty = ty, row_id = row_id)
+  half_spans <- pmax(0.04, as.numeric(half_spans))
+  desired_x <- if (is.null(desired_x) || length(desired_x) != n) {
+    rep(as.numeric(center_x)[1], n)
+  } else {
+    as.numeric(desired_x)
   }
+  priorities <- if (missing(lane_ranks) || length(lane_ranks) != n) {
+    rep(1, n)
+  } else {
+    as.numeric(lane_ranks)
+  }
+  priorities[!is.finite(priorities)] <- 0
+  stable_ids <- if (is.null(stable_ids) || length(stable_ids) != n) {
+    sprintf("%08d", seq_len(n))
+  } else {
+    as.character(stable_ids)
+  }
+  missing_ids <- is.na(stable_ids) | !nzchar(stable_ids)
+  stable_ids[missing_ids] <- sprintf("%08d", which(missing_ids))
+  min_gap <- max(0, as.numeric(min_gap)[1])
+  coincident_tolerance <- max(0, as.numeric(coincident_tolerance)[1])
+  coincident_fan_gap <- max(0, as.numeric(coincident_fan_gap)[1])
+  row_step <- max(0.10, as.numeric(row_step)[1])
+  max_rows <- max(1L, min(3L, as.integer(max_rows)[1]))
 
-  best <- NULL
-  best_cost <- Inf
-  for (pat in row_patterns) {
-    for (perm in perms) {
-      start <- 1L
-      row_groups <- list()
-      for (ps in pat) {
-        row_groups[[length(row_groups) + 1L]] <- perm[start:(start + ps - 1L)]
-        start <- start + ps
-      }
-      cand <- pack_rows(row_groups)
-      span_cost <- (max(cand$tx) - min(cand$tx)) * 2.5
-      center_cost <- sum(abs(cand$tx - desired_x) * weight)
-      row_cost <- sum((cand$row_id - 1L) * weight * 1.15)
-      low_row_penalty <- sum((cand$row_id > 1L) * weight * 0.35)
-      label_cost <- 0
-      for (rr in unique(cand$row_id)) {
-        idx <- which(cand$row_id == rr)
-        if (length(idx) >= 2) {
-          label_x <- cand$tx[idx] + label_dx[idx]
-          ord2 <- idx[order(label_x)]
-          for (k in 2:length(ord2)) {
-            i1 <- ord2[k - 1L]; i2 <- ord2[k]
-            required_gap <- (label_widths[i1] + label_widths[i2]) / 2 + 0.10
-            actual_gap <- abs((cand$tx[i2] + label_dx[i2]) - (cand$tx[i1] + label_dx[i1]))
-            if (actual_gap < required_gap) {
-              label_cost <- label_cost + (required_gap - actual_gap) * 8
-            }
-          }
+  # Distinct loci can share the same substrate anchor. Fan those centers out
+  # before row packing so their glyphs and route trunks cannot read as one
+  # serial transporter. Stable locus IDs make the layout input-order invariant.
+  original_x <- desired_x
+  finite_ord <- order(original_x, stable_ids, na.last = NA)
+  if (length(finite_ord) > 1L && coincident_fan_gap > 0) {
+    group_start <- 1L
+    for (jj in seq.int(2L, length(finite_ord) + 1L)) {
+      group_done <- jj > length(finite_ord) ||
+        abs(original_x[finite_ord[jj]] - original_x[finite_ord[jj - 1L]]) >
+          coincident_tolerance
+      if (!group_done) next
+      idx <- finite_ord[group_start:(jj - 1L)]
+      if (length(idx) > 1L) {
+        idx <- idx[order(-priorities[idx], stable_ids[idx])]
+        fan_gap <- max(coincident_fan_gap, max(half_spans[idx]) + min_gap)
+        fan_step <- integer(length(idx))
+        if (length(idx) > 1L) {
+          kk <- seq_len(length(idx) - 1L)
+          fan_step[-1L] <- ceiling(kk / 2) * ifelse(kk %% 2L == 1L, 1L, -1L)
         }
+        candidate_x <- original_x[idx[1L]] + fan_step * fan_gap
+
+        if (!is.null(xlim) && length(xlim) >= 2L && all(is.finite(xlim[1:2]))) {
+          bounds <- sort(as.numeric(xlim[1:2]))
+          left <- min(candidate_x - half_spans[idx])
+          right <- max(candidate_x + half_spans[idx])
+          if (right > bounds[2]) candidate_x <- candidate_x - (right - bounds[2])
+          left <- min(candidate_x - half_spans[idx])
+          if (left < bounds[1]) candidate_x <- candidate_x + (bounds[1] - left)
+        }
+        desired_x[idx] <- candidate_x
       }
-      vertical_penalty <- max(cand$row_id) * 0.6
-      cost <- span_cost + center_cost + row_cost + low_row_penalty + label_cost + vertical_penalty
-      if (cost < best_cost) {
-        best <- cand
-        best_cost <- cost
-      }
+      group_start <- jj
     }
   }
-  best
+
+  # Greedy interval coloring keeps non-colliding glyphs on the membrane
+  # centerline. Only genuinely overlapping intervals use the two auxiliary
+  # membrane rows.
+  row_right <- rep(-Inf, max_rows)
+  row_id <- integer(n)
+  ord <- order(desired_x, -priorities, stable_ids, na.last = TRUE)
+  for (ii in ord) {
+    free <- which(desired_x[ii] - half_spans[ii] >= row_right + min_gap)
+    row <- if (length(free)) free[1] else which.min(row_right)
+    row_id[ii] <- row
+    placed_x <- max(desired_x[ii], row_right[row] + min_gap + half_spans[ii])
+    row_right[row] <- placed_x + half_spans[ii]
+  }
+
+  tx <- desired_x
+  for (row in seq_len(max_rows)) {
+    idx <- which(row_id == row)
+    if (!length(idx)) next
+    idx <- idx[order(desired_x[idx], -priorities[idx], stable_ids[idx])]
+    if (length(idx) > 1L) {
+      offsets <- numeric(length(idx))
+      for (jj in 2:length(idx)) {
+        offsets[jj] <- offsets[jj - 1L] + half_spans[idx[jj - 1L]] +
+          half_spans[idx[jj]] + min_gap
+      }
+      target <- desired_x[idx] - offsets
+      tx[idx] <- stats::isoreg(seq_along(target), target)$yf + offsets
+    }
+
+    if (!is.null(xlim) && length(xlim) >= 2L && all(is.finite(xlim[1:2]))) {
+      bounds <- sort(as.numeric(xlim[1:2]))
+      left <- min(tx[idx] - half_spans[idx])
+      right <- max(tx[idx] + half_spans[idx])
+      if (right > bounds[2]) tx[idx] <- tx[idx] - (right - bounds[2])
+      left <- min(tx[idx] - half_spans[idx])
+      if (left < bounds[1]) tx[idx] <- tx[idx] + (bounds[1] - left)
+    }
+  }
+
+  row_offsets <- c(0, row_step, -row_step)[seq_len(max_rows)]
+  data.frame(
+    tx = tx,
+    ty = y_memb + row_offsets[row_id],
+    row_id = row_id
+  )
+}
+
+# Route transporter memberships through one compact bus per substrate lane.
+# At shared transporter loci, each substrate keeps its own coloured landing
+# track so no membership disappears into a neutral common trunk.
+.dnmb_cct_transporter_bus_layout <- function(memberships, y_memb = 8.5,
+                                             bus_offset = 0.70,
+                                             tier_step = 0.065,
+                                             max_bus_offset = 1.12,
+                                             source_offset = 0.76,
+                                             glyph_clearance = 0.11,
+                                             membrane_half_height = 0.20,
+                                             route_gap = 0.10,
+                                             interval_gap = 0.05,
+                                             corner_radius = 0.08,
+                                             suppress_redundant_medium = TRUE) {
+  empty_segment <- data.frame(
+    group = character(), x = numeric(), xend = numeric(),
+    y = numeric(), yend = numeric(), color = character(),
+    confidence = character(), linewidth = numeric(), alpha = numeric(),
+    linetype = character(), stringsAsFactors = FALSE
+  )
+  empty_group <- data.frame(
+    group = character(), cs_id = character(), lane_x = numeric(),
+    source_x = numeric(), source_y = numeric(),
+    x_left = numeric(), x_right = numeric(), tier = integer(),
+    bus_y = numeric(), confidence = character(), color = character(),
+    direct = logical(), stringsAsFactors = FALSE
+  )
+  empty_membership <- data.frame(
+    group = character(), target_key = character(), cs_id = character(),
+    lane_x = numeric(), tx_draw = numeric(), ty_draw = numeric(),
+    bus_y = numeric(), direct = logical(), draw = logical(),
+    stringsAsFactors = FALSE
+  )
+  empty <- list(
+    groups = empty_group, memberships = empty_membership,
+    stems = empty_segment, buses = empty_segment,
+    trunks = empty_segment, direct = empty_segment,
+    exterior_routes = list(), exterior_source_routes = list(),
+    exterior_trunk_routes = list(), exterior_render_routes = list()
+  )
+  if (is.null(memberships) || !is.data.frame(memberships) || !nrow(memberships)) {
+    return(empty)
+  }
+
+  required <- c("cs_id", "lane_x", "tx_draw", "ty_draw")
+  missing_required <- setdiff(required, names(memberships))
+  if (length(missing_required)) {
+    stop(
+      "transporter bus layout requires columns: ",
+      paste(required, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  rows <- as.data.frame(memberships, stringsAsFactors = FALSE, row.names = NULL)
+  if (!"confidence" %in% names(rows)) rows$confidence <- "medium"
+  if (!"color" %in% names(rows)) rows$color <- "#78909C"
+  rows$cs_id <- trimws(as.character(rows$cs_id))
+  rows$confidence <- tolower(trimws(as.character(rows$confidence)))
+  rows$confidence[!rows$confidence %in% c("high", "medium")] <- "medium"
+  rows$color <- as.character(rows$color)
+  rows$color[is.na(rows$color) | !nzchar(rows$color)] <- "#78909C"
+  rows$lane_x <- suppressWarnings(as.numeric(rows$lane_x))
+  if (!"source_x" %in% names(rows)) rows$source_x <- rows$lane_x
+  if (!"source_y" %in% names(rows)) rows$source_y <- y_memb + source_offset
+  if (!"source_trim" %in% names(rows)) rows$source_trim <- 0.10
+  rows$source_x <- suppressWarnings(as.numeric(rows$source_x))
+  rows$source_y <- suppressWarnings(as.numeric(rows$source_y))
+  rows$source_trim <- suppressWarnings(as.numeric(rows$source_trim))
+  rows$source_trim[!is.finite(rows$source_trim) | rows$source_trim < 0] <- 0.10
+  missing_source_x <- !is.finite(rows$source_x)
+  rows$source_x[missing_source_x] <- rows$lane_x[missing_source_x]
+  rows$lane_x <- rows$source_x
+  rows$tx_draw <- suppressWarnings(as.numeric(rows$tx_draw))
+  rows$ty_draw <- suppressWarnings(as.numeric(rows$ty_draw))
+  rows <- rows[
+    !is.na(rows$cs_id) & nzchar(rows$cs_id) &
+      is.finite(rows$lane_x) & is.finite(rows$source_y) &
+      is.finite(rows$tx_draw) & is.finite(rows$ty_draw),
+    , drop = FALSE
+  ]
+  if (!nrow(rows)) return(empty)
+  membrane_half_height <- max(0, as.numeric(membrane_half_height)[1L])
+  route_gap <- max(0, as.numeric(route_gap)[1L])
+  min_bus_offset <- max(
+    membrane_half_height,
+    max(rows$ty_draw + glyph_clearance - y_memb, na.rm = TRUE)
+  ) + route_gap
+  bus_offset <- max(as.numeric(bus_offset)[1L], min_bus_offset)
+  max_bus_offset <- max(as.numeric(max_bus_offset)[1L], bus_offset)
+
+  target_id <- if ("locus_tag" %in% names(rows)) {
+    as.character(rows$locus_tag)
+  } else if ("anchor_id" %in% names(rows)) {
+    as.character(rows$anchor_id)
+  } else {
+    rep(NA_character_, nrow(rows))
+  }
+  missing_target <- is.na(target_id) | !nzchar(target_id)
+  target_id[missing_target] <- paste0(
+    "xy:", formatC(rows$tx_draw[missing_target], digits = 6, format = "f"),
+    ":", formatC(rows$ty_draw[missing_target], digits = 6, format = "f")
+  )
+  rows$target_key <- target_id
+  rows <- rows[order(
+    rows$lane_x, rows$cs_id, rows$target_key,
+    -as.integer(rows$confidence == "high"), rows$tx_draw
+  ), , drop = FALSE]
+  rows <- rows[!duplicated(rows[, c("cs_id", "lane_x", "target_key")]), , drop = FALSE]
+
+  # A medium connector adds no visual information when the same substrate lane
+  # already has high-confidence uptake. Its locus remains in the evidence ledger.
+  rows$draw <- TRUE
+  if (isTRUE(suppress_redundant_medium)) {
+    lane_has_high <- ave(
+      rows$confidence == "high",
+      interaction(rows$cs_id, rows$lane_x, drop = TRUE),
+      FUN = any
+    )
+    rows$draw <- rows$confidence == "high" | !lane_has_high
+  }
+  draw_rows <- rows[rows$draw, , drop = FALSE]
+  if (!nrow(draw_rows)) return(empty)
+
+  lane_key <- paste0(
+    draw_rows$cs_id, "@",
+    formatC(draw_rows$lane_x, digits = 6, format = "f")
+  )
+  draw_rows$group <- lane_key
+  lane_split <- split(seq_len(nrow(draw_rows)), draw_rows$group)
+  group_rows <- lapply(names(lane_split), function(group_id) {
+    idx <- lane_split[[group_id]]
+    lane_x <- stats::median(draw_rows$source_x[idx])
+    source_y <- stats::median(draw_rows$source_y[idx])
+    target_x <- unique(draw_rows$tx_draw[idx])
+    direct <- length(target_x) == 1L && abs(target_x - lane_x) <= 1e-8
+    data.frame(
+      group = group_id,
+      cs_id = draw_rows$cs_id[idx[1L]],
+      lane_x = lane_x,
+      source_x = lane_x,
+      source_y = source_y,
+      x_left = min(c(lane_x, target_x)),
+      x_right = max(c(lane_x, target_x)),
+      tier = 0L,
+      bus_y = NA_real_,
+      confidence = if (any(draw_rows$confidence[idx] == "high")) "high" else "medium",
+      color = draw_rows$color[idx[1L]],
+      direct = direct,
+      stringsAsFactors = FALSE
+    )
+  })
+  groups <- dplyr::bind_rows(group_rows)
+  groups <- groups[order(groups$x_left, groups$x_right, groups$group), , drop = FALSE]
+
+  # Greedy interval coloring guarantees that horizontal buses on a tier do not
+  # overlap. The tier spacing contracts only when needed to remain below the
+  # extracellular monomer row.
+  bus_idx <- which(!groups$direct)
+  if (length(bus_idx)) {
+    tier_right <- numeric(0)
+    for (ii in bus_idx) {
+      free <- which(groups$x_left[ii] >= tier_right + interval_gap)
+      tier <- if (length(free)) free[1L] else length(tier_right) + 1L
+      if (tier > length(tier_right)) tier_right <- c(tier_right, -Inf)
+      groups$tier[ii] <- tier
+      tier_right[tier] <- groups$x_right[ii]
+    }
+    n_tiers <- max(groups$tier[bus_idx])
+    step_used <- if (n_tiers <= 1L) 0 else min(
+      tier_step,
+      max(0, (max_bus_offset - bus_offset) / (n_tiers - 1L))
+    )
+    groups$bus_y[bus_idx] <- y_memb + bus_offset +
+      (groups$tier[bus_idx] - 1L) * step_used
+  }
+  draw_rows$bus_y <- groups$bus_y[match(draw_rows$group, groups$group)]
+  draw_rows$direct <- groups$direct[match(draw_rows$group, groups$group)]
+
+  style_for <- function(confidence, bus = FALSE) {
+    high <- confidence == "high"
+    data.frame(
+      linewidth = ifelse(high, if (bus) 0.28 else 0.24, if (bus) 0.18 else 0.16),
+      alpha = ifelse(high, 0.68, 0.28),
+      linetype = ifelse(high, "solid", "dashed"),
+      stringsAsFactors = FALSE
+    )
+  }
+  segment_frame <- function(group, x, xend, y, yend, color, confidence,
+                            bus = FALSE) {
+    style <- style_for(confidence, bus = bus)
+    data.frame(
+      group = group, x = x, xend = xend, y = y, yend = yend,
+      color = color, confidence = confidence,
+      linewidth = style$linewidth, alpha = style$alpha,
+      linetype = style$linetype, stringsAsFactors = FALSE
+    )
+  }
+
+  buses <- if (length(bus_idx)) {
+    bus_groups <- groups[bus_idx, , drop = FALSE]
+    segment_frame(
+      bus_groups$group, bus_groups$x_left, bus_groups$x_right,
+      bus_groups$bus_y, bus_groups$bus_y,
+      bus_groups$color, bus_groups$confidence, bus = TRUE
+    )
+  } else empty_segment
+
+  # If a transporter trunk is already on the source x, it also serves as the
+  # substrate stem. The trunk is extended to source_y below so this omission
+  # never leaves a gap when the same group also has off-axis targets.
+  stem_groups <- groups[bus_idx, , drop = FALSE]
+  has_lane_trunk <- vapply(stem_groups$group, function(group_id) {
+    idx <- which(draw_rows$group == group_id)
+    any(abs(draw_rows$tx_draw[idx] - draw_rows$lane_x[idx]) <= 0.015)
+  }, logical(1))
+  stem_groups <- stem_groups[!has_lane_trunk, , drop = FALSE]
+  stems <- if (nrow(stem_groups)) {
+    segment_frame(
+      stem_groups$group, stem_groups$lane_x, stem_groups$lane_x,
+      stem_groups$source_y, stem_groups$bus_y,
+      stem_groups$color, stem_groups$confidence
+    )
+  } else empty_segment
+
+  # One trunk per physical transporter. Every substrate bus intersects this
+  # trunk at its own tier, preserving shared-locus traceability without fans.
+  trunk_rows <- draw_rows[!draw_rows$direct, , drop = FALSE]
+  trunk_split <- split(seq_len(nrow(trunk_rows)), trunk_rows$target_key)
+  trunks <- if (length(trunk_split)) {
+    dplyr::bind_rows(lapply(names(trunk_split), function(target_key) {
+      idx <- trunk_split[[target_key]]
+      target_conf <- if (any(trunk_rows$confidence[idx] == "high")) "high" else "medium"
+      target_colors <- unique(trunk_rows$color[idx])
+      trunk_color <- if (length(unique(trunk_rows$group[idx])) > 1L) "#52616B" else target_colors[1L]
+      aligned_source <- any(
+        draw_rows$target_key == target_key &
+          abs(draw_rows$lane_x - draw_rows$tx_draw) <= 1e-8
+      )
+      trunk_top <- max(
+        trunk_rows$bus_y[idx],
+        if (aligned_source) trunk_rows$source_y[idx] else -Inf
+      )
+      segment_frame(
+        paste0("target:", target_key),
+        trunk_rows$tx_draw[idx[1L]], trunk_rows$tx_draw[idx[1L]],
+        trunk_top,
+        trunk_rows$ty_draw[idx[1L]] + glyph_clearance,
+        trunk_color, target_conf
+      )
+    }))
+  } else empty_segment
+
+  direct_rows <- draw_rows[draw_rows$direct, , drop = FALSE]
+  # A shared trunk from another bus already passes through an aligned source.
+  trunk_targets <- names(trunk_split)
+  direct_rows <- direct_rows[!direct_rows$target_key %in% trunk_targets, , drop = FALSE]
+  direct <- if (nrow(direct_rows)) {
+    segment_frame(
+      direct_rows$group, direct_rows$lane_x, direct_rows$tx_draw,
+      direct_rows$source_y,
+      direct_rows$ty_draw + glyph_clearance,
+      direct_rows$color, direct_rows$confidence
+    )
+  } else empty_segment
+
+  rows$group <- paste0(
+    rows$cs_id, "@", formatC(rows$lane_x, digits = 6, format = "f")
+  )
+  rows$bus_y <- groups$bus_y[match(rows$group, groups$group)]
+  rows$direct <- groups$direct[match(rows$group, groups$group)]
+  membership_out <- rows[, c(
+    "group", "target_key", "cs_id", "lane_x", "source_x", "source_y",
+    "source_trim", "tx_draw", "ty_draw", "bus_y", "direct", "draw"
+  ), drop = FALSE]
+
+  # The plotted exterior connectors are complete raw orthogonal paths. Apply
+  # the corner radius only once after all bus coordinates are fixed, avoiding
+  # curve-then-step artifacts at the horizontal lane.
+  exterior_routes <- lapply(seq_len(nrow(draw_rows)), function(i) {
+    row <- draw_rows[i, , drop = FALSE]
+    target_y <- row$ty_draw + glyph_clearance
+    raw <- if (isTRUE(row$direct)) {
+      data.frame(x = c(row$source_x, row$tx_draw),
+                 y = c(row$source_y, target_y))
+    } else {
+      data.frame(
+        x = c(row$source_x, row$source_x, row$tx_draw, row$tx_draw),
+        y = c(row$source_y, row$bus_y, row$bus_y, target_y)
+      )
+    }
+    raw <- raw[c(TRUE, diff(raw$x) != 0 | diff(raw$y) != 0), , drop = FALSE]
+    points <- .dnmb_cct_round_orthogonal_route(
+      raw, radius = max(0.08, as.numeric(corner_radius)[1L])
+    )
+    style <- style_for(row$confidence)
+    list(
+      route_id = .dnmb_cct_transporter_route_id(row$cs_id, row$target_key),
+      cs_id = row$cs_id, target_key = row$target_key,
+      source_x = row$source_x, source_y = row$source_y,
+      target_x = row$tx_draw, target_y = target_y,
+      points = points, color = row$color,
+      confidence = row$confidence, linewidth = style$linewidth,
+      alpha = style$alpha, linetype = style$linetype,
+      trim_start = row$source_trim, arrow_last = TRUE
+    )
+  })
+
+  # Parallel landing tracks remain inside the transporter glyph envelope. One
+  # route stays on the physical centre; additional routes alternate right and
+  # left in deterministic substrate order so every colour remains visible.
+  render_target_x <- draw_rows$tx_draw
+  target_split <- split(seq_len(nrow(draw_rows)), draw_rows$target_key)
+  for (target_key in names(target_split)) {
+    idx <- target_split[[target_key]]
+    if (length(idx) < 2L) next
+    aligned <- abs(draw_rows$source_x[idx] - draw_rows$tx_draw[idx]) <= 1e-8
+    ord <- idx[order(
+      -as.integer(aligned),
+      -as.integer(draw_rows$confidence[idx] == "high"),
+      draw_rows$cs_id[idx], draw_rows$group[idx], draw_rows$source_x[idx]
+    )]
+    kk <- seq_len(length(ord) - 1L)
+    track_step <- integer(length(ord))
+    track_step[-1L] <- ceiling(kk / 2) * ifelse(kk %% 2L == 1L, 1L, -1L)
+    track_offset <- track_step * 0.035
+    if (max(abs(track_offset)) > 0.07) {
+      track_offset <- track_offset * 0.07 / max(abs(track_offset))
+    }
+    render_target_x[ord] <- stats::median(draw_rows$tx_draw[idx]) + track_offset
+  }
+
+  exterior_render_routes <- lapply(seq_len(nrow(draw_rows)), function(i) {
+    row <- draw_rows[i, , drop = FALSE]
+    landing_x <- render_target_x[i]
+    target_y <- row$ty_draw + glyph_clearance
+    has_fan_in <- abs(landing_x - row$tx_draw) > 1e-8
+    landing_y <- target_y + if (has_fan_in) 0.075 else 0
+    raw <- if (isTRUE(row$direct) && abs(row$source_x - landing_x) <= 1e-8) {
+      data.frame(x = c(row$source_x, landing_x), y = c(row$source_y, landing_y))
+    } else {
+      join_y <- if (isTRUE(row$direct)) y_memb + bus_offset else row$bus_y
+      data.frame(
+        x = c(row$source_x, row$source_x, landing_x, landing_x),
+        y = c(row$source_y, join_y, join_y, landing_y)
+      )
+    }
+    raw <- raw[c(TRUE, diff(raw$x) != 0 | diff(raw$y) != 0), , drop = FALSE]
+    points <- .dnmb_cct_round_orthogonal_route(
+      raw, radius = max(0.08, as.numeric(corner_radius)[1L])
+    )
+    if (has_fan_in) {
+      points <- rbind(
+        points,
+        data.frame(x = row$tx_draw, y = target_y)
+      )
+    }
+    style <- style_for(row$confidence)
+    list(
+      route_id = .dnmb_cct_transporter_route_id(row$cs_id, row$target_key),
+      cs_id = row$cs_id, target_key = row$target_key,
+      source_x = row$source_x, source_y = row$source_y,
+      transporter_x = row$tx_draw, landing_x = landing_x,
+      landing_y = landing_y,
+      target_x = row$tx_draw, target_y = target_y,
+      points = points,
+      color = row$color, confidence = row$confidence,
+      linewidth = style$linewidth, alpha = style$alpha,
+      linetype = style$linetype, trim_start = row$source_trim,
+      arrow_last = TRUE
+    )
+  })
+  exterior_source_routes <- exterior_render_routes
+  exterior_trunk_routes <- list()
+  list(
+    groups = groups, memberships = membership_out,
+    stems = stems, buses = buses, trunks = trunks, direct = direct,
+    exterior_routes = exterior_routes,
+    exterior_source_routes = exterior_source_routes,
+    exterior_trunk_routes = exterior_trunk_routes,
+    exterior_render_routes = exterior_render_routes
+  )
+}
+
+.dnmb_cct_transporter_interior_routes <- function(memberships, y_memb = 8.5,
+                                                  glyph_clearance = 0.11,
+                                                  source_clearance = 0.11,
+                                                  membrane_half_height = 0.20,
+                                                  route_gap = 0.10,
+                                                  lane_step = 0.045,
+                                                  max_lane_offset = 0.18,
+                                                  corner_radius = 0.08) {
+  if (is.null(memberships) || !is.data.frame(memberships) || !nrow(memberships)) {
+    return(list())
+  }
+  required <- c(
+    "cs_id", "tx_draw", "ty_draw", "cyto_x", "cyto_y",
+    "confidence", "color"
+  )
+  if (length(missing <- setdiff(required, names(memberships)))) {
+    stop(
+      "transporter interior routing requires columns: ",
+      paste(missing, collapse = ", "), call. = FALSE
+    )
+  }
+  rows <- as.data.frame(memberships, stringsAsFactors = FALSE, row.names = NULL)
+  rows <- rows[
+    is.finite(rows$tx_draw) & is.finite(rows$ty_draw) &
+      is.finite(rows$cyto_x) & is.finite(rows$cyto_y),
+    , drop = FALSE
+  ]
+  if (!nrow(rows)) return(list())
+  if (!"locus_tag" %in% names(rows)) rows$locus_tag <- seq_len(nrow(rows))
+  rows <- rows[order(rows$cyto_x, rows$cs_id, rows$tx_draw, rows$locus_tag), , drop = FALSE]
+  rows <- rows[!duplicated(rows[, c("cs_id", "locus_tag", "tx_draw", "cyto_x")]), , drop = FALSE]
+  membrane_half_height <- max(0, as.numeric(membrane_half_height)[1L])
+  route_gap <- max(0, as.numeric(route_gap)[1L])
+  max_lane_offset <- max(0, as.numeric(max_lane_offset)[1L])
+
+  route_specs <- lapply(seq_len(nrow(rows)), function(i) {
+    row <- rows[i, , drop = FALSE]
+    start_y <- row$ty_draw - glyph_clearance
+    end_y <- row$cyto_y + source_clearance
+    lower_envelope <- min(y_memb - membrane_half_height, start_y)
+    lane_y <- lower_envelope - route_gap - max_lane_offset
+    lane_y <- max(end_y + 0.06, lane_y)
+    raw <- if (abs(row$tx_draw - row$cyto_x) <= 1e-8) {
+      data.frame(x = c(row$tx_draw, row$cyto_x), y = c(start_y, end_y))
+    } else {
+      data.frame(
+        x = c(row$tx_draw, row$tx_draw, row$cyto_x, row$cyto_x),
+        y = c(start_y, lane_y, lane_y, end_y)
+      )
+    }
+    list(
+      route_id = .dnmb_cct_transporter_route_id(row$cs_id, row$locus_tag),
+      group = paste0("inside:", row$cs_id),
+      priority = if (tolower(row$confidence) == "high") 2 else 1,
+      raw = raw, row = row,
+      min_lane_y = end_y + 0.06,
+      max_lane_y = lower_envelope - route_gap
+    )
+  })
+  metadata <- data.frame(
+    route_id = vapply(route_specs, `[[`, character(1), "route_id"),
+    group = vapply(route_specs, `[[`, character(1), "group"),
+    priority = vapply(route_specs, `[[`, numeric(1), "priority"),
+    stringsAsFactors = FALSE
+  )
+  unrounded_paths <- .dnmb_cct_separate_route_lanes(
+    routes = lapply(route_specs, `[[`, "raw"), metadata = metadata,
+    lane_step = lane_step, max_offset = max_lane_offset,
+    horizontal_tolerance = 0.01, y_tolerance = 0.05,
+    min_overlap = 0.10, connection_mode = "move_internal",
+    round_radius = 0
+  )
+  paths <- lapply(seq_along(route_specs), function(i) {
+    spec <- route_specs[[i]]
+    pts <- unrounded_paths[[i]]
+    if (nrow(spec$raw) <= 2L) return(pts)
+    dx <- diff(pts$x)
+    dy <- diff(pts$y)
+    horizontal_y <- pts$y[-nrow(pts)][abs(dx) > 1e-8 & abs(dy) <= 1e-8]
+    lane_y <- if (length(horizontal_y)) stats::median(horizontal_y) else {
+      stats::median(spec$raw$y[2:(nrow(spec$raw) - 1L)])
+    }
+    lane_y <- min(spec$max_lane_y, max(spec$min_lane_y, lane_y))
+    raw <- data.frame(
+      x = c(spec$raw$x[1L], spec$raw$x[1L],
+            spec$raw$x[nrow(spec$raw)], spec$raw$x[nrow(spec$raw)]),
+      y = c(spec$raw$y[1L], lane_y, lane_y, spec$raw$y[nrow(spec$raw)])
+    )
+    raw <- raw[c(TRUE, diff(raw$x) != 0 | diff(raw$y) != 0), , drop = FALSE]
+    .dnmb_cct_round_orthogonal_route(
+      raw, radius = max(0.08, as.numeric(corner_radius)[1L])
+    )
+  })
+  lapply(seq_along(route_specs), function(i) {
+    row <- route_specs[[i]]$row
+    high <- tolower(row$confidence) == "high"
+    c(route_specs[[i]][c("route_id", "group", "priority")], list(
+      cs_id = row$cs_id, target_key = as.character(row$locus_tag),
+      points = paths[[i]], color = row$color,
+      confidence = row$confidence,
+      linewidth = if (high) 0.24 else 0.16,
+      alpha = if (high) 0.68 else 0.28,
+      linetype = if (high) "solid" else "dashed"
+    ))
+  })
+}
+
+.dnmb_cct_drawn_transporter_entities <- function(entities, memberships) {
+  if (is.null(entities) || !is.data.frame(entities) || !nrow(entities)) {
+    return(entities)
+  }
+  if (!"locus_tag" %in% names(entities) ||
+      is.null(memberships) || !is.data.frame(memberships) ||
+      !nrow(memberships) ||
+      !all(c("target_key", "draw") %in% names(memberships))) {
+    return(entities[0, , drop = FALSE])
+  }
+  drawn_targets <- unique(as.character(
+    memberships$target_key[memberships$draw]
+  ))
+  entities[
+    as.character(entities$locus_tag) %in% drawn_targets,
+    , drop = FALSE
+  ]
+}
+
+.dnmb_cct_layout_transporter_labels <- function(labels, xlim, y_memb = 8.5,
+                                                base_offset = 0.40,
+                                                track_step = 0.16,
+                                                max_aux_tracks = 2L,
+                                                min_gap = 0.08) {
+  if (is.null(labels) || !nrow(labels)) return(labels)
+  out <- as.data.frame(labels, stringsAsFactors = FALSE, row.names = NULL)
+  if (!"anchor_x" %in% names(out)) out$anchor_x <- out$x
+  if (!"anchor_y" %in% names(out)) out$anchor_y <- out$y
+  if (!"priority" %in% names(out)) out$priority <- 0
+  if (!"hjust" %in% names(out)) out$hjust <- 0.5
+
+  xlim <- sort(as.numeric(xlim)[seq_len(2L)])
+  if (any(!is.finite(xlim)) || xlim[1] >= xlim[2]) {
+    stop("transporter label layout requires a finite increasing xlim", call. = FALSE)
+  }
+  base_offset <- max(0.20, as.numeric(base_offset)[1])
+  track_step <- max(0.08, as.numeric(track_step)[1])
+  max_aux_tracks <- max(0L, as.integer(max_aux_tracks)[1])
+  min_gap <- max(0, as.numeric(min_gap)[1])
+
+  out$label_width <- pmax(
+    0.20,
+    vapply(strsplit(as.character(out$label), "\n", fixed = TRUE), function(parts) {
+      max(nchar(parts), na.rm = TRUE) * 0.06
+    }, numeric(1))
+  )
+  out$x_lab <- pmin(
+    pmax(out$anchor_x, xlim[1] + out$label_width / 2),
+    xlim[2] - out$label_width / 2
+  )
+  out$track_level <- 0L
+
+  # Assign the primary track first. A label is raised only when its anchored
+  # interval collides with a label already occupying a lower track.
+  occupied <- replicate(max_aux_tracks + 1L, integer(0), simplify = FALSE)
+  ord <- order(
+    out$anchor_x, -out$priority, as.character(out$label),
+    na.last = TRUE
+  )
+  for (ii in ord) {
+    collision_count <- vapply(seq_along(occupied), function(track) {
+      idx <- occupied[[track]]
+      if (!length(idx)) return(0L)
+      required <- (out$label_width[idx] + out$label_width[ii]) / 2 + min_gap
+      sum(abs(out$x_lab[idx] - out$x_lab[ii]) < required)
+    }, integer(1))
+    free_track <- which(collision_count == 0L)[1]
+    if (is.na(free_track)) free_track <- which.min(collision_count)
+    out$track_level[ii] <- free_track - 1L
+    occupied[[free_track]] <- c(occupied[[free_track]], ii)
+  }
+
+  # Pack each occupied track left-to-right while preserving anchor order.
+  # This handles dense sites after all three tracks have been used.
+  for (track in seq.int(0L, max_aux_tracks)) {
+    idx <- which(out$track_level == track)
+    if (!length(idx)) next
+    idx <- idx[order(out$anchor_x[idx], out$label[idx])]
+    widths <- out$label_width[idx]
+    pos <- out$x_lab[idx]
+    pos[1] <- max(pos[1], xlim[1] + widths[1] / 2)
+    if (length(idx) > 1L) {
+      for (jj in 2:length(idx)) {
+        required <- (widths[jj - 1L] + widths[jj]) / 2 + min_gap
+        pos[jj] <- max(pos[jj], pos[jj - 1L] + required)
+      }
+      overflow <- pos[length(pos)] + widths[length(widths)] / 2 - xlim[2]
+      if (overflow > 0) pos <- pos - overflow
+      for (jj in rev(seq_len(length(idx) - 1L))) {
+        required <- (widths[jj] + widths[jj + 1L]) / 2 + min_gap
+        pos[jj] <- min(pos[jj], pos[jj + 1L] - required)
+      }
+    }
+    underflow <- xlim[1] - (pos[1] - widths[1] / 2)
+    if (underflow > 0) pos <- pos + underflow
+    out$x_lab[idx] <- pos
+  }
+
+  out$y_lab <- y_memb + base_offset + out$track_level * track_step
+  out$hjust <- 0.5
+  out$draw_leader <- abs(out$x_lab - out$anchor_x) > 0.04 |
+    out$track_level > 0L
+  out
+}
+
+.dnmb_cct_transporter_label_leaders <- function(labels, clearance = 0.05,
+                                                glyph_clearance = 0.11) {
+  empty <- data.frame(
+    group = character(), x = numeric(), y = numeric(), color = character(),
+    stringsAsFactors = FALSE
+  )
+  required <- c("anchor_x", "anchor_y", "x_lab", "y_lab")
+  if (is.null(labels) || !nrow(labels) || !all(required %in% names(labels))) {
+    return(empty)
+  }
+  rows <- labels[
+    is.finite(labels$anchor_x) & is.finite(labels$anchor_y) &
+      is.finite(labels$x_lab) & is.finite(labels$y_lab),
+    , drop = FALSE
+  ]
+  if ("draw_leader" %in% names(rows)) {
+    keep <- !is.na(rows$draw_leader) & rows$draw_leader
+    rows <- rows[keep, , drop = FALSE]
+  }
+  if (!nrow(rows)) return(empty)
+  if (!"color" %in% names(rows)) rows$color <- "#52616B"
+
+  dplyr::bind_rows(lapply(seq_len(nrow(rows)), function(i) {
+    y_start <- rows$anchor_y[i] + glyph_clearance
+    y_elbow <- max(y_start, rows$y_lab[i] - clearance)
+    data.frame(
+      group = paste0("transporter-label-", i),
+      x = c(rows$anchor_x[i], rows$anchor_x[i], rows$x_lab[i]),
+      y = c(y_start, y_elbow, y_elbow),
+      color = rep(as.character(rows$color[i]), 3L),
+      stringsAsFactors = FALSE
+    )
+  }))
+}
+
+.dnmb_cct_transporter_text_layer <- function(labels) {
+  if (is.null(labels) || !nrow(labels)) return(NULL)
+  ggplot2::geom_text(
+    data = labels,
+    ggplot2::aes(x = .data$x_lab, y = .data$y_lab, label = .data$label),
+    color = labels$color,
+    size = labels$size,
+    fontface = labels$fontface,
+    hjust = labels$hjust,
+    lineheight = 0.9,
+    check_overlap = FALSE,
+    inherit.aes = FALSE
+  )
 }
 
 .dnmb_cct_junction_glyph_layers <- function(x, y, color, size = 2.1, alpha = 0.9) {
@@ -3057,6 +4311,174 @@
   out
 }
 
+.dnmb_cct_layout_external_labels <- function(labels, xlim,
+                                              row_step = 0.15,
+                                              max_aux_rows = 2L,
+                                              min_gap = 0.08) {
+  if (is.null(labels) || !nrow(labels)) return(labels)
+  out <- as.data.frame(labels, stringsAsFactors = FALSE, row.names = NULL)
+  if (!"label_kind" %in% names(out)) out$label_kind <- "fixed"
+  if (!"anchor_x" %in% names(out)) out$anchor_x <- out$x
+  if (!"anchor_y" %in% names(out)) out$anchor_y <- out$y
+  if (!"priority" %in% names(out)) out$priority <- 0
+  if (!"hjust" %in% names(out)) out$hjust <- 0.5
+  if (!"color" %in% names(out)) out$color <- "#455A64"
+
+  xlim <- sort(as.numeric(xlim)[seq_len(2L)])
+  if (any(!is.finite(xlim)) || xlim[1] >= xlim[2]) {
+    stop("external label layout requires a finite increasing xlim", call. = FALSE)
+  }
+  row_step <- max(0.05, as.numeric(row_step)[1])
+  max_aux_rows <- max(0L, as.integer(max_aux_rows)[1])
+  min_gap <- max(0, as.numeric(min_gap)[1])
+
+  out$x_lab <- out$x
+  out$y_lab <- out$y
+  out$row_level <- 0L
+  out$draw_leader <- FALSE
+  out$hjust <- ifelse(is.na(out$hjust), 0.5, out$hjust)
+
+  gh_idx <- which(out$label_kind == "gh" &
+                    is.finite(out$anchor_x) & is.finite(out$anchor_y) &
+                    is.finite(out$x) & is.finite(out$y))
+  if (!length(gh_idx)) return(out)
+
+  gh <- out[gh_idx, , drop = FALSE]
+  gh$label_width <- pmax(
+    0.20,
+    vapply(strsplit(as.character(gh$label), "\n", fixed = TRUE), function(parts) {
+      max(nchar(parts), na.rm = TRUE) * 0.055
+    }, numeric(1))
+  )
+
+  # Use a single global row grid. Labels stay on their primary row whenever
+  # their horizontal intervals fit; only a collision opens one of two lower
+  # auxiliary rows.
+  grid_origin <- max(gh$y, na.rm = TRUE)
+  gh$primary_y <- grid_origin - round((grid_origin - gh$y) / row_step) * row_step
+  gh$x_lab <- pmin(
+    pmax(gh$anchor_x, xlim[1] + gh$label_width / 2),
+    xlim[2] - gh$label_width / 2
+  )
+  gh$y_lab <- gh$primary_y
+  gh$row_level <- 0L
+
+  placed <- data.frame(
+    x = numeric(), y = numeric(), width = numeric(),
+    stringsAsFactors = FALSE
+  )
+  horizontal_step <- max(0.24, max(gh$label_width, na.rm = TRUE) + min_gap)
+  horizontal_offsets <- c(0, horizontal_step, -horizontal_step)
+  ord <- order(
+    -gh$priority, -gh$primary_y, gh$anchor_x,
+    as.character(gh$label), na.last = TRUE
+  )
+  for (ii in ord) {
+    candidate_level <- rep(
+      seq.int(0L, max_aux_rows),
+      each = length(horizontal_offsets)
+    )
+    candidate_x <- gh$anchor_x[ii] + rep(
+      horizontal_offsets,
+      times = max_aux_rows + 1L
+    )
+    candidate_y <- gh$primary_y[ii] - candidate_level * row_step
+    within_bounds <-
+      candidate_x - gh$label_width[ii] / 2 >= xlim[1] &
+      candidate_x + gh$label_width[ii] / 2 <= xlim[2]
+    collision_count <- vapply(seq_along(candidate_x), function(candidate_i) {
+      if (!within_bounds[candidate_i]) return(.Machine$integer.max)
+      cx <- candidate_x[candidate_i]
+      cy <- candidate_y[candidate_i]
+      same_row <- abs(placed$y - cy) < row_step * 0.45
+      if (!any(same_row)) return(0L)
+      required <- (placed$width[same_row] + gh$label_width[ii]) / 2 + min_gap
+      sum(abs(placed$x[same_row] - cx) < required)
+    }, integer(1))
+    chosen <- which(collision_count == 0L)[1]
+    if (is.na(chosen)) {
+      valid <- which(within_bounds)
+      if (!length(valid)) valid <- seq_along(candidate_x)
+      penalty <- collision_count[valid] * 100L +
+        candidate_level[valid] * 10L +
+        rep(c(0L, 1L, 1L), times = max_aux_rows + 1L)[valid]
+      chosen <- valid[which.min(penalty)]
+    }
+    gh$x_lab[ii] <- pmin(
+      pmax(candidate_x[chosen], xlim[1] + gh$label_width[ii] / 2),
+      xlim[2] - gh$label_width[ii] / 2
+    )
+    gh$row_level[ii] <- candidate_level[chosen]
+    gh$y_lab[ii] <- candidate_y[chosen]
+    placed <- rbind(placed, data.frame(
+      x = gh$x_lab[ii], y = gh$y_lab[ii], width = gh$label_width[ii],
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  # Pack each occupied row left-to-right without changing anchor order. This
+  # resolves the rare case where more than three labels share one cut site.
+  row_key <- sprintf("%.5f", gh$y_lab)
+  for (rk in unique(row_key)) {
+    idx <- which(row_key == rk)
+    idx <- idx[order(gh$x_lab[idx], gh$anchor_x[idx], gh$label[idx])]
+    if (length(idx) <= 1L) next
+    pos <- gh$x_lab[idx]
+    widths <- gh$label_width[idx]
+    pos[1] <- max(pos[1], xlim[1] + widths[1] / 2)
+    for (jj in 2:length(idx)) {
+      required <- (widths[jj - 1L] + widths[jj]) / 2 + min_gap
+      pos[jj] <- max(pos[jj], pos[jj - 1L] + required)
+    }
+    overflow <- pos[length(pos)] + widths[length(widths)] / 2 - xlim[2]
+    if (overflow > 0) pos <- pos - overflow
+    for (jj in rev(seq_len(length(idx) - 1L))) {
+      required <- (widths[jj] + widths[jj + 1L]) / 2 + min_gap
+      pos[jj] <- min(pos[jj], pos[jj + 1L] - required)
+    }
+    underflow <- xlim[1] - (pos[1] - widths[1] / 2)
+    if (underflow > 0) pos <- pos + underflow
+    gh$x_lab[idx] <- pos
+  }
+
+  gh$draw_leader <- gh$row_level > 0L | abs(gh$x_lab - gh$anchor_x) > 0.04
+  gh$hjust <- 0.5
+  out[gh_idx, c("x_lab", "y_lab", "row_level", "draw_leader", "hjust")] <-
+    gh[, c("x_lab", "y_lab", "row_level", "draw_leader", "hjust")]
+  out
+}
+
+.dnmb_cct_external_label_leaders <- function(labels, label_clearance = 0.045) {
+  empty <- data.frame(
+    group = character(), x = numeric(), y = numeric(), color = character(),
+    stringsAsFactors = FALSE
+  )
+  if (is.null(labels) || !nrow(labels) || !"draw_leader" %in% names(labels)) {
+    return(empty)
+  }
+  rows <- labels[
+    labels$label_kind == "gh" & labels$draw_leader &
+      is.finite(labels$anchor_x) & is.finite(labels$anchor_y) &
+      is.finite(labels$x_lab) & is.finite(labels$y_lab),
+    , drop = FALSE
+  ]
+  if (!nrow(rows)) return(empty)
+
+  dplyr::bind_rows(lapply(seq_len(nrow(rows)), function(i) {
+    direction <- sign(rows$anchor_y[i] - rows$y_lab[i])
+    if (!is.finite(direction) || direction == 0) direction <- 1
+    y_start <- rows$anchor_y[i] - direction * label_clearance
+    y_elbow <- rows$y_lab[i] + direction * label_clearance
+    data.frame(
+      group = paste0("external-label-", i),
+      x = c(rows$anchor_x[i], rows$anchor_x[i], rows$x_lab[i]),
+      y = c(y_start, y_elbow, y_elbow),
+      color = rep(as.character(rows$color[i]), 3L),
+      stringsAsFactors = FALSE
+    )
+  }))
+}
+
 .dnmb_cct_lane_label_offsets <- function(n, lane_dir = 0) {
   lane_dir <- sign(as.numeric(lane_dir)[1])
   if (!is.finite(lane_dir)) lane_dir <- 0
@@ -3107,7 +4529,8 @@
 .dnmb_cct_hub_entry_path <- function(hub_x, hub_y, target_x, target_y,
                                      lane_rank = 1L,
                                      target_count = 1L,
-                                     grid_step = 0.5) {
+                                     grid_step = 0.5,
+                                     rounded = TRUE) {
   dx <- target_x - hub_x
   dy <- target_y - hub_y
   if (abs(dx) <= max(0.30, grid_step * 0.6) || abs(dy) <= 0.02) {
@@ -3152,13 +4575,16 @@
     slot_y <- .dnmb_cct_snap_to_grid(target_y + grid_step * 0.25, step = grid_step / 2)
   }
 
-  .dnmb_cct_waypoint_route_points(
-    data.frame(
-      x = c(hub_x, hub_x, approach_x, approach_x, slot_x, slot_x, target_x),
-      y = c(hub_y, corridor_y, corridor_y, approach_y, approach_y, target_y, target_y)
-    ),
-    grid_step = grid_step
+  waypoints <- data.frame(
+    x = c(hub_x, hub_x, approach_x, approach_x, slot_x, slot_x, target_x),
+    y = c(hub_y, corridor_y, corridor_y, approach_y, approach_y, target_y, target_y)
   )
+  waypoints <- waypoints[
+    c(TRUE, diff(waypoints$x) != 0 | diff(waypoints$y) != 0),
+    , drop = FALSE
+  ]
+  if (!isTRUE(rounded)) return(waypoints)
+  .dnmb_cct_waypoint_route_points(waypoints, grid_step = grid_step)
 }
 
 .dnmb_cct_waypoint_route_points <- function(points_df, grid_step = 0.5) {
@@ -3194,25 +4620,46 @@
   seq_ids
 }
 
+.dnmb_cct_initial_entry_targets <- function(cs_id, node_ids = NULL) {
+  cid <- tolower(trimws(as.character(cs_id)[1L]))
+  branched_targets <- list(
+    lactose = c("Glucose", "Gal-1-P"),
+    sucrose = c("Glucose", "Fru-6-P")
+  )
+  targets <- branched_targets[[cid]]
+  if (is.null(targets)) {
+    route_nodes <- .dnmb_cct_entry_route_nodes(cid, node_ids = node_ids)
+    targets <- if (length(route_nodes)) route_nodes[1L] else character(0)
+  }
+  targets <- unique(as.character(targets))
+  targets <- targets[!is.na(targets) & nzchar(targets)]
+  if (!is.null(node_ids)) targets <- targets[targets %in% node_ids]
+  targets
+}
+
 .dnmb_cct_points_from_start_to_nodes <- function(start_x, start_y, node_ids, node_x, node_y,
                                                  grid_step = 0.5,
-                                                 lane_rank = 1L, lane_count = 1L) {
+                                                 lane_rank = 1L, lane_count = 1L,
+                                                 obstacle_x = node_x,
+                                                 obstacle_y = node_y) {
   if (length(node_ids) == 0) return(NULL)
   keep_ids <- node_ids[node_ids %in% names(node_x) & node_ids %in% names(node_y)]
   if (length(keep_ids) == 0) return(NULL)
-  # y-offset to separate overlapping routes targeting the same nodes
-  y_spread <- if (lane_count > 1L) {
-    (lane_rank - (lane_count + 1) / 2) * grid_step * 0.18
-  } else 0
+  # Keep every biochemical node coordinate exact. Shared horizontal portions
+  # are separated while these routes are still orthogonal waypoints; corners
+  # are rounded only after the lane heights have been finalized.
+  y_spread <- 0
   cur_x <- start_x
   cur_y <- start_y
   out <- data.frame(x = cur_x, y = cur_y)
   for (nid in keep_ids) {
     tgt_y <- unname(node_y[nid]) + y_spread
-    seg <- .dnmb_cct_pair_route_points(
+    seg <- .dnmb_cct_safe_pair_route_points(
       x1 = cur_x, y1 = cur_y,
       x2 = unname(node_x[nid]), y2 = tgt_y,
-      grid_step = grid_step
+      obstacle_x = obstacle_x, obstacle_y = obstacle_y,
+      grid_step = grid_step,
+      rounded = FALSE
     )
     out <- rbind(out, seg[-1, , drop = FALSE])
     cur_x <- unname(node_x[nid])
@@ -3236,29 +4683,38 @@
   as.integer(max(1L, min(nrow(points_df), idx)))
 }
 
+.dnmb_cct_route_label_point <- function(points_df, frac = 0.50) {
+  if (is.null(points_df) || !is.data.frame(points_df) || !nrow(points_df) ||
+      !all(c("x", "y") %in% names(points_df))) {
+    return(data.frame(x = NA_real_, y = NA_real_))
+  }
+  pts <- points_df[is.finite(points_df$x) & is.finite(points_df$y), c("x", "y"), drop = FALSE]
+  if (!nrow(pts)) return(data.frame(x = NA_real_, y = NA_real_))
+  if (nrow(pts) == 1L) return(pts)
+  keep <- c(TRUE, diff(pts$x) != 0 | diff(pts$y) != 0)
+  pts <- pts[keep, , drop = FALSE]
+  if (nrow(pts) == 1L) return(pts)
+
+  seg_len <- sqrt(diff(pts$x)^2 + diff(pts$y)^2)
+  total_len <- sum(seg_len)
+  if (!is.finite(total_len) || total_len <= 0) return(pts[1, , drop = FALSE])
+  frac <- min(1, max(0, as.numeric(frac)[1]))
+  if (!is.finite(frac)) frac <- 0.5
+  target_len <- total_len * frac
+  cumulative <- c(0, cumsum(seg_len))
+  seg_idx <- which(cumulative[-1L] >= target_len)[1]
+  if (is.na(seg_idx)) return(pts[nrow(pts), , drop = FALSE])
+  local_frac <- (target_len - cumulative[seg_idx]) / seg_len[seg_idx]
+  data.frame(
+    x = pts$x[seg_idx] + local_frac * (pts$x[seg_idx + 1L] - pts$x[seg_idx]),
+    y = pts$y[seg_idx] + local_frac * (pts$y[seg_idx + 1L] - pts$y[seg_idx])
+  )
+}
+
 .dnmb_cct_edge_points_from_row <- function(ce, edge_idx = 1L, grid_step = 0.5) {
   x1 <- ce$x; y1 <- ce$y; x2 <- ce$xend; y2 <- ce$yend
   if (any(is.na(c(x1, y1, x2, y2)))) return(data.frame(x = numeric(), y = numeric()))
-  stagger <- (edge_idx %% 5 - 2) * 0.25
-  is_straight <- abs(x2 - x1) < 0.01 || abs(y2 - y1) < 0.01
-  if (is_straight) {
-    return(data.frame(x = c(x1, x2), y = c(y1, y2)))
-  }
-  is_mostly_vertical <- abs(y2 - y1) >= abs(x2 - x1)
-  if (is_mostly_vertical) {
-    mid_y <- round((y2 + stagger) * 4) / 4
-    route_pts <- data.frame(
-      x = c(x1, x1, x2, x2),
-      y = c(y1, mid_y, mid_y, y2)
-    )
-  } else {
-    mid_x <- round((x2 + stagger) * 4) / 4
-    route_pts <- data.frame(
-      x = c(x1, mid_x, mid_x, x2),
-      y = c(y1, y1, y2, y2)
-    )
-  }
-  .dnmb_cct_rounded_route_points(route_pts, radius = grid_step)
+  .dnmb_cct_pair_route_points(x1, y1, x2, y2, grid_step = grid_step)
 }
 
 .dnmb_cct_pathway_hint_nodes <- function(path_ids, matched_steps, transporters, entry_map = NULL) {
@@ -3314,8 +4770,8 @@
 
 .dnmb_cct_layout_route_labels <- function(df, center_x = NA_real_,
                                           max_iter = 200L,
-                                          label_w = 0.30,
-                                          label_h = 0.10,
+                                          label_w = 0.38,
+                                          label_h = 0.14,
                                           k_repel = 0.008,
                                           k_attract = 0.06,
                                           damping = 0.85,
@@ -3394,10 +4850,6 @@
   if (is.na(gh) || !nzchar(gh)) gh <- "GH"
   if (is.na(gn) || !nzchar(gn)) return(gh)
   if (.dnmb_cct_is_generic_feature_id(gn)) return(gh)
-  gn <- sub("/.*$", "", gn)
-  gn <- sub("\\|.*$", "", gn)
-  gn <- gsub("_", "-", gn, fixed = TRUE)
-  if (nchar(gn) > 10) gn <- substr(gn, 1, 10)
   paste0(gh, " ", gn)
 }
 
@@ -3439,7 +4891,205 @@
   x <- as.character(label)[1]
   if (is.na(x) || !nzchar(x)) return(0.3)
   lines <- unlist(strsplit(x, "\n", fixed = TRUE))
-  max(0.3, max(nchar(lines), na.rm = TRUE) * 0.06)
+  max(0.3, max(nchar(lines), na.rm = TRUE) * 0.08)
+}
+
+.dnmb_cct_final_text_layer <- function(labels, obstacles = NULL,
+                                       xlim = c(NA, NA), ylim = c(NA, NA),
+                                       seed = 42L, force = 1.1,
+                                       force_pull = 2.2) {
+  if (is.null(labels) || !nrow(labels)) return(NULL)
+  labels <- as.data.frame(labels, stringsAsFactors = FALSE, row.names = NULL)
+  defaults <- list(
+    color = "#222222", size = 1, fontface = "plain", hjust = 0.5,
+    priority = 0, nudge_x = 0, nudge_y = 0, alpha = 1
+  )
+  for (column in names(defaults)) {
+    if (!column %in% names(labels)) labels[[column]] <- defaults[[column]]
+  }
+  labels <- labels[!is.na(labels$label) & nzchar(labels$label), , drop = FALSE]
+  if (!nrow(labels)) return(NULL)
+  labels <- labels[order(labels$priority, decreasing = TRUE, na.last = TRUE), , drop = FALSE]
+
+  plot_df <- labels[, c(
+    "x", "y", "label", "color", "size", "fontface", "hjust", "alpha",
+    "nudge_x", "nudge_y"
+  ), drop = FALSE]
+  if (!is.null(obstacles) && nrow(obstacles)) {
+    obstacles <- unique(as.data.frame(obstacles[, c("x", "y"), drop = FALSE]))
+    obstacles <- obstacles[is.finite(obstacles$x) & is.finite(obstacles$y), , drop = FALSE]
+    if (nrow(obstacles)) {
+      obstacle_rows <- data.frame(
+        x = obstacles$x, y = obstacles$y, label = "",
+        color = "#00000000", size = 0.01, fontface = "plain", hjust = 0.5,
+        nudge_x = 0, nudge_y = 0, alpha = 0,
+        stringsAsFactors = FALSE
+      )
+      plot_df <- rbind(plot_df, obstacle_rows)
+    }
+  }
+
+  ggrepel::geom_text_repel(
+    data = plot_df,
+    ggplot2::aes(x = .data$x, y = .data$y, label = .data$label),
+    color = plot_df$color,
+    size = plot_df$size,
+    alpha = plot_df$alpha,
+    fontface = plot_df$fontface,
+    hjust = plot_df$hjust,
+    nudge_x = plot_df$nudge_x,
+    nudge_y = plot_df$nudge_y,
+    bg.color = "#FFFFFF",
+    bg.r = 0.045,
+    box.padding = grid::unit(0.08, "lines"),
+    point.padding = grid::unit(0.10, "lines"),
+    min.segment.length = 0.04,
+    segment.size = 0.12,
+    segment.color = "#B0BEC5",
+    segment.alpha = 0.65,
+    force = force,
+    force_pull = force_pull,
+    max.overlaps = Inf,
+    max.time = 3,
+    max.iter = 15000,
+    xlim = xlim,
+    ylim = ylim,
+    seed = seed,
+    inherit.aes = FALSE
+  )
+}
+
+.dnmb_cct_obstacle_perimeter <- function(x, y, rx = 0.1, ry = rx,
+                                         points = 8L, include_center = TRUE) {
+  x <- as.numeric(x)
+  y <- as.numeric(y)
+  rx <- rep_len(pmax(0, as.numeric(rx)), length(x))
+  ry <- rep_len(pmax(0, as.numeric(ry)), length(x))
+  keep <- is.finite(x) & is.finite(y) & is.finite(rx) & is.finite(ry)
+  x <- x[keep]
+  y <- y[keep]
+  rx <- rx[keep]
+  ry <- ry[keep]
+  if (!length(x)) return(data.frame(x = numeric(), y = numeric()))
+
+  theta <- seq(0, 2 * pi, length.out = max(4L, as.integer(points)[1]) + 1L)
+  theta <- theta[-length(theta)]
+  perimeter <- do.call(rbind, lapply(seq_along(x), function(i) {
+    data.frame(
+      x = x[i] + rx[i] * cos(theta),
+      y = y[i] + ry[i] * sin(theta)
+    )
+  }))
+  if (isTRUE(include_center)) {
+    perimeter <- rbind(data.frame(x = x, y = y), perimeter)
+  }
+  rownames(perimeter) <- NULL
+  perimeter
+}
+
+.dnmb_cct_collapse_route_labels <- function(route_labels) {
+  if (is.null(route_labels) || !nrow(route_labels)) return(route_labels)
+  route_labels <- as.data.frame(route_labels, stringsAsFactors = FALSE, row.names = NULL)
+  required <- c("label", "locus_tag", "member_keys", "target_id", "priority")
+  if (!all(required %in% names(route_labels))) {
+    stop("route label deduplication requires membership and target columns", call. = FALSE)
+  }
+  exact_key <- paste(
+    route_labels$target_id,
+    route_labels$locus_tag,
+    route_labels$member_keys,
+    route_labels$label,
+    sep = "\r"
+  )
+  ord <- order(-route_labels$priority)
+  route_labels <- route_labels[ord, , drop = FALSE]
+  exact_key <- exact_key[ord]
+  route_labels[!duplicated(exact_key), , drop = FALSE]
+}
+
+.dnmb_cct_pathway_presence <- function(step_status, pstats = NULL,
+                                       valid_pathways = NULL) {
+  empty <- data.frame(
+    pathway_id = character(), fraction = numeric(),
+    n_transport = integer(), n_intracellular = integer(),
+    cytoplasm_status = character(), stringsAsFactors = FALSE
+  )
+  if (is.null(step_status) || !nrow(step_status)) return(empty)
+
+  steps <- as.data.frame(step_status, stringsAsFactors = FALSE, row.names = NULL)
+  required <- c("pathway_id", "step_id", "confidence", "locus_tag")
+  if (!all(required %in% names(steps))) return(empty)
+  steps$pathway_id <- tolower(as.character(steps$pathway_id))
+  if (!is.null(valid_pathways)) {
+    steps <- steps[steps$pathway_id %in% tolower(valid_pathways), , drop = FALSE]
+  }
+  if (!nrow(steps)) return(empty)
+
+  conf_rank <- c(none = 0L, low = 1L, medium = 2L, high = 3L)
+  steps$rank <- unname(conf_rank[tolower(as.character(steps$confidence))])
+  steps$rank[is.na(steps$rank)] <- 0L
+  steps <- steps[
+    steps$rank >= 2L & !is.na(steps$locus_tag) & nzchar(steps$locus_tag),
+    , drop = FALSE
+  ]
+
+  path_ids <- unique(c(
+    if (!is.null(valid_pathways)) tolower(valid_pathways) else character(),
+    steps$pathway_id,
+    if (!is.null(pstats) && "pathway_id" %in% names(pstats)) {
+      tolower(as.character(pstats$pathway_id))
+    } else character()
+  ))
+  path_ids <- path_ids[!is.na(path_ids) & nzchar(path_ids)]
+  if (!length(path_ids)) return(empty)
+
+  out <- data.frame(
+    pathway_id = path_ids,
+    fraction = 0,
+    n_transport = 0L,
+    n_intracellular = 0L,
+    stringsAsFactors = FALSE
+  )
+  if (!is.null(pstats) && nrow(pstats) &&
+      all(c("pathway_id", "fraction") %in% names(pstats))) {
+    ps <- as.data.frame(pstats, stringsAsFactors = FALSE, row.names = NULL)
+    ps$pathway_id <- tolower(as.character(ps$pathway_id))
+    idx <- match(out$pathway_id, ps$pathway_id)
+    found <- !is.na(idx)
+    out$fraction[found] <- suppressWarnings(as.numeric(ps$fraction[idx[found]]))
+    out$fraction[!is.finite(out$fraction)] <- 0
+  }
+
+  if (nrow(steps)) {
+    steps$is_transport <- mapply(
+      .dnmb_cct_is_transport_like_step,
+      step_id = steps$step_id,
+      gene_name = steps$step_id,
+      MoreArgs = list(is_pts = FALSE)
+    )
+    count_distinct <- function(df, keep_transport) {
+      sub <- df[df$is_transport == keep_transport, , drop = FALSE]
+      if (!nrow(sub)) return(integer())
+      vapply(split(sub$step_id, sub$pathway_id), function(x) {
+        length(unique(as.character(x)))
+      }, integer(1))
+    }
+    tr_count <- count_distinct(steps, TRUE)
+    in_count <- count_distinct(steps, FALSE)
+    if (length(tr_count)) {
+      out$n_transport[match(names(tr_count), out$pathway_id)] <- unname(tr_count)
+    }
+    if (length(in_count)) {
+      out$n_intracellular[match(names(in_count), out$pathway_id)] <- unname(in_count)
+    }
+  }
+
+  active <- (out$fraction >= 0.50 & out$n_intracellular >= 2L) |
+    (out$fraction >= 0.25 & out$n_transport >= 1L & out$n_intracellular >= 1L)
+  partial <- !active & (out$n_transport > 0L | out$n_intracellular > 0L |
+                          out$fraction > 0)
+  out$cytoplasm_status <- ifelse(active, "active", ifelse(partial, "partial", "reference"))
+  out
 }
 
 .dnmb_cct_lighten_color <- function(color, amount = 0.65) {
@@ -3630,15 +5280,167 @@
   0.45 * conf_score + 0.40 * frac_score + 0.15 * sink_score
 }
 
+.dnmb_cct_path_step_key <- function(pathway_id, step_id) {
+  pathway_id <- tolower(trimws(as.character(pathway_id)))
+  step_id <- tolower(trimws(as.character(step_id)))
+  paste(pathway_id, step_id, sep = "\r")
+}
+
+# Only reactions with an explicit directed biochemical edge are eligible for a
+# map label. Evidence without one of these mappings remains in the ledger.
+.dnmb_cct_exact_step_edge_map <- function() {
+  data.frame(
+    pathway_id = rep("deoxyribose", 8L),
+    step_id = c("deoK", "deoC", "deoC", "adh", "ackA", "pta", "acs", "ald-dh-CoA"),
+    from = c(
+      "Deoxyribose", "Deoxyribose-5-P", "Deoxyribose-5-P",
+      "Acetaldehyde", "Acetate", "Acetyl-P", "Acetate", "Acetaldehyde"
+    ),
+    to = c(
+      "Deoxyribose-5-P", "GA3P", "Acetaldehyde", "Acetate",
+      "Acetyl-P", "Acetyl-CoA", "Acetyl-CoA", "Acetyl-CoA"
+    ),
+    label_anchor = c(TRUE, TRUE, FALSE, TRUE, TRUE, TRUE, TRUE, TRUE),
+    stringsAsFactors = FALSE
+  )
+}
+
+.dnmb_cct_exact_step_edge_matches <- function(step_evidence, cyto_edges,
+                                               edge_map = .dnmb_cct_exact_step_edge_map()) {
+  empty <- data.frame()
+  if (is.null(step_evidence) || !is.data.frame(step_evidence) || !nrow(step_evidence) ||
+      is.null(cyto_edges) || !is.data.frame(cyto_edges) || !nrow(cyto_edges) ||
+      is.null(edge_map) || !is.data.frame(edge_map) || !nrow(edge_map)) {
+    return(empty)
+  }
+  if (!all(c("pathway_id", "step_id") %in% names(step_evidence)) ||
+      !all(c("from", "to") %in% names(cyto_edges)) ||
+      !all(c("pathway_id", "step_id", "from", "to", "label_anchor") %in% names(edge_map))) {
+    return(empty)
+  }
+
+  evidence <- as.data.frame(step_evidence, stringsAsFactors = FALSE, row.names = NULL)
+  evidence$.evidence_order <- seq_len(nrow(evidence))
+  evidence$.path_step_key <- .dnmb_cct_path_step_key(
+    evidence$pathway_id, evidence$step_id
+  )
+  mapping <- as.data.frame(edge_map, stringsAsFactors = FALSE, row.names = NULL)
+  mapping$.map_order <- seq_len(nrow(mapping))
+  mapping$.path_step_key <- .dnmb_cct_path_step_key(
+    mapping$pathway_id, mapping$step_id
+  )
+  names(mapping)[names(mapping) %in% c("pathway_id", "step_id", "from", "to")] <-
+    c("mapped_pathway_id", "mapped_step_id", "mapped_from", "mapped_to")
+
+  matched <- merge(
+    evidence, mapping,
+    by = ".path_step_key", all = FALSE, sort = FALSE
+  )
+  if (!nrow(matched)) return(empty)
+
+  edge_key <- paste(cyto_edges$from, cyto_edges$to, sep = "\r")
+  matched$edge_index <- match(
+    paste(matched$mapped_from, matched$mapped_to, sep = "\r"),
+    edge_key
+  )
+  matched <- matched[!is.na(matched$edge_index), , drop = FALSE]
+  if (!nrow(matched)) return(empty)
+  matched <- matched[order(matched$.evidence_order, matched$.map_order), , drop = FALSE]
+  rownames(matched) <- NULL
+  matched
+}
+
+.dnmb_cct_exact_step_labels <- function(step_evidence, cyto_edges,
+                                        edge_map = .dnmb_cct_exact_step_edge_map()) {
+  empty <- data.frame(
+    x = numeric(), y = numeric(), label = character(), base_label = character(),
+    step_id = character(), pathway_id = character(), confidence = character(),
+    rank = integer(), locus_tag = character(), member_loci = character(),
+    member_keys = character(), color = character(), target_id = character(),
+    target_rank = integer(), priority = numeric(), angle = numeric(),
+    nudge_x = numeric(), nudge_y = numeric(), size = numeric(),
+    fontface = character(), hjust = numeric(), alpha = numeric(),
+    stringsAsFactors = FALSE
+  )
+  matches <- .dnmb_cct_exact_step_edge_matches(
+    step_evidence = step_evidence,
+    cyto_edges = cyto_edges,
+    edge_map = edge_map
+  )
+  if (!nrow(matches)) return(empty)
+
+  if (!"rank" %in% names(matches)) {
+    confidence_rank <- c(none = 0L, low = 1L, medium = 2L, high = 3L)
+    matches$rank <- unname(confidence_rank[tolower(as.character(matches$confidence))])
+    matches$rank[is.na(matches$rank)] <- 0L
+  }
+  if (!"confidence" %in% names(matches)) {
+    matches$confidence <- ifelse(matches$rank >= 3L, "high", "medium")
+  }
+  if (!"locus_tag" %in% names(matches)) matches$locus_tag <- ""
+
+  split_rows <- split(
+    seq_len(nrow(matches)),
+    .dnmb_cct_path_step_key(matches$mapped_pathway_id, matches$mapped_step_id)
+  )
+  rows <- lapply(split_rows, function(idx) {
+    group <- matches[idx, , drop = FALSE]
+    anchor <- group[group$label_anchor %in% TRUE, , drop = FALSE]
+    if (!nrow(anchor)) anchor <- group[1, , drop = FALSE]
+    anchor <- anchor[1, , drop = FALSE]
+    edge <- cyto_edges[anchor$edge_index, , drop = FALSE]
+
+    loci <- sort(unique(trimws(as.character(group$locus_tag))))
+    loci <- loci[!is.na(loci) & nzchar(loci)]
+    if (!length(loci)) return(NULL)
+    rank <- max(suppressWarnings(as.integer(group$rank)), na.rm = TRUE)
+    if (!is.finite(rank) || rank < 2L) return(NULL)
+    confidence <- if (rank >= 3L) "high" else "medium"
+    step_label <- as.character(anchor$mapped_step_id)
+    label <- paste0(step_label, "\n", paste(loci, collapse = " | "))
+    edge_points <- .dnmb_cct_edge_points_from_row(
+      edge, edge_idx = anchor$edge_index, grid_step = 0.5
+    )
+    label_point <- .dnmb_cct_route_label_point(edge_points, frac = 0.5)
+    x <- label_point$x[1]
+    y <- label_point$y[1]
+    is_split <- identical(tolower(step_label), "deoc")
+
+    data.frame(
+      x = x, y = y, label = label, base_label = label,
+      step_id = step_label,
+      pathway_id = as.character(anchor$mapped_pathway_id),
+      confidence = confidence, rank = rank,
+      locus_tag = paste(loci, collapse = ","),
+      member_loci = paste(loci, collapse = ";"),
+      member_keys = paste(
+        paste0(tolower(step_label), "::", loci), collapse = ";"
+      ),
+      color = if (rank >= 3L) "#007C83" else "#B7791F",
+      target_id = paste(unique(group$mapped_to), collapse = ";"),
+      target_rank = 1L, priority = 24 + rank, angle = 0,
+      nudge_x = if (is_split) 0.24 else 0.12,
+      nudge_y = if (is_split) -0.08 else 0,
+      size = 1.14, fontface = "bold", hjust = 0,
+      alpha = 1,
+      stringsAsFactors = FALSE
+    )
+  })
+  rows <- Filter(Negate(is.null), rows)
+  if (!length(rows)) return(empty)
+  out <- dplyr::bind_rows(rows)
+  out[order(out$pathway_id, out$step_id), , drop = FALSE]
+}
+
 .dnmb_cct_step_target_nodes <- function(step_id, pathway_id = NA_character_) {
-  sid <- tolower(as.character(step_id)[1])
-  pid <- tolower(as.character(pathway_id)[1])
+  sid <- tolower(trimws(as.character(step_id)[1]))
+  pid <- tolower(trimws(as.character(pathway_id)[1]))
   if (is.na(sid) || !nzchar(sid)) return(character(0))
   entry_map <- .dnmb_cct_auto_entry_map()
   entry_node <- unname(entry_map[pid])
 
   is_transport_like <- grepl(
-    "pts|transport|permease|porter|abc|binding|mfs|symporter|tm00|ggu|mgl|rbs|xyl[FGH]|lac[EFG]|mal[EFGK]|thu[EFGK]|ara[ETUV]|galP|glc[PTUV]|kguT|nup[ABC]|pot[ABCD]|mtl[EK]|chvE",
+    "pts|transport|permease|porter|abc|binding|mfs|symporter|tm00|ggu|mgl|rbs|xyl[fgh]|lac[efg]|mal[efgk]|thu[efgk]|ara[etuv]|galp|glc[ptuv]|kgut|nup[abc]|pot[abcd]|mtl[ek]|chve",
     sid, ignore.case = TRUE
   )
   if (is_transport_like && !is.na(entry_node) && nzchar(entry_node)) {
@@ -3646,28 +5448,37 @@
   }
 
   if (sid %in% c("glk", "mgla", "mglb", "mglc")) return(c("Glc-6-P"))
-  if (sid %in% c("nagA")) return(c("GlcN-6-P"))
-  if (sid %in% c("nagB", "manA")) return(c("Fru-6-P"))
-  if (sid %in% c("galK")) return(c("Gal-1-P"))
-  if (sid %in% c("galT")) return(c("UDP-Gal", "Glc-1-P", "UDP-Glc"))
-  if (sid %in% c("galE")) return(c("UDP-Gal", "UDP-Glc"))
-  if (sid %in% c("pgmA")) return(c("Glc-1-P", "Glc-6-P"))
-  if (sid %in% c("gntK", "gnd")) return(c("6-PG"))
-  if (sid %in% c("kdgK", "eda")) return(c("KDPG", "Pyruvate", "GA3P"))
-  if (sid %in% c("xylA")) return(c("Xylulose", "Xu-5-P"))
-  if (sid %in% c("xylB")) return(c("Xu-5-P"))
-  if (sid %in% c("rbsK")) return(c("R-5-P"))
-  if (sid %in% c("araA")) return(c("Ribulose", "Ribulose-5-P", "Xu-5-P"))
-  if (sid %in% c("araB")) return(c("Ribulose-5-P", "Xu-5-P"))
-  if (sid %in% c("araD", "gguA", "gguB")) return(c("Xu-5-P"))
-  if (sid %in% c("glpK", "glpO")) return(c("Glycerol-3-P", "DHAP"))
-  if (sid %in% c("fucI")) return(c("Fuculose", "Fuculose-1-P", "DHAP"))
-  if (sid %in% c("fucK")) return(c("Fuculose-1-P", "DHAP"))
+  if (sid %in% c("naga")) return(c("GlcN-6-P"))
+  if (sid %in% c("nagb", "mana")) return(c("Fru-6-P"))
+  if (sid %in% c("galk")) return(c("Gal-1-P"))
+  if (sid %in% c("galt")) return(c("UDP-Gal", "Glc-1-P", "UDP-Glc"))
+  if (sid %in% c("gale")) return(c("UDP-Gal", "UDP-Glc"))
+  if (sid %in% c("pgma")) return(c("Glc-1-P", "Glc-6-P"))
+  if (sid %in% c("gntk", "gnd")) return(c("6-PG"))
+  if (sid %in% c("kdgk", "eda")) return(c("KDPG", "Pyruvate", "GA3P"))
+  if (sid %in% c("xyla")) return(c("Xylulose", "Xu-5-P"))
+  if (sid %in% c("xylb")) return(c("Xu-5-P"))
+  if (sid %in% c("rbsk")) return(c("R-5-P"))
+  if (sid %in% c("araa")) return(c("Ribulose", "Ribulose-5-P", "Xu-5-P"))
+  if (sid %in% c("arab")) return(c("Ribulose-5-P", "Xu-5-P"))
+  if (sid %in% c("arad", "ggua", "ggub")) return(c("Xu-5-P"))
+  if (sid %in% c("glpk", "glpo")) return(c("Glycerol-3-P", "DHAP"))
+  if (sid %in% c("fuci")) return(c("Fuculose", "Fuculose-1-P", "DHAP"))
+  if (sid %in% c("fuck")) return(c("Fuculose-1-P", "DHAP"))
   if (sid %in% c("fba")) return(c("Fru-1,6-BP", "GA3P"))
   if (sid %in% c("tpi")) return(c("DHAP", "GA3P"))
-  if (sid %in% c("thuK", "pstp")) return(c("Trehalose-6-P", "Glc-6-P"))
-  if (sid %in% c("lacZ", "lacE", "lacF", "lacG", "lacK")) return(c("Gal-1-P", "Glc-6-P"))
-  if (sid %in% c("ggua", "ggub", "chve", "xylg", "xylh", "rbsa", "rbsb", "rbsc", "nupa", "nupb", "nupc'",
+  if (pid == "deoxyribose" && sid == "deok") return(c("Deoxyribose-5-P"))
+  if (pid == "deoxyribose" && sid == "deoc") {
+    return(c("Deoxyribose-5-P", "GA3P", "Acetaldehyde"))
+  }
+  if (pid == "deoxyribose" && sid == "adh") return(c("Acetaldehyde", "Acetate"))
+  if (pid == "deoxyribose" && sid == "acka") return(c("Acetate", "Acetyl-P"))
+  if (pid == "deoxyribose" && sid == "pta") return(c("Acetyl-P", "Acetyl-CoA"))
+  if (pid == "deoxyribose" && sid == "acs") return(c("Acetate", "Acetyl-CoA"))
+  if (pid == "deoxyribose" && sid == "ald-dh-coa") return(c("Acetaldehyde", "Acetyl-CoA"))
+  if (sid %in% c("thuk", "pstp")) return(c("Trehalose-6-P", "Glc-6-P"))
+  if (sid %in% c("lacz", "lace", "lacf", "lacg", "lack")) return(c("Gal-1-P", "Glc-6-P"))
+  if (sid %in% c("ggua", "ggub", "chve", "xylg", "xylh", "rbsa", "rbsb", "rbsc", "nupa", "nupb", "nupc",
                  "male1", "male2", "malf1", "malk1", "malt1", "mtlk", "mtle", "glcv", "glct", "glu",
                  "aglf", "aglk", "tm0027", "tm0028", "tm0029", "tm0030", "tm0031")) {
     if (!is.na(entry_node) && nzchar(entry_node)) return(c(entry_node))
@@ -3678,6 +5489,9 @@
   if (pid %in% c("ribose")) return(c("R-5-P", "GA3P"))
   if (pid %in% c("glycerol")) return(c("Glycerol-3-P", "DHAP"))
   if (pid %in% c("fucose")) return(c("Fuculose", "Fuculose-1-P", "DHAP", "GA3P"))
+  if (pid == "deoxyribose") {
+    return(c("Deoxyribose-5-P", "GA3P", "Acetaldehyde", "Acetate", "Acetyl-CoA"))
+  }
   character(0)
 }
 
@@ -3765,10 +5579,30 @@
     xylose = c("Xylulose", "Xu-5-P", "GA3P", "1,3-BPG", "3-PG", "2-PG", "PEP", "Pyruvate"),
     arabinose = c("Ribulose", "Ribulose-5-P", "Xu-5-P", "GA3P", "1,3-BPG", "3-PG", "2-PG", "PEP", "Pyruvate"),
     ribose = c("R-5-P", "S-7-P", "Fru-6-P", "Fru-1,6-BP", "GA3P", "1,3-BPG", "3-PG", "2-PG", "PEP", "Pyruvate"),
+    deoxyribose = c("Deoxyribose-5-P", "GA3P", "1,3-BPG", "3-PG", "2-PG", "PEP", "Pyruvate"),
     gluconate = c("6-PG", "KDPG", "Pyruvate"),
     fucose = c("Fuculose", "Fuculose-1-P", "DHAP", "GA3P", "1,3-BPG", "3-PG", "2-PG", "PEP", "Pyruvate"),
     rhamnose = c("Rhamnulose", "Rhamnulose-1-P", "DHAP", "GA3P", "1,3-BPG", "3-PG", "2-PG", "PEP", "Pyruvate")
   )
+}
+
+.dnmb_cct_core_merge_nodes <- function() {
+  c(
+    "Glc-6-P", "Fru-6-P", "Fru-1,6-BP", "DHAP", "GA3P",
+    "1,3-BPG", "3-PG", "2-PG", "PEP", "Pyruvate", "Acetyl-CoA",
+    "6-PGL", "6-PG", "Ru-5-P", "R-5-P", "Xu-5-P", "S-7-P", "E-4-P",
+    "KDPG"
+  )
+}
+
+.dnmb_cct_route_to_first_core_merge <- function(node_ids,
+                                                merge_nodes = .dnmb_cct_core_merge_nodes()) {
+  node_ids <- as.character(node_ids)
+  node_ids <- node_ids[!is.na(node_ids) & nzchar(node_ids)]
+  if (length(node_ids) < 2L || node_ids[1L] %in% merge_nodes) return(NULL)
+  merge_index <- which(node_ids[-1L] %in% merge_nodes)
+  if (!length(merge_index)) return(NULL)
+  node_ids[seq_len(merge_index[1L] + 1L)]
 }
 
 .dnmb_cct_route_group_for_pathway <- function(pathway_id, route_group_members) {
@@ -3815,7 +5649,7 @@
   if (!is.na(et) && et %in% c("Glycerol-3-P", "DHAP", "GA3P")) {
     return(c("Pyruvate", "Acetyl-CoA"))
   }
-  if (pid %in% c("gluconate", "xylose", "arabinose", "ribose")) {
+  if (pid %in% c("gluconate", "xylose", "arabinose", "ribose", "deoxyribose")) {
     return(c("Pyruvate", "GA3P", "Acetyl-CoA"))
   }
   c("Pyruvate", "Acetyl-CoA")
@@ -3832,6 +5666,9 @@
   }
   if (pid %in% c("xylose", "arabinose", "ribose")) {
     return(c("Xu-5-P", "R-5-P", "S-7-P", "E-4-P", "Fru-6-P", "GA3P", "Pyruvate"))
+  }
+  if (pid == "deoxyribose") {
+    return(c("Deoxyribose-5-P", "GA3P", "Acetaldehyde", "Acetate", "Acetyl-CoA", "Pyruvate"))
   }
   c("Glc-6-P", "Fru-6-P", "Fru-1,6-BP", "GA3P", "1,3-BPG", "3-PG", "2-PG", "PEP", "Pyruvate", "Acetyl-CoA")
 }
@@ -3872,14 +5709,19 @@
     node_bonus <- merged_bonus
   }
 
-  candidate_starts <- unique(c(
-    entry_target,
-    graph$from[graph$pathway %in% preferred_paths]
-  ))
+  # The overlay must retain the pathway-specific entry chemistry. Starting at
+  # any low-cost backbone/PPP node can otherwise skip named intermediates (for
+  # example Glucose, Xylulose, or Deoxyribose-5-P).
+  seed_route <- .dnmb_cct_continuity_routes()[[pid]]
+  explicit_start <- if (length(seed_route)) seed_route[1L] else NA_character_
+  candidate_starts <- unique(c(explicit_start, entry_target))
   candidate_starts <- candidate_starts[
     candidate_starts %in% names(node_type) &
       node_type[candidate_starts] %in% c("entry_intermediate", "backbone", "ppp", "ed")
   ]
+  if (!is.na(explicit_start) && explicit_start %in% candidate_starts) {
+    candidate_starts <- explicit_start
+  }
   sink_ids <- sink_ids[sink_ids %in% names(node_type)]
   if (length(candidate_starts) == 0 || length(sink_ids) == 0) return(NULL)
 
@@ -3959,6 +5801,234 @@
   .dnmb_cct_rounded_route_points(pts, radius = max(0.05, safe_radius))
 }
 
+.dnmb_cct_path_obstacle_score <- function(points_df, obstacle_x, obstacle_y,
+                                          clearance = 0.14) {
+  if (is.null(points_df) || nrow(points_df) < 2) return(Inf)
+  obstacles <- data.frame(x = as.numeric(obstacle_x), y = as.numeric(obstacle_y))
+  obstacles <- obstacles[is.finite(obstacles$x) & is.finite(obstacles$y), , drop = FALSE]
+  if (!nrow(obstacles)) {
+    return(sum(sqrt(diff(points_df$x)^2 + diff(points_df$y)^2)))
+  }
+
+  start_dist <- sqrt((obstacles$x - points_df$x[1])^2 +
+                     (obstacles$y - points_df$y[1])^2)
+  end_dist <- sqrt((obstacles$x - points_df$x[nrow(points_df)])^2 +
+                   (obstacles$y - points_df$y[nrow(points_df)])^2)
+  obstacles <- obstacles[
+    start_dist > clearance * 0.85 & end_dist > clearance * 0.85,
+    , drop = FALSE
+  ]
+
+  min_dist <- rep(Inf, nrow(obstacles))
+  if (nrow(obstacles)) {
+    for (i in seq_len(nrow(points_df) - 1L)) {
+      ax <- points_df$x[i]
+      ay <- points_df$y[i]
+      bx <- points_df$x[i + 1L]
+      by <- points_df$y[i + 1L]
+      vx <- bx - ax
+      vy <- by - ay
+      denom <- vx^2 + vy^2
+      if (denom <= 1e-12) next
+      projection <- ((obstacles$x - ax) * vx + (obstacles$y - ay) * vy) / denom
+      projection <- pmin(1, pmax(0, projection))
+      px <- ax + projection * vx
+      py <- ay + projection * vy
+      distance <- sqrt((obstacles$x - px)^2 + (obstacles$y - py)^2)
+      min_dist <- pmin(min_dist, distance)
+    }
+  }
+
+  collision <- min_dist < clearance
+  collision_penalty <- sum(ifelse(
+    collision, 1000 + 250 * (clearance - min_dist), 0
+  ))
+  path_length <- sum(sqrt(diff(points_df$x)^2 + diff(points_df$y)^2))
+  bend_penalty <- 0.04 * max(0, nrow(points_df) - 2L)
+  collision_penalty + path_length + bend_penalty
+}
+
+# Choose an orthogonal hub route that avoids unrelated metabolite nodes.
+.dnmb_cct_safe_pair_route_points <- function(x1, y1, x2, y2, obstacle_x,
+                                             obstacle_y, grid_step = 0.5,
+                                             clearance = 0.14,
+                                             rounded = TRUE) {
+  if (any(!is.finite(c(x1, y1, x2, y2)))) {
+    return(data.frame(x = numeric(), y = numeric()))
+  }
+  clean_candidate <- function(points) {
+    keep <- c(TRUE, diff(points$x) != 0 | diff(points$y) != 0)
+    points[keep, , drop = FALSE]
+  }
+  candidates <- list(
+    clean_candidate(data.frame(x = c(x1, x1, x2), y = c(y1, y2, y2))),
+    clean_candidate(data.frame(x = c(x1, x2, x2), y = c(y1, y1, y2)))
+  )
+  if (abs(x2 - x1) < 0.01 || abs(y2 - y1) < 0.01) {
+    candidates <- c(list(data.frame(x = c(x1, x2), y = c(y1, y2))), candidates)
+  }
+
+  y_direction <- if (y2 < y1) -1 else 1
+  x_direction <- if (x2 < x1) -1 else 1
+  corridor_y <- unique(c(
+    y1 + y_direction * grid_step / 2,
+    y2 - y_direction * grid_step / 2,
+    y1 - y_direction * grid_step / 2,
+    y2 + y_direction * grid_step / 2
+  ))
+  for (cy in corridor_y) {
+    candidates[[length(candidates) + 1L]] <- clean_candidate(data.frame(
+      x = c(x1, x1, x2, x2), y = c(y1, cy, cy, y2)
+    ))
+  }
+  corridor_x <- unique(c(
+    x1 + x_direction * grid_step / 2,
+    x2 - x_direction * grid_step / 2,
+    x1 - x_direction * grid_step / 2,
+    x2 + x_direction * grid_step / 2
+  ))
+  for (cx in corridor_x) {
+    candidates[[length(candidates) + 1L]] <- clean_candidate(data.frame(
+      x = c(x1, cx, cx, x2), y = c(y1, y1, y2, y2)
+    ))
+  }
+
+  scores <- vapply(
+    candidates, .dnmb_cct_path_obstacle_score, numeric(1),
+    obstacle_x = obstacle_x, obstacle_y = obstacle_y, clearance = clearance
+  )
+  best <- candidates[[which.min(scores)]]
+  if (!isTRUE(rounded)) return(best)
+  .dnmb_cct_rounded_route_points(best, radius = min(grid_step * 0.35, clearance * 0.9))
+}
+
+.dnmb_cct_raw_pair_route_points <- function(x1, y1, x2, y2,
+                                            grid_step = 0.5) {
+  if (any(!is.finite(c(x1, y1, x2, y2)))) {
+    return(data.frame(x = numeric(), y = numeric()))
+  }
+  if (abs(x2 - x1) < 0.01 || abs(y2 - y1) < 0.01) {
+    return(data.frame(x = c(x1, x2), y = c(y1, y2)))
+  }
+
+  # Keep a horizontal corridor between two vertical endpoint stems. Lane
+  # offsets can then move the corridor without moving either metabolite node.
+  corridor_y <- .dnmb_cct_snap_to_grid(
+    (y1 + y2) / 2,
+    step = max(0.01, grid_step / 2)
+  )
+  if (abs(corridor_y - y1) < 0.01 || abs(corridor_y - y2) < 0.01) {
+    corridor_y <- (y1 + y2) / 2
+  }
+  data.frame(
+    x = c(x1, x1, x2, x2),
+    y = c(y1, corridor_y, corridor_y, y2)
+  )
+}
+
+.dnmb_cct_route_overlay_edges <- function(node_ids, node_x, node_y,
+                                          grid_step = 0.5) {
+  keep_ids <- node_ids[node_ids %in% names(node_x) & node_ids %in% names(node_y)]
+  if (length(keep_ids) < 2L) return(list())
+  lapply(seq_len(length(keep_ids) - 1L), function(edge_index) {
+    from_id <- keep_ids[edge_index]
+    to_id <- keep_ids[edge_index + 1L]
+    pts <- .dnmb_cct_raw_pair_route_points(
+      x1 = unname(node_x[from_id]), y1 = unname(node_y[from_id]),
+      x2 = unname(node_x[to_id]), y2 = unname(node_y[to_id]),
+      grid_step = grid_step
+    )
+    attr(pts, "from_id") <- from_id
+    attr(pts, "to_id") <- to_id
+    pts
+  })
+}
+
+.dnmb_cct_validate_extracellular_routes <- function(specs, anchors,
+                                                     tolerance = 1e-6) {
+  if (is.null(specs) || !length(specs)) return(list())
+  if (!is.list(specs)) {
+    stop("extracellular route specs must be a list", call. = FALSE)
+  }
+  required_anchor_cols <- c("kind", "id", "x", "y")
+  if (is.null(anchors) || !is.data.frame(anchors) ||
+      !all(required_anchor_cols %in% names(anchors))) {
+    stop(
+      "extracellular anchors require kind, id, x, and y columns",
+      call. = FALSE
+    )
+  }
+  anchors <- as.data.frame(anchors, stringsAsFactors = FALSE, row.names = NULL)
+  anchors$kind <- trimws(as.character(anchors$kind))
+  anchors$id <- trimws(as.character(anchors$id))
+  anchors$x <- suppressWarnings(as.numeric(anchors$x))
+  anchors$y <- suppressWarnings(as.numeric(anchors$y))
+  anchors <- anchors[
+    !is.na(anchors$kind) & nzchar(anchors$kind) &
+      !is.na(anchors$id) & nzchar(anchors$id) &
+      is.finite(anchors$x) & is.finite(anchors$y),
+    , drop = FALSE
+  ]
+  tolerance <- max(0, suppressWarnings(as.numeric(tolerance)[1L]))
+  if (!is.finite(tolerance)) tolerance <- 1e-6
+  axis_tolerance <- max(1e-8, tolerance)
+
+  anchor_for <- function(kind, id) {
+    idx <- which(anchors$kind == kind & anchors$id == id)
+    if (length(idx) != 1L) return(NULL)
+    anchors[idx, , drop = FALSE]
+  }
+  validated <- list()
+  for (spec in specs) {
+    if (!is.list(spec)) next
+    required_spec <- c(
+      "source_kind", "source_id", "target_kind", "target_id", "points"
+    )
+    if (!all(required_spec %in% names(spec))) next
+    source_kind <- trimws(as.character(spec$source_kind)[1L])
+    source_id <- trimws(as.character(spec$source_id)[1L])
+    target_kind <- trimws(as.character(spec$target_kind)[1L])
+    target_id <- trimws(as.character(spec$target_id)[1L])
+    if (any(is.na(c(source_kind, source_id, target_kind, target_id))) ||
+        any(!nzchar(c(source_kind, source_id, target_kind, target_id)))) next
+    source <- anchor_for(source_kind, source_id)
+    target <- anchor_for(target_kind, target_id)
+    if (is.null(source) || is.null(target)) next
+
+    points <- spec$points
+    if (is.null(points) || !is.data.frame(points) || nrow(points) < 2L ||
+        !all(c("x", "y") %in% names(points))) next
+    points <- as.data.frame(points[, c("x", "y"), drop = FALSE])
+    points$x <- suppressWarnings(as.numeric(points$x))
+    points$y <- suppressWarnings(as.numeric(points$y))
+    if (any(!is.finite(points$x)) || any(!is.finite(points$y))) next
+    source_distance <- sqrt(
+      (points$x[1L] - source$x)^2 + (points$y[1L] - source$y)^2
+    )
+    target_distance <- sqrt(
+      (points$x[nrow(points)] - target$x)^2 +
+        (points$y[nrow(points)] - target$y)^2
+    )
+    if (source_distance > tolerance || target_distance > tolerance) next
+
+    points$x[1L] <- source$x
+    points$y[1L] <- source$y
+    points$x[nrow(points)] <- target$x
+    points$y[nrow(points)] <- target$y
+    points <- points[
+      c(TRUE, diff(points$x) != 0 | diff(points$y) != 0),
+      , drop = FALSE
+    ]
+    if (nrow(points) < 2L) next
+    dx <- diff(points$x)
+    dy <- diff(points$y)
+    if (any(abs(dx) > axis_tolerance & abs(dy) > axis_tolerance)) next
+    spec$points <- points
+    validated[[length(validated) + 1L]] <- spec
+  }
+  validated
+}
+
 .dnmb_cct_route_overlay_points <- function(node_ids, node_x, node_y, grid_step = 0.5) {
   keep_ids <- node_ids[node_ids %in% names(node_x) & node_ids %in% names(node_y)]
   if (length(keep_ids) < 2) return(NULL)
@@ -3979,6 +6049,330 @@
   }
   keep <- c(TRUE, diff(out$x) != 0 | diff(out$y) != 0)
   out[keep, , drop = FALSE]
+}
+
+.dnmb_cct_round_orthogonal_route <- function(points_df, radius = 0.04,
+                                             n_arc = 5L,
+                                             axis_tolerance = 1e-8) {
+  if (is.null(points_df) || !is.data.frame(points_df) || nrow(points_df) < 3L) {
+    return(points_df)
+  }
+  pts <- as.data.frame(points_df[, c("x", "y"), drop = FALSE])
+  keep <- is.finite(pts$x) & is.finite(pts$y)
+  pts <- pts[keep, , drop = FALSE]
+  if (nrow(pts) < 3L) return(pts)
+  pts <- pts[c(TRUE, diff(pts$x) != 0 | diff(pts$y) != 0), , drop = FALSE]
+  if (nrow(pts) < 3L || !is.finite(radius) || radius <= 0) return(pts)
+
+  out <- pts[1L, , drop = FALSE]
+  for (i in 2:(nrow(pts) - 1L)) {
+    prev <- c(pts$x[i - 1L], pts$y[i - 1L])
+    corner <- c(pts$x[i], pts$y[i])
+    next_pt <- c(pts$x[i + 1L], pts$y[i + 1L])
+    vin <- corner - prev
+    vout <- next_pt - corner
+    len_in <- sqrt(sum(vin^2))
+    len_out <- sqrt(sum(vout^2))
+    if (len_in <= axis_tolerance || len_out <= axis_tolerance) next
+    uin <- vin / len_in
+    uout <- vout / len_out
+    orthogonal <- abs(sum(uin * uout)) <= axis_tolerance &&
+      ((abs(uin[1]) <= axis_tolerance || abs(uin[2]) <= axis_tolerance) &&
+       (abs(uout[1]) <= axis_tolerance || abs(uout[2]) <= axis_tolerance))
+    if (!orthogonal) {
+      out <- rbind(out, pts[i, , drop = FALSE])
+      next
+    }
+    r_eff <- min(radius, len_in * 0.30, len_out * 0.30)
+    if (!is.finite(r_eff) || r_eff <= axis_tolerance) {
+      out <- rbind(out, pts[i, , drop = FALSE])
+      next
+    }
+    tangent_in <- corner - uin * r_eff
+    arc <- .dnmb_cct_quarter_arc_points(
+      corner = corner, dir_in = uin, dir_out = uout,
+      radius = r_eff, n = max(3L, as.integer(n_arc)[1L])
+    )
+    out <- rbind(
+      out,
+      data.frame(x = tangent_in[1L], y = tangent_in[2L]),
+      arc[-1L, , drop = FALSE]
+    )
+  }
+  out <- rbind(out, pts[nrow(pts), , drop = FALSE])
+  out[c(TRUE, diff(out$x) != 0 | diff(out$y) != 0), , drop = FALSE]
+}
+
+.dnmb_cct_route_lane_assignments <- function(routes, metadata = NULL,
+                                             lane_step = 0.05,
+                                             max_offset = 0.18,
+                                             horizontal_tolerance = 0.01,
+                                             y_tolerance = 0.04,
+                                             min_overlap = 0.18) {
+  if (is.null(routes)) routes <- list()
+  if (!is.list(routes)) stop("route lanes require a list of polylines", call. = FALSE)
+  n_routes <- length(routes)
+  empty <- data.frame(
+    route_index = integer(), route_id = character(), segment_index = integer(),
+    group = character(), priority = numeric(), x_min = numeric(), x_max = numeric(),
+    original_y = numeric(), lane_y = numeric(), offset = numeric(),
+    component = integer(), stringsAsFactors = FALSE
+  )
+  if (!n_routes) return(empty)
+
+  if (is.null(metadata)) metadata <- data.frame(route_id = as.character(seq_len(n_routes)))
+  metadata <- as.data.frame(metadata, stringsAsFactors = FALSE, row.names = NULL)
+  if (nrow(metadata) != n_routes) {
+    stop("route metadata must have one row per polyline", call. = FALSE)
+  }
+  if (!"route_id" %in% names(metadata)) metadata$route_id <- as.character(seq_len(n_routes))
+  if (!"priority" %in% names(metadata)) metadata$priority <- 0
+  if (!"group" %in% names(metadata)) metadata$group <- "route"
+  metadata$route_id <- as.character(metadata$route_id)
+  metadata$group <- as.character(metadata$group)
+  metadata$priority <- suppressWarnings(as.numeric(metadata$priority))
+  metadata$priority[!is.finite(metadata$priority)] <- 0
+  if (anyNA(metadata$route_id) || any(!nzchar(metadata$route_id)) || anyDuplicated(metadata$route_id)) {
+    stop("route_id values must be unique and non-empty", call. = FALSE)
+  }
+
+  segment_rows <- list()
+  for (route_index in seq_len(n_routes)) {
+    pts <- routes[[route_index]]
+    if (is.null(pts) || !is.data.frame(pts) || nrow(pts) < 2L ||
+        !all(c("x", "y") %in% names(pts))) next
+    for (segment_index in seq_len(nrow(pts) - 1L)) {
+      x1 <- suppressWarnings(as.numeric(pts$x[segment_index]))
+      x2 <- suppressWarnings(as.numeric(pts$x[segment_index + 1L]))
+      y1 <- suppressWarnings(as.numeric(pts$y[segment_index]))
+      y2 <- suppressWarnings(as.numeric(pts$y[segment_index + 1L]))
+      if (any(!is.finite(c(x1, x2, y1, y2)))) next
+      if (abs(y2 - y1) > horizontal_tolerance || abs(x2 - x1) < min_overlap) next
+      segment_rows[[length(segment_rows) + 1L]] <- data.frame(
+        route_index = route_index,
+        route_id = metadata$route_id[route_index],
+        segment_index = segment_index,
+        group = metadata$group[route_index],
+        priority = metadata$priority[route_index],
+        x_min = min(x1, x2), x_max = max(x1, x2),
+        original_y = mean(c(y1, y2)),
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+  if (!length(segment_rows)) return(empty)
+  segments <- do.call(rbind, segment_rows)
+  n_segments <- nrow(segments)
+  adjacency <- vector("list", n_segments)
+  for (i in seq_len(n_segments)) adjacency[[i]] <- integer()
+  if (n_segments > 1L) {
+    for (i in seq_len(n_segments - 1L)) {
+      for (j in (i + 1L):n_segments) {
+        if (segments$route_index[i] == segments$route_index[j]) {
+          # Collinear pieces of one uninterrupted run must share a component.
+          # Otherwise different competitors on its left and right can assign
+          # opposite lane ranks and create an artificial H-V-H notch midway.
+          interval_gap <- max(
+            segments$x_min[i], segments$x_min[j]
+          ) - min(segments$x_max[i], segments$x_max[j])
+          contiguous <- interval_gap <= horizontal_tolerance + 1e-12 &&
+            abs(segments$original_y[i] - segments$original_y[j]) <= y_tolerance
+          if (contiguous) {
+            adjacency[[i]] <- c(adjacency[[i]], j)
+            adjacency[[j]] <- c(adjacency[[j]], i)
+          }
+          next
+        }
+        overlap <- min(segments$x_max[i], segments$x_max[j]) -
+          max(segments$x_min[i], segments$x_min[j])
+        if (overlap + 1e-12 < min_overlap ||
+            abs(segments$original_y[i] - segments$original_y[j]) > y_tolerance) next
+        adjacency[[i]] <- c(adjacency[[i]], j)
+        adjacency[[j]] <- c(adjacency[[j]], i)
+      }
+    }
+  }
+
+  component <- integer(n_segments)
+  next_component <- 0L
+  for (seed in seq_len(n_segments)) {
+    if (component[seed] != 0L) next
+    next_component <- next_component + 1L
+    queue <- seed
+    component[seed] <- next_component
+    while (length(queue)) {
+      current <- queue[1L]
+      queue <- queue[-1L]
+      unseen <- adjacency[[current]][component[adjacency[[current]]] == 0L]
+      if (length(unseen)) {
+        component[unseen] <- next_component
+        queue <- c(queue, unseen)
+      }
+    }
+  }
+  segments$component <- component
+  segments$lane_y <- segments$original_y
+  segments$offset <- 0
+
+  lane_step <- max(0, as.numeric(lane_step)[1L])
+  max_offset <- max(0, as.numeric(max_offset)[1L])
+  for (component_id in unique(component)) {
+    idx <- which(component == component_id)
+    route_ids <- unique(segments$route_id[idx])
+    if (length(route_ids) < 2L) next
+    route_rows <- lapply(route_ids, function(route_id) {
+      ridx <- idx[segments$route_id[idx] == route_id]
+      data.frame(
+        route_id = route_id,
+        original_y = stats::median(segments$original_y[ridx]),
+        priority = max(segments$priority[ridx]),
+        group = sort(unique(segments$group[ridx]))[1L],
+        stringsAsFactors = FALSE
+      )
+    })
+    route_rows <- do.call(rbind, route_rows)
+    route_rows <- route_rows[order(
+      route_rows$original_y, -route_rows$priority,
+      route_rows$group, route_rows$route_id
+    ), , drop = FALSE]
+    center_y <- stats::median(route_rows$original_y)
+    half_span <- lane_step * (nrow(route_rows) - 1L) / 2
+    original_span <- max(abs(route_rows$original_y - center_y))
+    allowed_span <- max(0, max_offset - original_span)
+    if (half_span > allowed_span && half_span > 0) {
+      effective_step <- lane_step * allowed_span / half_span
+    } else {
+      effective_step <- lane_step
+    }
+    lane_y <- center_y +
+      (seq_len(nrow(route_rows)) - (nrow(route_rows) + 1) / 2) * effective_step
+    lane_map <- stats::setNames(lane_y, route_rows$route_id)
+    for (route_id in route_rows$route_id) {
+      ridx <- idx[segments$route_id[idx] == route_id]
+      target_y <- unname(lane_map[route_id])
+      shift <- target_y - segments$original_y[ridx]
+      shift <- pmax(-max_offset, pmin(max_offset, shift))
+      segments$offset[ridx] <- shift
+      segments$lane_y[ridx] <- segments$original_y[ridx] + shift
+    }
+  }
+  segments
+}
+
+.dnmb_cct_separate_route_lanes <- function(routes, metadata = NULL,
+                                           lane_step = 0.05,
+                                           max_offset = 0.18,
+                                           horizontal_tolerance = 0.01,
+                                           y_tolerance = 0.04,
+                                           min_overlap = 0.18,
+                                           transition_span = 0.04,
+                                           connection_mode = c("move_internal", "transition"),
+                                           round_radius = 0) {
+  connection_mode <- match.arg(connection_mode)
+  assignments <- .dnmb_cct_route_lane_assignments(
+    routes = routes, metadata = metadata,
+    lane_step = lane_step, max_offset = max_offset,
+    horizontal_tolerance = horizontal_tolerance,
+    y_tolerance = y_tolerance, min_overlap = min_overlap
+  )
+  if (!length(routes) || !nrow(assignments)) {
+    if (length(routes) && round_radius > 0) {
+      routes <- lapply(routes, function(points) {
+        .dnmb_cct_round_orthogonal_route(points, radius = round_radius)
+      })
+    }
+    attr(routes, "lane_assignments") <- assignments
+    return(routes)
+  }
+
+  out <- vector("list", length(routes))
+  for (route_index in seq_along(routes)) {
+    pts <- routes[[route_index]]
+    route_assignments <- assignments[assignments$route_index == route_index, , drop = FALSE]
+    if (!nrow(route_assignments) || is.null(pts) || nrow(pts) < 2L) {
+      out[[route_index]] <- if (round_radius > 0) {
+        .dnmb_cct_round_orthogonal_route(pts, radius = round_radius)
+      } else pts
+      next
+    }
+    offset_map <- stats::setNames(route_assignments$offset, route_assignments$segment_index)
+    lane_y_map <- stats::setNames(route_assignments$lane_y, route_assignments$segment_index)
+
+    if (connection_mode == "move_internal") {
+      adjusted <- as.data.frame(pts[, c("x", "y"), drop = FALSE])
+      proposals <- vector("list", nrow(adjusted))
+      for (segment_index in as.integer(names(lane_y_map))) {
+        if (abs(offset_map[as.character(segment_index)]) <= 1e-12) next
+        target_y <- unname(lane_y_map[as.character(segment_index)])
+        if (segment_index > 1L) {
+          proposals[[segment_index]] <- c(proposals[[segment_index]], target_y)
+        }
+        if (segment_index + 1L < nrow(adjusted)) {
+          proposals[[segment_index + 1L]] <- c(proposals[[segment_index + 1L]], target_y)
+        }
+      }
+      for (vertex in seq_along(proposals)) {
+        if (length(proposals[[vertex]])) adjusted$y[vertex] <- stats::median(proposals[[vertex]])
+      }
+      adjusted$x[1L] <- pts$x[1L]
+      adjusted$y[1L] <- pts$y[1L]
+      adjusted$x[nrow(adjusted)] <- pts$x[nrow(pts)]
+      adjusted$y[nrow(adjusted)] <- pts$y[nrow(pts)]
+
+      # If the separated horizontal corridor starts or ends at a protected
+      # route endpoint, add a vertical stem at that endpoint. This keeps the
+      # endpoint exact without inserting a height-changing notch inside the
+      # horizontal run. Internal elbow vertices are moved directly above.
+      expanded <- adjusted[1L, c("x", "y"), drop = FALSE]
+      for (segment_index in seq_len(nrow(adjusted) - 1L)) {
+        key <- as.character(segment_index)
+        has_lane <- key %in% names(lane_y_map) &&
+          abs(offset_map[key]) > 1e-12 &&
+          abs(pts$y[segment_index + 1L] - pts$y[segment_index]) <= horizontal_tolerance
+        if (has_lane && segment_index == 1L) {
+          expanded <- rbind(expanded, data.frame(
+            x = pts$x[1L], y = unname(lane_y_map[key])
+          ))
+        }
+        if (has_lane && segment_index + 1L == nrow(adjusted)) {
+          expanded <- rbind(expanded, data.frame(
+            x = pts$x[nrow(pts)], y = unname(lane_y_map[key])
+          ))
+        }
+        expanded <- rbind(expanded, adjusted[segment_index + 1L, c("x", "y"), drop = FALSE])
+      }
+      adjusted <- expanded
+      adjusted <- adjusted[c(TRUE, diff(adjusted$x) != 0 | diff(adjusted$y) != 0), , drop = FALSE]
+      out[[route_index]] <- if (round_radius > 0) {
+        .dnmb_cct_round_orthogonal_route(adjusted, radius = round_radius)
+      } else adjusted
+      next
+    }
+
+    adjusted <- pts[1L, c("x", "y"), drop = FALSE]
+    for (segment_index in seq_len(nrow(pts) - 1L)) {
+      p0 <- pts[segment_index, c("x", "y"), drop = FALSE]
+      p1 <- pts[segment_index + 1L, c("x", "y"), drop = FALSE]
+      key <- as.character(segment_index)
+      offset <- if (key %in% names(offset_map)) unname(offset_map[key]) else 0
+      if (!is.finite(offset) || abs(offset) <= 1e-12) {
+        adjusted <- rbind(adjusted, p1)
+        next
+      }
+      dx <- p1$x - p0$x
+      inset <- min(max(0, transition_span), abs(dx) * 0.25)
+      direction <- sign(dx)
+      before <- data.frame(x = p0$x + direction * inset, y = p0$y)
+      lane_before <- data.frame(x = before$x, y = p0$y + offset)
+      lane_after <- data.frame(x = p1$x - direction * inset, y = p1$y + offset)
+      after <- data.frame(x = lane_after$x, y = p1$y)
+      adjusted <- rbind(adjusted, before, lane_before, lane_after, after, p1)
+    }
+    adjusted <- adjusted[c(TRUE, diff(adjusted$x) != 0 | diff(adjusted$y) != 0), , drop = FALSE]
+    out[[route_index]] <- adjusted
+  }
+  attr(out, "lane_assignments") <- assignments
+  out
 }
 
 .dnmb_cct_extra_preferred_lane <- function(substrate_id, extra_chains = NULL) {
@@ -4134,7 +6528,9 @@
 }
 
 .dnmb_cct_extra_product_exit_x <- function(chain, chain_x, product_sugar,
-                                           branches = NULL, sym_size = 0.075, gap = 0.02,
+                                           branches = NULL,
+                                           sym_size = .dnmb_cct_sugar_icon_radius(),
+                                           gap = 0.02,
                                            target_x = NA_real_) {
   if (is.null(chain)) chain <- character(0)
   step <- sym_size * 2 + gap
@@ -4278,15 +6674,18 @@
   min_gap + extra
 }
 
-.dnmb_cct_extra_chain_step <- function(sym_size = 0.075, gap = 0.18) {
+.dnmb_cct_extra_chain_step <- function(
+    sym_size = .dnmb_cct_sugar_icon_radius(), gap = 0.18) {
   sym_size * 2 + gap
 }
 
-.dnmb_cct_extra_chain_node_x <- function(chain_x, pos, sym_size = 0.075, gap = 0.18) {
+.dnmb_cct_extra_chain_node_x <- function(
+    chain_x, pos, sym_size = .dnmb_cct_sugar_icon_radius(), gap = 0.18) {
   chain_x + (as.numeric(pos)[1] - 1) * .dnmb_cct_extra_chain_step(sym_size = sym_size, gap = gap)
 }
 
-.dnmb_cct_extra_route_trim <- function(sym_size = 0.075) {
+.dnmb_cct_extra_route_trim <- function(
+    sym_size = .dnmb_cct_sugar_icon_radius()) {
   max(0.06, sym_size * 1.05)
 }
 
@@ -4392,7 +6791,7 @@
 
 .dnmb_cct_extra_layout <- function(extra_substrates, extra_chains, sugar_lane_x,
                                    row_y_map, extra_branches = NULL, cascades = NULL,
-                                   sym_size = 0.075,
+                                   sym_size = .dnmb_cct_sugar_icon_radius(),
                                    gap = 0.02, min_gap = 0.35) {
   step <- sym_size * 2 + gap
   extra_df <- extra_substrates
@@ -4525,7 +6924,9 @@
 #' @return List of ggplot2 layers
 #' @keywords internal
 .dnmb_draw_sugar_chain_v2 <- function(x_start, y, monomers, bonds = NULL,
-                                   size = 0.075, gap = 0.18, show_label = TRUE) {
+                                   size = .dnmb_cct_sugar_icon_radius(),
+                                   gap = 0.18, show_label = TRUE,
+                                   show_bond_label = TRUE) {
 
   n_mono <- length(monomers)
   if (n_mono == 0L) return(list())
@@ -4569,17 +6970,19 @@
       # Bond notation: compact label at midpoint above the linkage line
       mid_x <- (seg_x1 + seg_x2) / 2
       bond_label <- if (length(pos_parts) >= 2L) {
-        paste0(anom_sym, pos_parts[1L], "\u2013", pos_parts[2L])
+        paste0(anom_sym, pos_parts[1L], "-", pos_parts[2L])
       } else {
         paste0(anom_sym, pos_parts[1L])
       }
-      layers[[length(layers) + 1L]] <- ggplot2::geom_text(
-        data    = data.frame(x = mid_x, y = y + size * 2.0,
-                             label = bond_label),
-        mapping = ggplot2::aes(x = .data[["x"]], y = .data[["y"]],
-                               label = .data[["label"]]),
-        size = 1.2, color = "#888888", hjust = 0.5, inherit.aes = FALSE
-      )
+      if (isTRUE(show_bond_label)) {
+        layers[[length(layers) + 1L]] <- ggplot2::geom_text(
+          data    = data.frame(x = mid_x, y = y + size * 2.0,
+                               label = bond_label),
+          mapping = ggplot2::aes(x = .data[["x"]], y = .data[["y"]],
+                                 label = .data[["label"]]),
+          size = 1.2, color = "#888888", hjust = 0.5, inherit.aes = FALSE
+        )
+      }
 
       # alpha-1,6 gets a small vertical branch stub
       if (bonds[i] == "alpha-1,6") {
@@ -4685,54 +7088,80 @@
 # Scissors grob for GH cleavage marks
 # ---------------------------------------------------------------------------
 
-#' Draw scissors symbol (two crossed blades) for GH cleavage
-#' @param x,y Position of the scissors
-#' @param size Scale factor
-#' @param angle Rotation angle in degrees (0 = horizontal cut)
-#' @return List of ggplot2 layers (two curved blade segments + pivot)
+#' Compute the geometry for the GH-cleavage scissors glyph
+#' @keywords internal
+.dnmb_scissors_geometry_v2 <- function(x, y, size = 0.12, angle = 0) {
+  d <- max(0.001, as.numeric(size)[1])
+  rad <- as.numeric(angle)[1] * pi / 180
+  rotate <- function(dx, dy) {
+    data.frame(
+      x = x + dx * cos(rad) - dy * sin(rad),
+      y = y + dx * sin(rad) + dy * cos(rad)
+    )
+  }
+
+  handles <- rotate(c(-0.78, -0.78) * d, c(0.42, -0.42) * d)
+  handles$group <- c("upper", "lower")
+  pivot <- rotate(0, 0)
+  tips <- rotate(c(1.12, 1.12) * d, c(-0.42, 0.42) * d)
+  tips$group <- c("lower", "upper")
+
+  shanks <- data.frame(
+    x = handles$x, y = handles$y,
+    xend = pivot$x, yend = pivot$y,
+    group = handles$group
+  )
+  blades <- data.frame(
+    x = pivot$x, y = pivot$y,
+    xend = tips$x, yend = tips$y,
+    group = tips$group
+  )
+  list(
+    handles = handles,
+    pivot = pivot,
+    tips = tips,
+    shanks = shanks,
+    blades = blades,
+    handle_radius = 0.27 * d,
+    pivot_radius = 0.12 * d
+  )
+}
+
+#' Draw a foreground scissors symbol for GH cleavage
+#' @param x,y Position of the pivot
+#' @param size Scale factor in plot coordinates
+#' @param angle Rotation angle in degrees
+#' @return List of ggplot2 layers
 #' @keywords internal
 .dnmb_scissors_grob_v2 <- function(x, y, size = 0.12, angle = 0) {
-  d <- size
-  rad <- angle * pi / 180
-  # Two blade lines crossing at (x, y)
-  # Blade 1: top-left to bottom-right
-  b1 <- data.frame(
-    x    = x + d * cos(rad + pi * 0.75),
-    xend = x + d * cos(rad - pi * 0.25),
-    y    = y + d * sin(rad + pi * 0.75),
-    yend = y + d * sin(rad - pi * 0.25)
-  )
-  # Blade 2: bottom-left to top-right
-  b2 <- data.frame(
-    x    = x + d * cos(rad + pi * 1.25),
-    xend = x + d * cos(rad + pi * 0.25),
-    y    = y + d * sin(rad + pi * 1.25),
-    yend = y + d * sin(rad + pi * 0.25)
-  )
-  # Handle rings (small circles at blade ends)
-  r <- size * 0.3
-  ring1 <- .dnmb_snfg_polygon_coords_v2("circle", b1$x, b1$y, r)
-  ring2 <- .dnmb_snfg_polygon_coords_v2("circle", b2$x, b2$y, r)
-  ring1$group <- "r1"; ring2$group <- "r2"
+  geom <- .dnmb_scissors_geometry_v2(x, y, size = size, angle = angle)
+  all_segments <- rbind(geom$shanks, geom$blades)
 
-  list(
+  layers <- list(
     ggplot2::geom_segment(
-      data = b1, mapping = ggplot2::aes(x = .data[["x"]], xend = .data[["xend"]],
-                                         y = .data[["y"]], yend = .data[["yend"]]),
-      linewidth = 0.7, color = "#ED1C24", inherit.aes = FALSE),
+      data = all_segments,
+      ggplot2::aes(x = .data$x, y = .data$y, xend = .data$xend, yend = .data$yend),
+      linewidth = 1.25, color = "#FFFFFF", lineend = "round", inherit.aes = FALSE),
     ggplot2::geom_segment(
-      data = b2, mapping = ggplot2::aes(x = .data[["x"]], xend = .data[["xend"]],
-                                         y = .data[["y"]], yend = .data[["yend"]]),
-      linewidth = 0.7, color = "#ED1C24", inherit.aes = FALSE),
-    ggplot2::geom_polygon(
-      data = ring1, mapping = ggplot2::aes(x = .data[["x"]], y = .data[["y"]],
-                                            group = .data[["group"]]),
-      fill = NA, color = "#ED1C24", linewidth = 0.4, inherit.aes = FALSE),
-    ggplot2::geom_polygon(
-      data = ring2, mapping = ggplot2::aes(x = .data[["x"]], y = .data[["y"]],
-                                            group = .data[["group"]]),
-      fill = NA, color = "#ED1C24", linewidth = 0.8, inherit.aes = FALSE)
+      data = geom$blades,
+      ggplot2::aes(x = .data$x, y = .data$y, xend = .data$xend, yend = .data$yend),
+      linewidth = 0.62, color = "#687078", lineend = "round", inherit.aes = FALSE),
+    ggplot2::geom_segment(
+      data = geom$shanks,
+      ggplot2::aes(x = .data$x, y = .data$y, xend = .data$xend, yend = .data$yend),
+      linewidth = 0.62, color = "#C62828", lineend = "round", inherit.aes = FALSE)
   )
+  for (i in seq_len(nrow(geom$handles))) {
+    layers[[length(layers) + 1L]] <- .dnmb_native_circle_layer_v2(
+      geom$handles$x[i], geom$handles$y[i], radius = geom$handle_radius,
+      fill = "#FFFFFF", color = "#C62828", linewidth = 0.42
+    )
+  }
+  layers[[length(layers) + 1L]] <- .dnmb_native_circle_layer_v2(
+    geom$pivot$x, geom$pivot$y, radius = geom$pivot_radius,
+    fill = "#FFFFFF", color = "#7F1D1D", linewidth = 0.38
+  )
+  layers
 }
 
 # ---------------------------------------------------------------------------
@@ -4743,15 +7172,26 @@
 #' @keywords internal
 .dnmb_cct_3zone_extract_gh <- function(genbank_table) {
   tbl <- base::as.data.frame(genbank_table, stringsAsFactors = FALSE, row.names = NULL)
-  family_col <- .dnmb_pick_column(tbl, c("dbCAN_family_id", "family_id"))
-  if (is.null(family_col)) return(NULL)
-  tbl <- tbl[!is.na(tbl[[family_col]]) & nzchar(tbl[[family_col]]), , drop = FALSE]
-  if (!nrow(tbl)) return(NULL)
-  tbl$family <- as.character(tbl[[family_col]])
-  # Keep only GH families
+  family_cols <- intersect(
+    c("dbCAN_dbcan_all_families", "dbCAN_dbcan_hit", "dbCAN_family_id", "family_id"),
+    names(tbl)
+  )
+  if (!length(family_cols) || !nrow(tbl)) return(NULL)
 
-  gh <- tbl[grepl("^GH", tbl$family), , drop = FALSE]
-  if (!nrow(gh)) return(NULL)
+  gh_by_row <- lapply(seq_len(nrow(tbl)), function(i) {
+    families <- character()
+    for (column in family_cols) {
+      families <- .dnmb_dbcan_family_tokens(tbl[[column]][i])
+      if (length(families)) break
+    }
+    families[grepl("^GH", families)]
+  })
+  keep <- lengths(gh_by_row) > 0L
+  if (!any(keep)) return(NULL)
+
+  row_index <- rep(which(keep), lengths(gh_by_row[keep]))
+  gh <- tbl[row_index, , drop = FALSE]
+  gh$family <- unlist(gh_by_row[keep], use.names = FALSE)
   lt_col <- .dnmb_pick_column(gh, c("locus_tag", "old_locus_tag"))
   gn_col <- .dnmb_pick_column(gh, c("gene", "gene_name"))
   data.frame(
@@ -4799,7 +7239,7 @@
   if (path_col %in% names(tbl)) {
     tbl2 <- tbl[!is.na(tbl[[path_col]]) & nzchar(tbl[[path_col]]), , drop = FALSE]
     if (nrow(tbl2) > 0) {
-      is_t <- grepl("transport|PTS|permease|ABC|SBP|MFS|EIICB|IIBC|EIIBC|EIIA|crr|porter|uptake", tbl2[[step_col]], ignore.case = TRUE) |
+      is_t <- grepl("transport|PTS|permease|ABC|SBP|MFS|EIICB|IIBC|EIIBC|EIIA|crr|porter|uptake|\\bdeoP\\b", tbl2[[step_col]], ignore.case = TRUE) |
               grepl("transport", tbl2[[path_col]], ignore.case = TRUE) |
               grepl("^pts[A-Z]|^mal[EF]IICB|^fru[A-Z]*-ABC", tbl2[[step_col]], ignore.case = FALSE)
       trans <- tbl2[is_t, , drop = FALSE]
@@ -4827,7 +7267,7 @@
       if (file.exists(f)) {
         st <- utils::read.delim(f, stringsAsFactors = FALSE, row.names = NULL)
         if (all(c("pathway","step","locusId") %in% names(st))) {
-          is_t <- grepl("transport|PTS|pts|permease|ABC|SBP|MFS", st$step, ignore.case = TRUE)
+          is_t <- grepl("transport|PTS|pts|permease|ABC|SBP|MFS|\\bdeoP\\b", st$step, ignore.case = TRUE)
           has_l <- !is.na(st$locusId) & nzchar(st$locusId)
           ts <- st[is_t & has_l, , drop = FALSE]
           ts <- ts[!duplicated(ts$locusId), , drop = FALSE]
@@ -5131,7 +7571,7 @@
   all_cs <- c("Maltose","Cellobiose","Galactose","Trehalose","Lactose",
               "Mannose","NAG","Glucosamine","Fructose","Sucrose",
               "Mannitol","Glycerol","Xylose","Arabinose","Ribose",
-              "Fucose","Rhamnose","Gluconate")
+              "Deoxyribose","Fucose","Rhamnose","Gluconate")
   # Family base positions: compact around backbone (bx=10)
   #   Glc family left of backbone, Fru/Man right, PPP/Xyl further right
   fam_cs_base <- c(Glc=7, GlcNAc=8, Gal=9, Fru=11, Man=12, Xyl=13.5, Other=15)
@@ -5144,14 +7584,15 @@
       fam_cs_base["Gal"]+dx_cs, fam_cs_base["Man"], fam_cs_base["GlcNAc"], fam_cs_base["GlcNAc"]+dx_cs,
       fam_cs_base["Fru"], fam_cs_base["Fru"]+dx_cs, fam_cs_base["Man"]+dx_cs, fam_cs_base["Other"],
       fam_cs_base["Xyl"], fam_cs_base["Xyl"]+dx_cs, fam_cs_base["Xyl"]+2*dx_cs,
-      fam_cs_base["Other"]+dx_cs, fam_cs_base["Other"]+2*dx_cs, fam_cs_base["Other"]+3*dx_cs)
+      fam_cs_base["Other"]+dx_cs, fam_cs_base["Other"]+2*dx_cs,
+      fam_cs_base["Other"]+3*dx_cs, fam_cs_base["Other"]+4*dx_cs)
     cs_xs <- stats::setNames(cs_xs_default, all_cs)
   }
   cs_map <- cs_xs
 
   # Backbone top y -- just below membrane
-  by <- 7.5  # Glucose starts here
-  cs_y <- by + 0.5  # carbon source row y
+  by <- 7.2  # shift the upper cytoplasmic grid below the membrane gutter
+  cs_y <- by + 0.45
 
   # ---- Backbone centered, entries at their family x ----
   bx <- 10.0                   # Glycolysis backbone at center x
@@ -5171,7 +7612,7 @@
     Fru = compact_anchor(c("Fructose", "Sucrose"), bx, fallback = fam_cs_base["Fru"], pull_left = 0.40, pull_right = 0.40),
     Man = compact_anchor(c("Mannose", "Mannitol"), bx, fallback = fam_cs_base["Man"], pull_left = 0.45, pull_right = 0.40),
     Xyl = compact_anchor(c("Xylose", "Arabinose", "Ribose"), px, fallback = fam_cs_base["Xyl"], pull_left = 0.35, pull_right = 0.40),
-    Other = compact_anchor(c("Glycerol", "Fucose", "Rhamnose", "Gluconate"), bx + 2.0, fallback = fam_cs_base["Other"], pull_left = 0.35, pull_right = 0.45)
+    Other = compact_anchor(c("Glycerol", "Deoxyribose", "Fucose", "Rhamnose", "Gluconate"), bx + 2.0, fallback = fam_cs_base["Other"], pull_left = 0.35, pull_right = 0.45)
   )
   xyl_lane <- .dnmb_cct_snap_to_grid(fam_cs["Xyl"], step = 0.5)
   arab_lane <- .dnmb_cct_snap_to_grid(fam_cs["Xyl"] + dx_cs, step = 0.5)
@@ -5255,6 +7696,8 @@
     n("Xylulose",     csx("Xylose", xyl_lane),           7.0, "Xylulose",    "entry_intermediate", "xylose"),
     n("Ribulose",     csx("Arabinose", arab_lane),        7.0, "Ribulose",   "entry_intermediate", "arabinose"),
     n("Ribulose-5-P", csx("Arabinose", arab_lane),        6.5, "Ribu-5-P",   "entry_intermediate", "arabinose"),
+    n("Deoxyribose-5-P", csx("Deoxyribose", fam_cs["Other"]), 7.0,
+      "dRibose-5-P", "entry_intermediate", "deoxyribose"),
     n("Fuculose",     csx("Fucose", fam_cs["Other"]),     7.0, "Fuculose",    "entry_intermediate", "fucose"),
     n("Fuculose-1-P", csx("Fucose", fam_cs["Other"]),     6.5, "Fuc-1-P",    "entry_intermediate", "fucose"),
     n("Rhamnulose",    csx("Rhamnose", fam_cs["Other"]+dx_cs), 7.0, "Rhamnulose","entry_intermediate", "rhamnose"),
@@ -5359,6 +7802,8 @@
     e("Xylulose", "Xu-5-P", "xylan", 0.10),      # xylA/xylB
     e("Ribulose", "Ribulose-5-P", "xylan", -0.10), # araA / araB
     e("Ribulose-5-P", "Xu-5-P", "xylan", -0.10),   # araD
+    e("Deoxyribose-5-P", "GA3P", "deoxyribose", -0.12), # deoC product 1
+    e("Deoxyribose-5-P", "Acetaldehyde", "deoxyribose", 0.12), # deoC product 2
     e("Fuculose", "Fuculose-1-P", "fucose", -0.10), # fucI / fucK
     e("Fuculose-1-P", "DHAP", "fucose", -0.15),  # fucI/fucK
     e("Rhamnulose", "Rhamnulose-1-P", "rhamnose"),
@@ -5378,6 +7823,11 @@
     e("Acetyl-P", "Acetate", "pyruvate_branch"),    # ackA
     e("Acetyl-CoA", "Acetaldehyde", "pyruvate_branch"), # aldh
     e("Acetaldehyde", "Ethanol", "pyruvate_branch"),    # adh
+    e("Acetaldehyde", "Acetate", "deoxyribose"),        # deoxyribose adh
+    e("Acetate", "Acetyl-P", "deoxyribose"),            # deoxyribose ackA
+    e("Acetyl-P", "Acetyl-CoA", "deoxyribose"),         # deoxyribose pta
+    e("Acetate", "Acetyl-CoA", "deoxyribose"),          # deoxyribose acs
+    e("Acetaldehyde", "Acetyl-CoA", "deoxyribose"),     # deoxyribose ald-dh-CoA
 
     # Anaplerotic reactions
     e("PEP", "OAA", "backbone", -0.2),              # ppc: PEP carboxylase (anaplerosis)
@@ -5411,6 +7861,7 @@
     e("Xylose", "Xylulose", "xylan"),
     e("Arabinose", "Ribulose", "xylan", -0.15),
     e("Ribose", "R-5-P", "pentose"),
+    e("Deoxyribose", "Deoxyribose-5-P", "deoxyribose"),
     e("Fucose", "Fuculose", "fucose", -0.2),
     e("Rhamnose", "Rhamnulose", "rhamnose", -0.2),
     e("Gluconate", "6-PG", "gluconate", -0.15)
@@ -5446,13 +7897,18 @@
   if (is.null(nodes) || nrow(nodes) < 2) return(nodes)
   # TCA nodes use exact circle positions — exempt from grid snapping
   is_tca <- nodes$type == "tca"
+  is_carbon_source <- nodes$type == "carbon_source"
   tca_save_x <- nodes$x[is_tca]
   tca_save_y <- nodes$y[is_tca]
+  carbon_source_x <- nodes$x[is_carbon_source]
   nodes$x <- .dnmb_cct_snap_to_grid(nodes$x, step = step)
   nodes$y <- .dnmb_cct_snap_to_grid(nodes$y, step = step)
   # Restore TCA exact positions
   nodes$x[is_tca] <- tca_save_x
   nodes$y[is_tca] <- tca_save_y
+  # Carbon-source lanes are optimized on a 0.25-unit lattice.  Preserve that
+  # spacing so a source is not snapped onto a neighboring pathway's chain.
+  nodes$x[is_carbon_source] <- carbon_source_x
 
   # Priority: backbone > ppp > tca > ed > entry_intermediate > carbon_source
   type_priority <- c(backbone = 6, ppp = 5, tca = 4, ed = 3,
@@ -5541,6 +7997,7 @@
     Xylose = "pentose",
     Arabinose = "pentose",
     Ribose = "pentose",
+    Deoxyribose = "deoxy",
     Fucose = "deoxy",
     Rhamnose = "deoxy",
     Gluconate = "gluconate",
@@ -5810,6 +8267,7 @@
     sucrose   = "#A8D08D",    # light green
     xylan     = "#F69EA1",    # pink (Xylose/Arabinose)
     pentose   = "#F69EA1",    # pink
+    deoxyribose = "#8C6BB1",  # muted violet
     fucose    = "#ED1C24",    # red
     gluconate = "#6BAED6",    # light blue
     glycerol  = "#3182BD",    # medium blue
@@ -5833,7 +8291,7 @@
 .dnmb_cct_pul_substrate_to_cs <- function() {
   c(
     starch = "Maltose", cellulose = "Cellobiose", xylan = "Xylose",
-    chitin = "NAG", pectin = "Gluconate", mannan = "Mannose",
+    chitin = "NAG", mannan = "Mannose",
     inulin = "Fructose", fructan = "Fructose", sucrose = "Sucrose",
     "beta-glucan" = "Cellobiose", "beta-mannan" = "Mannose",
     arabinan = "Arabinose", galactan = "Galactose",
@@ -5846,7 +8304,7 @@
     agarose = "Galactose",
     agar = "Galactose", carrageenan = "Galactose",
     cellobiose = "Cellobiose", mannose = "Mannose",
-    fructose = "Fructose", glucose = "Maltose",
+    fructose = "Fructose", glucose = "Glucose",
     galactose = "Galactose", ribose = "Ribose",
     glycerol = "Glycerol", gluconate = "Gluconate"
   )
@@ -5948,12 +8406,13 @@
     NAG         = "^(nagA|nagB|nagC|nagK|gamA|nag1|nag2)",
     Glucosamine = "^(nagB|gamA|glmS|glmM)",
     Fructose    = "^(fruK|fruA|fruB|scrK|1pfk)",
-    Sucrose     = "^(sacA|scrB|sacB|sacC|inv[ABCD]|sucA)",
+    Sucrose     = "^(sacA|scrB|sacB|sacC|inv[ABCD])",
     Mannitol    = "^(mtlD|mtlK|mtlA)",
     Glycerol    = "^(glpK|glpD|glpA|glpB|glpC|dhaK|dhaL|dhaM)",
     Xylose      = "^(xylA|xylB|xylR)",
     Arabinose   = "^(araA|araB|araD|araR)",
     Ribose      = "^(rbsK|rbsR|rbsD)",
+    Deoxyribose = "^(deoK|deoC)",
     Fucose      = "^(fucI|fucK|fucA|fucO|fucR)",
     Rhamnose    = "^(rhaA|rhaB|rhaD|rhaR|rhaS)",
     Gluconate   = "^(gntK|gntR|gntU|gntT|gnd|edd|eda|kdgK|kduD)",
@@ -5982,6 +8441,7 @@
     Xylose      = "xylose isomerase|xylulokinase",
     Arabinose   = "L-arabinose isomerase|ribulokinase|L-ribulose",
     Ribose      = "ribokinase|ribose-5-phosphate",
+    Deoxyribose = "deoxyribose kinase|deoxyribose-5-phosphate|deoxyribose-phosphate aldolase",
     Fucose      = "L-fucose isomerase|L-fuculose|fuculokinase",
     Rhamnose    = "L-rhamnose isomerase|rhamnulokinase|L-rhamnulose",
     Gluconate   = "gluconate kinase|gluconokinase|Entner-Doudoroff|KDG|KDPG",
@@ -6007,6 +8467,7 @@
     Sucrose     = "^3\\.2\\.1\\.26$|^2\\.4\\.1\\.7$",                    # invertase, sucrose phosphorylase
     Xylose      = "^5\\.3\\.1\\.5$",                                      # xylose isomerase
     Arabinose   = "^5\\.3\\.1\\.4$|^2\\.7\\.1\\.16$",                    # araA, araB
+    Deoxyribose = "^2\\.7\\.1\\.15$|^4\\.1\\.2\\.4$",                    # deoK, deoC
     Fucose      = "^5\\.3\\.1\\.25$|^2\\.7\\.1\\.51$",                   # fucI, fucK
     Rhamnose    = "^5\\.3\\.1\\.14$|^2\\.7\\.1\\.5$",                    # rhaA, rhaB
     Gluconate   = "^2\\.7\\.1\\.12$|^4\\.2\\.1\\.12$|^4\\.1\\.2\\.14$"  # gntK, edd, eda
@@ -6024,6 +8485,531 @@
   unique(evidence_cs)
 }
 
+# Conservative annotation scan for the central-carbon reactions that are not
+# assessed by GapMindCarbon's substrate-utilization paths.  A strong hit needs
+# agreement between at least two independent annotation axes (gene name,
+# product, EC, or KO); single exact gene/EC/KO matches remain partial evidence.
+.dnmb_cct_core_metabolism_evidence <- function(genbank_table) {
+  if (is.list(genbank_table) && !is.data.frame(genbank_table) &&
+      "features" %in% names(genbank_table)) {
+    genbank_table <- genbank_table$features
+  }
+  tbl <- base::as.data.frame(genbank_table, stringsAsFactors = FALSE, row.names = NULL)
+
+  empty_hits <- data.frame(
+    reaction_id = character(), pathway = character(), component = character(),
+    component_required = logical(), locus_tag = character(), gene_name = character(),
+    product = character(), evidence_level = character(), evidence_axes = character(),
+    stringsAsFactors = FALSE
+  )
+
+  component <- function(name, required = TRUE, genes = character(),
+                        products = character(), ecs = character(), kos = character(),
+                        exclude_genes = character(), exclude_products = character(),
+                        exclude_kos = character(), allow_cs_ambiguity = FALSE) {
+    list(
+      name = name, required = required, genes = genes, products = products,
+      ecs = ecs, kos = kos, exclude_genes = exclude_genes,
+      exclude_products = exclude_products, exclude_kos = exclude_kos,
+      allow_cs_ambiguity = allow_cs_ambiguity
+    )
+  }
+
+  catalog <- list(
+    list(id = "C01", pathway = "TCA cycle", from = "OAA", to = "Citrate",
+         label = "Citrate synthase", mode = "all", components = list(
+           component(
+             "CS", genes = c("gltA", "citZ"),
+             products = c("citrate synthase"), ecs = "2.3.3.1", kos = "K01647",
+             exclude_genes = c("prpC", "mmgD", "cimA", "leuA"),
+             exclude_products = c("methylcitrate", "2-methylcitrate", "citramalate",
+                                  "homocitrate", "isopropylmalate"),
+             exclude_kos = "K01659", allow_cs_ambiguity = TRUE
+           )
+         )),
+    list(id = "C02", pathway = "TCA cycle", from = "Citrate", to = "Isocit",
+         label = "Aconitate hydratase", mode = "all", components = list(
+           component(
+             "ACN", genes = c("acn", "acnA", "acnB", "citB"),
+             products = c("aconitate hydratase", "aconitase"),
+             ecs = "4.2.1.3", kos = c("K01681", "K01682"),
+             exclude_genes = c("prpD", "leuC", "leuD"),
+             exclude_products = c("methylcitrate", "isopropylmalate", "homoaconitate")
+           )
+         )),
+    list(id = "C03", pathway = "TCA cycle", from = "Isocit", to = "AKG",
+         label = "Isocitrate dehydrogenase", mode = "all", components = list(
+           component(
+             "ICD", genes = c("icd", "icdA", "icdB", "idh", "idhA", "idp"),
+             products = c("isocitrate dehydrogenase"),
+             ecs = c("1.1.1.41", "1.1.1.42"), kos = c("K00030", "K00031"),
+             exclude_genes = c("leuB"),
+             exclude_products = c("isopropylmalate", "isocitrate/isopropylmalate")
+           )
+         )),
+    list(id = "C04", pathway = "TCA cycle", from = "AKG", to = "SucCoA",
+         label = "2-Oxoglutarate DH E1/E2", mode = "all", components = list(
+           component(
+             "E1", genes = c("sucA", "odhA", "ogdh"),
+             products = c("2-oxoglutarate dehydrogenase.*E1",
+                          "alpha-ketoglutarate dehydrogenase.*E1"),
+             ecs = "1.2.4.2", kos = "K00164",
+             exclude_genes = c("pdhA", "bkdA"),
+             exclude_products = c("pyruvate dehydrogenase", "branched-chain.*dehydrogenase")
+           ),
+           component(
+             "E2", genes = c("sucB", "odhB"),
+             products = c("dihydrolipo.*succinyltransferase",
+                          "2-oxoglutarate dehydrogenase.*E2"),
+             ecs = "2.3.1.61", kos = "K00658",
+             exclude_genes = c("pdhC", "bkdB"),
+             exclude_products = c("pyruvate dehydrogenase", "branched-chain.*dehydrogenase")
+           )
+         )),
+    list(id = "C05", pathway = "TCA cycle", from = "SucCoA", to = "Succinate",
+         label = "Succinate-CoA ligase alpha/beta", mode = "all", components = list(
+           component(
+             "alpha", genes = "sucD", products = c("succinate--CoA ligase.*alpha",
+                                                    "succinyl-CoA synthetase.*alpha"),
+             ecs = c("6.2.1.4", "6.2.1.5"), kos = "K01902"
+           ),
+           component(
+             "beta", genes = "sucC", products = c("succinate--CoA ligase.*beta",
+                                                   "succinyl-CoA synthetase.*beta"),
+             ecs = c("6.2.1.4", "6.2.1.5"), kos = "K01903"
+           )
+         )),
+    list(id = "C06", pathway = "TCA cycle", from = "Succinate", to = "Fumarate",
+         label = "Succinate dehydrogenase A/B", mode = "all", components = list(
+           component(
+             "A", genes = "sdhA", products = "succinate dehydrogenase.*flavoprotein",
+             ecs = "1.3.5.1", kos = "K00239",
+             exclude_genes = "frdA", exclude_products = "fumarate reductase"
+           ),
+           component(
+             "B", genes = "sdhB", products = "succinate dehydrogenase.*iron-sulfur",
+             ecs = "1.3.5.1", kos = "K00240",
+             exclude_genes = "frdB", exclude_products = "fumarate reductase"
+           ),
+           component(
+             "membrane", genes = c("sdhC", "sdhD"),
+             products = c("succinate dehydrogenase.*cytochrome",
+                          "succinate dehydrogenase.*membrane"),
+             ecs = "1.3.5.1", kos = c("K00241", "K00242"),
+             exclude_genes = c("frdC", "frdD"), exclude_products = "fumarate reductase"
+           ),
+           component(
+             "FRD alternative", required = FALSE,
+             genes = c("frdA", "frdB", "frdC", "frdD"),
+             products = "fumarate reductase", ecs = "1.3.5.4",
+             kos = c("K00244", "K00245", "K00246", "K00247")
+           )
+         )),
+    list(id = "C07", pathway = "TCA cycle", from = "Fumarate", to = "Malate",
+         label = "Fumarate hydratase", mode = "all", components = list(
+           component(
+             "FUM", genes = c("fum", "fumA", "fumB", "fumC"),
+             products = c("fumarate hydratase", "fumarase"),
+             ecs = "4.2.1.2", kos = c("K01676", "K01677", "K01678"),
+             exclude_products = c("fumarylacetoacetate hydrolase", "fumarate reductase",
+                                  "tartrate hydratase")
+           )
+         )),
+    list(id = "C08", pathway = "TCA cycle", from = "Malate", to = "OAA",
+         label = "Malate DH / Mqo", mode = "any", components = list(
+           component(
+             "MDH", genes = "mdh", products = "malate dehydrogenase",
+             ecs = "1.1.1.37", kos = "K00024",
+             exclude_products = c("lactate dehydrogenase", "malic enzyme",
+                                  "isopropylmalate", "methylmalonate-semialdehyde")
+           ),
+           component(
+             "Mqo", genes = c("mqo", "mqoA"),
+             products = c("malate dehydrogenase \\(quinone\\)",
+                          "malate:quinone oxidoreductase", "malate quinone oxidoreductase"),
+             ecs = "1.1.5.4", kos = "K00116",
+             exclude_products = c("lactate dehydrogenase", "malic enzyme")
+           )
+         )),
+    list(id = "C09", pathway = "Glyoxylate shunt", from = "Isocit", to = "Glyoxylate",
+         label = "Isocitrate lyase", mode = "all", components = list(
+           component(
+             "ICL", genes = "aceA", products = "isocitrate lyase",
+             ecs = "4.1.3.1", kos = "K01637",
+             exclude_genes = "prpB", exclude_products = "methylisocitrate lyase",
+             exclude_kos = "K03417"
+           )
+         )),
+    list(id = "C10", pathway = "Glyoxylate shunt", from = "Glyoxylate", to = "Malate",
+         label = "Malate synthase", mode = "all", components = list(
+           component(
+             "MS", genes = c("aceB", "glcB"), products = c("malate synthase A?", "malate synthase"),
+             ecs = "2.3.3.9", kos = "K01638",
+             exclude_genes = "bshA",
+             exclude_products = c("N-acetylglucosaminyl.*malate synthase", "glucosaminyl.*malate synthase")
+           )
+         )),
+    list(id = "C11", pathway = "Glycolysis", from = "Glucose", to = "Glc-6-P",
+         label = "Glucose phosphorylation", mode = "any", components = list(
+           component(
+             "Glk", genes = c("glk", "glcK"), products = c("glucokinase", "glucose kinase"),
+             ecs = "2.7.1.2", kos = "K00845",
+             exclude_products = c("regulatory protein", "transcriptional regulator")
+           ),
+           component(
+             "Hxk", genes = c("hxk", "hexK"), products = "hexokinase",
+             ecs = "2.7.1.1", kos = "K00844",
+             exclude_products = "regulatory protein"
+           )
+         )),
+    list(id = "C12", pathway = "Glycolysis", from = "Glc-6-P", to = "Fru-6-P",
+         label = "Glucose-6-P isomerase", mode = "all", components = list(
+           component(
+             "Pgi", genes = c("pgi", "pgiA"),
+             products = "glucose-6-phosphate isomerase",
+             ecs = "5.3.1.9", kos = "K01810",
+             exclude_genes = "manA", exclude_products = "mannose-6-phosphate isomerase"
+           )
+         )),
+    list(id = "C13", pathway = "Glycolysis", from = "Fru-6-P", to = "Fru-1,6-BP",
+         label = "6-Phosphofructokinase", mode = "all", components = list(
+           component(
+             "Pfk", genes = c("pfk", "pfkA"), products = "6-phosphofructokinase",
+             ecs = "2.7.1.11", kos = c("K00850", "K21071"),
+             exclude_genes = c("fruK", "pfkB"),
+             exclude_products = c("1-phosphofructokinase", "ribokinase family")
+           )
+         )),
+    list(id = "C14", pathway = "Glycolysis", from = "Fru-1,6-BP", to = "GA3P",
+         label = "Fructose-bisphosphate aldolase", mode = "all", components = list(
+           component(
+             "Fba", genes = c("fba", "fbaA", "fbaB"),
+             products = "fructose.*bisphosphate aldolase",
+             ecs = "4.1.2.13", kos = c("K01623", "K01624", "K11645"),
+             exclude_products = c("2-dehydro-3-deoxy", "tagatose-bisphosphate aldolase")
+           )
+         )),
+    list(id = "C15", pathway = "Glycolysis", from = "DHAP", to = "GA3P",
+         label = "Triose-phosphate isomerase", mode = "all", components = list(
+           component(
+             "Tpi", genes = c("tpi", "tpiA"), products = "triose-phosphate isomerase",
+             ecs = "5.3.1.1", kos = "K01803"
+           )
+         )),
+    list(id = "C16", pathway = "Glycolysis", from = "GA3P", to = "1,3-BPG",
+         label = "Glyceraldehyde-3-P DH", mode = "all", components = list(
+           component(
+             "Gap", genes = c("gap", "gapA", "gapB"),
+             products = "glyceraldehyde-3-phosphate dehydrogenase",
+             ecs = "1.2.1.12", kos = "K00134",
+             exclude_genes = "gapN", exclude_products = "non-phosphorylating"
+           )
+         )),
+    list(id = "C17", pathway = "Glycolysis", from = "1,3-BPG", to = "3-PG",
+         label = "Phosphoglycerate kinase", mode = "all", components = list(
+           component(
+             "Pgk", genes = "pgk", products = "phosphoglycerate kinase",
+             ecs = "2.7.2.3", kos = "K00927"
+           )
+         )),
+    list(id = "C18", pathway = "Glycolysis", from = "3-PG", to = "2-PG",
+         label = "Phosphoglycerate mutase", mode = "all", components = list(
+           component(
+             "Gpm", genes = c("gpm", "gpmA", "gpmB", "gpmI"),
+             products = c("phosphoglycerate mutase", "2,3-bisphosphoglycerate-independent phosphoglycerate mutase"),
+             ecs = c("5.4.2.11", "5.4.2.12"),
+             kos = c("K01834", "K15633", "K15634"),
+             exclude_products = c("histidine phosphatase family", "cofactor-dependent phosphoglycerate mutase regulator")
+           )
+         )),
+    list(id = "C19", pathway = "Glycolysis", from = "2-PG", to = "PEP",
+         label = "Enolase", mode = "all", components = list(
+           component(
+             "Eno", genes = "eno", products = c("enolase", "phosphopyruvate hydratase"),
+             ecs = "4.2.1.11", kos = "K01689",
+             exclude_products = c("methylthiopentyl", "mandelate racemase")
+           )
+         )),
+    list(id = "C20", pathway = "Glycolysis", from = "PEP", to = "Pyruvate",
+         label = "Pyruvate kinase", mode = "all", components = list(
+           component(
+             "Pyk", genes = c("pyk", "pykA", "pykF"), products = "pyruvate kinase",
+             ecs = "2.7.1.40", kos = "K00873",
+             exclude_products = c("pyruvate phosphate dikinase", "phosphoenolpyruvate synthase")
+           )
+         ))
+  )
+
+  pick <- function(candidates, default = "") {
+    hit <- intersect(candidates, names(tbl))
+    if (!length(hit)) return(rep(default, nrow(tbl)))
+    out <- as.character(tbl[[hit[1]]])
+    out[is.na(out)] <- default
+    trimws(out)
+  }
+  locus <- pick(c("locus_tag", "old_locus_tag"))
+  gene <- pick(c("gene", "gene_name"))
+  preferred <- pick(c("EggNOG_Preferred_name", "eggnog_preferred_name"))
+  product <- pick(c("product", "description"))
+  egg_desc <- pick(c("EggNOG_Description", "eggnog_description"))
+  ec_text <- paste(pick(c("EC_number", "ec_number")), pick(c("EggNOG_EC", "eggnog_ec")))
+  ko_text <- paste(pick(c("EggNOG_KEGG_ko", "eggnog_kegg_ko")))
+
+  has_token <- function(values, tokens) {
+    if (!length(tokens)) return(rep(FALSE, length(values)))
+    tokens <- toupper(tokens)
+    vapply(toupper(values), function(value) {
+      observed <- unlist(strsplit(value, "[^A-Z0-9.]+"))
+      any(observed[nzchar(observed)] %in% tokens)
+    }, logical(1))
+  }
+  has_gene <- function(values, aliases) {
+    if (!length(aliases)) return(rep(FALSE, length(values)))
+    aliases <- tolower(aliases)
+    vapply(tolower(values), function(value) {
+      observed <- unlist(strsplit(value, "[^a-z0-9]+"))
+      any(observed[nzchar(observed)] %in% aliases)
+    }, logical(1))
+  }
+  has_pattern <- function(values, patterns) {
+    if (!length(patterns)) return(rep(FALSE, length(values)))
+    grepl(paste(patterns, collapse = "|"), values, ignore.case = TRUE, perl = TRUE)
+  }
+
+  hit_rows <- list()
+  step_rows <- list()
+  for (spec in catalog) {
+    component_levels <- character()
+    for (rule in spec$components) {
+      trusted_gene <- has_gene(gene, rule$genes)
+      preferred_gene <- has_gene(preferred, rule$genes)
+      gene_axis <- trusted_gene | preferred_gene
+      product_axis <- has_pattern(product, rule$products)
+      ec_axis <- has_token(ec_text, rule$ecs)
+      ko_axis <- has_token(ko_text, rule$kos)
+
+      negative_gene <- has_gene(gene, rule$exclude_genes) |
+        has_gene(preferred, rule$exclude_genes)
+      negative_product <- has_pattern(product, rule$exclude_products)
+      negative_ko <- has_token(ko_text, rule$exclude_kos)
+      cs_exception <- isTRUE(rule$allow_cs_ambiguity) & gene_axis & ko_axis &
+        !negative_gene & !negative_ko
+      rejected <- negative_gene | negative_ko | (negative_product & !cs_exception)
+
+      strong <- !rejected & (
+        (gene_axis & (product_axis | ec_axis | ko_axis)) |
+          (product_axis & (ec_axis | ko_axis))
+      )
+      candidate <- !rejected & !strong & (trusted_gene | ec_axis | ko_axis)
+      keep <- (strong | candidate) & nzchar(locus)
+      level <- ifelse(strong, "strong", ifelse(candidate, "candidate", "none"))
+      component_levels[rule$name] <- if (any(strong & keep)) {
+        "strong"
+      } else if (any(candidate & keep)) {
+        "candidate"
+      } else {
+        "none"
+      }
+
+      if (any(keep)) {
+        axes <- vapply(which(keep), function(i) {
+          paste(c(
+            if (gene_axis[i]) "gene" else NULL,
+            if (product_axis[i]) "product" else NULL,
+            if (ec_axis[i]) "EC" else NULL,
+            if (ko_axis[i]) "KO" else NULL
+          ), collapse = "+")
+        }, character(1))
+        display_gene <- gene[keep]
+        missing_gene <- !nzchar(display_gene)
+        display_gene[missing_gene] <- preferred[keep][missing_gene]
+        display_gene[!nzchar(display_gene)] <- "unassigned"
+        display_product <- product[keep]
+        display_product[!nzchar(display_product)] <- egg_desc[keep][!nzchar(display_product)]
+        display_product[!nzchar(display_product)] <- "not annotated"
+        hit_rows[[length(hit_rows) + 1L]] <- data.frame(
+          reaction_id = spec$id,
+          pathway = spec$pathway,
+          component = rule$name,
+          component_required = isTRUE(rule$required),
+          locus_tag = locus[keep],
+          gene_name = display_gene,
+          product = display_product,
+          evidence_level = level[keep],
+          evidence_axes = axes,
+          stringsAsFactors = FALSE
+        )
+      }
+    }
+
+    required_names <- vapply(
+      Filter(function(rule) isTRUE(rule$required), spec$components),
+      function(rule) rule$name, character(1)
+    )
+    required_levels <- component_levels[required_names]
+    strong_complete <- if (identical(spec$mode, "any")) {
+      any(component_levels == "strong")
+    } else {
+      length(required_levels) > 0L && all(required_levels == "strong")
+    }
+    any_evidence <- any(component_levels != "none")
+    status <- if (strong_complete) "active" else if (any_evidence) "partial" else "reference"
+    step_rows[[length(step_rows) + 1L]] <- data.frame(
+      reaction_id = spec$id,
+      pathway = spec$pathway,
+      from = spec$from,
+      to = spec$to,
+      reaction_label = spec$label,
+      status = status,
+      stringsAsFactors = FALSE
+    )
+  }
+
+  hits <- if (length(hit_rows)) dplyr::bind_rows(hit_rows) else empty_hits
+  if (nrow(hits)) {
+    hits <- hits[!duplicated(hits[, c("reaction_id", "component", "locus_tag")]), , drop = FALSE]
+    hits <- hits[order(hits$reaction_id, hits$component, hits$locus_tag), , drop = FALSE]
+  }
+  steps <- dplyr::bind_rows(step_rows)
+  summary_hits <- hits
+  if (nrow(summary_hits)) {
+    keep_summary <- unlist(lapply(
+      split(seq_len(nrow(summary_hits)), paste(summary_hits$reaction_id, summary_hits$component)),
+      function(idx) {
+        strong_idx <- idx[summary_hits$evidence_level[idx] == "strong"]
+        if (length(strong_idx)) strong_idx else idx
+      }
+    ), use.names = FALSE)
+    summary_hits <- summary_hits[sort(unique(keep_summary)), , drop = FALSE]
+    active_ids <- steps$reaction_id[steps$status == "active"]
+    summary_hits <- summary_hits[
+      !(summary_hits$reaction_id %in% active_ids & !summary_hits$component_required),
+      , drop = FALSE
+    ]
+  }
+  steps$locus_tags <- vapply(steps$reaction_id, function(id) {
+    vals <- unique(summary_hits$locus_tag[summary_hits$reaction_id == id])
+    paste(vals[nzchar(vals)], collapse = "; ")
+  }, character(1))
+  steps$gene_names <- vapply(steps$reaction_id, function(id) {
+    vals <- unique(summary_hits$gene_name[summary_hits$reaction_id == id])
+    paste(vals[nzchar(vals)], collapse = "; ")
+  }, character(1))
+  steps$product_evidence <- vapply(steps$reaction_id, function(id) {
+    sub <- summary_hits[summary_hits$reaction_id == id, , drop = FALSE]
+    if (!nrow(sub)) return("")
+    paste(paste0(sub$locus_tag, ": ", sub$product), collapse = "; ")
+  }, character(1))
+  steps$components <- vapply(steps$reaction_id, function(id) {
+    sub <- summary_hits[summary_hits$reaction_id == id, , drop = FALSE]
+    if (!nrow(sub)) return("")
+    paste(unique(paste0(sub$component, "=", sub$locus_tag)), collapse = "; ")
+  }, character(1))
+  list(steps = steps, hits = hits, display_hits = summary_hits)
+}
+
+# Build compact gene/locus labels beside conservatively supported central-
+# carbon reactions.  Positions are deterministic so the labels remain tied to
+# the same reaction rather than drifting into unrelated pathway lanes.
+.dnmb_cct_core_direct_labels <- function(core_steps, display_hits, nodes) {
+  empty <- data.frame(
+    reaction_id = character(), pathway = character(), x = numeric(), y = numeric(),
+    label = character(), hjust = numeric(), vjust = numeric(), size = numeric(),
+    status = character(), stringsAsFactors = FALSE
+  )
+  if (is.null(core_steps) || !is.data.frame(core_steps) || !nrow(core_steps) ||
+      is.null(display_hits) || !is.data.frame(display_hits) || !nrow(display_hits) ||
+      is.null(nodes) || !is.data.frame(nodes) || !nrow(nodes)) {
+    return(empty)
+  }
+
+  node_x <- stats::setNames(nodes$x, nodes$id)
+  node_y <- stats::setNames(nodes$y, nodes$id)
+  detected <- core_steps[
+    core_steps$status %in% c("active", "partial") &
+      core_steps$from %in% names(node_x) & core_steps$to %in% names(node_x),
+    , drop = FALSE
+  ]
+  if (!nrow(detected)) return(empty)
+
+  label_for <- function(reaction_id) {
+    sub <- display_hits[display_hits$reaction_id == reaction_id, , drop = FALSE]
+    if (!nrow(sub)) return("")
+    sub <- sub[order(sub$component, sub$locus_tag), , drop = FALSE]
+    sub <- sub[!duplicated(sub$locus_tag), , drop = FALSE]
+    genes <- trimws(as.character(sub$gene_name))
+    missing_gene <- is.na(genes) | !nzchar(genes) | genes == "unassigned"
+    genes[missing_gene] <- trimws(as.character(sub$component[missing_gene]))
+    paste(paste(genes, sub$locus_tag, sep = "  "), collapse = "\n")
+  }
+
+  rows <- list()
+  tca_ids <- c("OAA", "Citrate", "Isocit", "AKG", "SucCoA",
+               "Succinate", "Fumarate", "Malate")
+  tca_nodes <- nodes[nodes$id %in% tca_ids, , drop = FALSE]
+  tca_cx <- if (nrow(tca_nodes)) mean(tca_nodes$x) else NA_real_
+  tca_cy <- if (nrow(tca_nodes)) mean(tca_nodes$y) else NA_real_
+  tca_r <- if (nrow(tca_nodes)) {
+    max(sqrt((tca_nodes$x - tca_cx)^2 + (tca_nodes$y - tca_cy)^2))
+  } else {
+    NA_real_
+  }
+
+  for (i in seq_len(nrow(detected))) {
+    step <- detected[i, , drop = FALSE]
+    label <- label_for(step$reaction_id)
+    if (!nzchar(label)) next
+    x_from <- unname(node_x[step$from]); y_from <- unname(node_y[step$from])
+    x_to <- unname(node_x[step$to]); y_to <- unname(node_y[step$to])
+    x <- mean(c(x_from, x_to)); y <- mean(c(y_from, y_to))
+    hjust <- 0.5; vjust <- 0.5
+
+    if (identical(step$pathway, "TCA cycle") && is.finite(tca_r)) {
+      a_from <- atan2(y_from - tca_cy, x_from - tca_cx)
+      a_to <- atan2(y_to - tca_cy, x_to - tca_cx)
+      delta <- ((a_to - a_from + pi) %% (2 * pi)) - pi
+      mid_angle <- a_from + delta / 2
+      label_r <- if (step$reaction_id %in% c("C01", "C08")) {
+        max(0.65, tca_r - 0.40)
+      } else {
+        tca_r + 0.33
+      }
+      x <- tca_cx + label_r * cos(mid_angle)
+      y <- tca_cy + label_r * sin(mid_angle)
+      hjust <- if (step$reaction_id %in% c("C01", "C02", "C03", "C04")) 0 else 1
+      if (step$reaction_id %in% c("C01", "C08")) y <- y - 0.28
+      if (step$reaction_id %in% c("C04", "C05")) y <- y - 0.06
+    } else if (identical(step$pathway, "Glyoxylate shunt")) {
+      y <- y - if (identical(step$reaction_id, "C09")) 0.30 else 0.22
+    } else if (identical(step$pathway, "Glycolysis")) {
+      if (step$reaction_id %in% c("C11", "C12", "C13")) {
+        x <- min(x_from, x_to) - 0.28
+        hjust <- 1
+      } else if (identical(step$reaction_id, "C14")) {
+        x <- max(x_from, x_to) + 0.24
+        hjust <- 0
+      } else if (identical(step$reaction_id, "C15")) {
+        y <- y - 0.20
+      } else {
+        x <- max(x_from, x_to) + 0.26
+        hjust <- 0
+      }
+    }
+
+    label_lines <- strsplit(label, "\n", fixed = TRUE)[[1L]]
+    longest <- max(nchar(label_lines), na.rm = TRUE)
+    size <- max(0.88, min(1.12, 1.16 - 0.055 * (length(label_lines) - 1L) -
+      0.010 * max(0, longest - 24L)))
+    rows[[length(rows) + 1L]] <- data.frame(
+      reaction_id = step$reaction_id, pathway = step$pathway,
+      x = x, y = y, label = label, hjust = hjust, vjust = vjust,
+      size = size, status = step$status,
+      stringsAsFactors = FALSE
+    )
+  }
+  if (length(rows)) dplyr::bind_rows(rows) else empty
+}
+
 #'
 #' @param genbank_table The combined genbank/annotation table
 #' @param output_dir Output directory
@@ -6038,6 +9024,9 @@
   # ====================================================================
   step_status <- .dnmb_gapmind_carbon_step_status(genbank_table, output_dir = output_dir)
   if (is.null(step_status)) return(NULL)
+  core_metabolism <- .dnmb_cct_core_metabolism_evidence(genbank_table)
+  core_steps <- core_metabolism$steps
+  core_display_hits <- core_metabolism$display_hits
   valid_locus_tags <- unique(as.character(genbank_table$locus_tag))
   valid_locus_tags <- valid_locus_tags[!is.na(valid_locus_tags) & nzchar(valid_locus_tags)]
   if ("locus_tag" %in% names(step_status)) {
@@ -6075,15 +9064,7 @@
   cascades     <- .dnmb_cct_3zone_glycan_cascades()
   conf_colors  <- c(high = "#2CA25F", medium = "#FEC44F", low = "#F03B20", none = "#CCCCCC")
   conf_rank    <- c(none = 0L, low = 1L, medium = 2L, high = 3L)
-  pathway_to_cs <- c(
-    maltose = "Maltose", cellobiose = "Cellobiose", galactose = "Galactose",
-    trehalose = "Trehalose", lactose = "Lactose", mannose = "Mannose",
-    NAG = "NAG", glucosamine = "Glucosamine", fructose = "Fructose",
-    sucrose = "Sucrose", mannitol = "Mannitol", glycerol = "Glycerol",
-    xylose = "Xylose", arabinose = "Arabinose", ribose = "Ribose",
-    fucose = "Fucose", rhamnose = "Rhamnose", gluconate = "Gluconate",
-    glucose = "Maltose", deoxyribose = "Ribose", deoxyribonate = "Gluconate"
-  )
+  pathway_to_cs <- .dnmb_cct_transporter_pathway_map()
 
   # Filter step_status to ONLY carbon source pathways (exclude amino acid, organic acid, etc.)
   matched_steps <- step_status[
@@ -6094,8 +9075,39 @@
   if (nrow(matched_steps) > 0) {
     matched_steps$rank <- conf_rank[matched_steps$confidence]
     matched_steps$rank[is.na(matched_steps$rank)] <- 0L
+    # score-0 GapMind assignments are candidate references, not foreground
+    # evidence.  They remain available in the module tables but do not turn an
+    # entire utilization route on in this map.
+    matched_steps <- matched_steps[matched_steps$rank >= 2L, , drop = FALSE]
   }
   matched_pathway_ids <- unique(tolower(matched_steps$pathway_id))
+  pathway_presence <- .dnmb_cct_pathway_presence(
+    step_status = step_status,
+    pstats = pstats,
+    valid_pathways = valid_carbon_pathways
+  )
+  cytoplasm_status <- stats::setNames(
+    pathway_presence$cytoplasm_status,
+    pathway_presence$pathway_id
+  )
+  pathway_state_for <- function(path_ids) {
+    states <- unname(cytoplasm_status[tolower(as.character(path_ids))])
+    states <- states[!is.na(states)]
+    if (any(states == "active")) return("active")
+    if (any(states == "partial")) return("partial")
+    "reference"
+  }
+  pathway_alpha_for <- function(path_ids, zone = c("route", "node", "label")) {
+    zone <- match.arg(zone)
+    state <- pathway_state_for(path_ids)
+    values <- switch(
+      zone,
+      route = c(reference = 0.12, partial = 0.34, active = 0.82),
+      node = c(reference = 0.22, partial = 0.58, active = 1.00),
+      label = c(reference = 0.28, partial = 0.65, active = 1.00)
+    )
+    unname(values[state])
+  }
 
   route_group_members <- list(
     starch = c("maltose", "trehalose"),
@@ -6107,6 +9119,7 @@
     sucrose = c("sucrose"),
     xylan = c("xylose", "arabinose"),
     pentose = c("ribose"),
+    deoxyribose = c("deoxyribose"),
     gluconate = c("gluconate"),
     glycerol = c("glycerol"),
     fucose = c("fucose"),
@@ -6147,22 +9160,23 @@
   cs_ids_ordered <- c("Maltose","Cellobiose","Galactose","Trehalose","Lactose",
                       "Mannose","NAG","Glucosamine","Fructose","Sucrose",
                       "Mannitol","Glycerol","Xylose","Arabinose","Ribose",
-                      "Fucose","Rhamnose","Gluconate")
+                      "Deoxyribose","Fucose","Rhamnose","Gluconate")
   # Classify each carbon source by evidence level
   cs_evidence <- stats::setNames(rep("none", length(cs_ids_ordered)), cs_ids_ordered)
-  # Check pathway stats for transport/gapmind evidence (require >= 25% steps matched)
-  if (!is.null(pstats) && nrow(pstats) > 0) {
-    for (csid in cs_ids_ordered) {
-      pid <- tolower(csid)
-      if (pid %in% pstats$pathway_id && any(pstats$fraction[pstats$pathway_id == pid] >= 0.25))
-        cs_evidence[csid] <- "transport"
-    }
+  # Cytoplasmic support is deliberately separate from transport and GH
+  # support.  A membrane hit alone must not foreground a metabolic route.
+  for (csid in cs_ids_ordered) {
+    pid <- tolower(csid)
+    state <- unname(cytoplasm_status[pid])
+    if (is.na(state)) next
+    if (state == "active") cs_evidence[csid] <- "transport"
+    if (state == "partial") cs_evidence[csid] <- "enzyme"
   }
   # Check for CAZy enzyme evidence (active cascades target substrates)
   # Map cascade keys to carbon source IDs
   cascade_to_cs <- c(starch = "Maltose", cellulose = "Cellobiose",
                      xylan = "Xylose", chitin = "NAG",
-                     pectin = "Gluconate", mannan = "Mannose",
+                     pectin = "Galacturonate", mannan = "Mannose",
                      inulin = "Fructose", raffinose = "Sucrose",
                      sucrose = "Sucrose", maltose = "Maltose",
                      lactose = "Lactose", cellobiose = "Cellobiose",
@@ -6203,22 +9217,9 @@
       cs_evidence[csid] <- "enzyme"
   }
 
-  # FILTER: keep only substrates with any evidence
-  cs_has_evidence <- cs_evidence != "none"
-  if (!any(cs_has_evidence)) {
-    # No carbon utilization evidence — return placeholder
-    p <- ggplot2::ggplot() +
-      ggplot2::annotate("text", x = 0.5, y = 0.5,
-        label = "No CAZy / transport / CGC-PUL carbon utilization evidence detected",
-        size = 5, color = "#888888") +
-      ggplot2::theme_void()
-    plot_dir <- .dnmb_module_plot_dir(output_dir)
-    pdf_path <- file.path(plot_dir, paste0(file_stub, ".pdf"))
-    .dnmb_module_plot_save(p, pdf_path, width = 10, height = 6)
-    return(list(pdf = pdf_path))
-  }
-  cs_ids_ordered <- cs_ids_ordered[cs_has_evidence]
-  cs_evidence <- cs_evidence[cs_has_evidence]
+  # Retain the full biochemical reference frame. Unsupported substrates are
+  # rendered at low opacity instead of being deleted, so presence/absence is
+  # visible without implying that a missing route was never assessed.
 
   cs_priority <- stats::setNames(rep(1, length(cs_ids_ordered)), cs_ids_ordered)
   if (!is.null(pstats) && nrow(pstats) > 0) {
@@ -6238,7 +9239,7 @@
   }
   if (!is.null(transporters) && nrow(transporters) > 0) {
     tr_priority <- transporters
-    tr_priority$cs_id <- unname(pathway_to_cs[tr_priority$pathway])
+    tr_priority$cs_id <- unname(pathway_to_cs[tolower(tr_priority$pathway)])
     tr_priority <- tr_priority[!is.na(tr_priority$cs_id) & tr_priority$cs_id %in% cs_ids_ordered, , drop = FALSE]
     if (nrow(tr_priority) > 0) {
       if (!"step_score" %in% names(tr_priority)) tr_priority$step_score <- NA_real_
@@ -6335,6 +9336,54 @@
 
   node_x <- stats::setNames(cyto_nodes$x, cyto_nodes$id)
   node_y <- stats::setNames(cyto_nodes$y, cyto_nodes$id)
+  cyto_node_status <- stats::setNames(rep("reference", nrow(cyto_nodes)), cyto_nodes$id)
+  continuity_seed_routes <- .dnmb_cct_continuity_routes()
+  status_rank <- c(reference = 0L, partial = 1L, active = 2L)
+  for (pid in names(cytoplasm_status)) {
+    state <- unname(cytoplasm_status[pid])
+    if (is.na(state) || state == "reference") next
+    path_nodes <- unique(c(
+      .dnmb_cct_entry_route_nodes(pid, node_ids = cyto_nodes$id),
+      if (pid %in% names(continuity_seed_routes)) continuity_seed_routes[[pid]] else character()
+    ))
+    path_nodes <- intersect(path_nodes, names(cyto_node_status))
+    if (!length(path_nodes)) next
+    upgrade <- status_rank[state] > status_rank[cyto_node_status[path_nodes]]
+    cyto_node_status[path_nodes[upgrade]] <- state
+  }
+  if (!is.null(core_steps) && nrow(core_steps)) {
+    for (i in seq_len(nrow(core_steps))) {
+      step_state <- core_steps$status[i]
+      step_nodes <- intersect(
+        c(core_steps$from[i], core_steps$to[i]),
+        names(cyto_node_status)
+      )
+      if (!length(step_nodes)) next
+      upgrade <- status_rank[step_state] > status_rank[cyto_node_status[step_nodes]]
+      cyto_node_status[step_nodes[upgrade]] <- step_state
+    }
+  }
+  exact_edge_hits <- .dnmb_cct_exact_step_edge_matches(
+    step_evidence = matched_steps,
+    cyto_edges = cyto_edges
+  )
+  if (nrow(exact_edge_hits)) {
+    for (i in seq_len(nrow(exact_edge_hits))) {
+      hit_rank <- suppressWarnings(as.integer(exact_edge_hits$rank[i]))
+      if (!is.finite(hit_rank) || hit_rank < 2L) next
+      hit_state <- if (hit_rank >= 3L) "active" else "partial"
+      hit_nodes <- intersect(
+        c(exact_edge_hits$mapped_from[i], exact_edge_hits$mapped_to[i]),
+        names(cyto_node_status)
+      )
+      if (!length(hit_nodes)) next
+      upgrade <- status_rank[hit_state] > status_rank[cyto_node_status[hit_nodes]]
+      cyto_node_status[hit_nodes[upgrade]] <- hit_state
+    }
+  }
+  cyto_node_alpha <- vapply(cyto_node_status, function(state) {
+    switch(state, active = 1, partial = 0.58, reference = 0.22)
+  }, numeric(1))
 
   # Assign confidence to carbon source nodes
   carbon_src <- cyto_nodes[cyto_nodes$type == "carbon_source", , drop = FALSE]
@@ -6353,9 +9402,16 @@
       }
     }
   }
-  sugar_lane_x <- vapply(split(carbon_src$x, carbon_src$sugar_type), function(xs) {
-    .dnmb_cct_snap_to_grid(mean(xs), step = glyco_grid_step)
-  }, numeric(1))
+  sugar_lane_ids <- unique(carbon_src$sugar_type[order(carbon_src$x)])
+  sugar_lane_x <- stats::setNames(vapply(sugar_lane_ids, function(st) {
+    .dnmb_cct_snap_to_grid(
+      mean(carbon_src$x[carbon_src$sugar_type == st]),
+      step = glyco_grid_step / 2
+    )
+  }, numeric(1)), sugar_lane_ids)
+  sugar_lane_x <- .dnmb_cct_separate_lanes(
+    sugar_lane_x, min_gap = glyco_grid_step, snap_step = glyco_grid_step / 2
+  )
 
   backbone_nodes <- cyto_nodes[cyto_nodes$type == "backbone", , drop = FALSE]
   entry_inter    <- cyto_nodes[cyto_nodes$type == "entry_intermediate", , drop = FALSE]
@@ -6472,7 +9528,8 @@
   extra_branches <- extra_branches[intersect(names(extra_branches), extra_substrates$id)]
 
   n_extra  <- nrow(extra_substrates)
-  sym_size <- 0.075
+  sugar_icon_r <- .dnmb_cct_sugar_icon_radius()
+  sym_size <- sugar_icon_r
   chain_gap <- 0.18
   chain_step <- .dnmb_cct_extra_chain_step(sym_size = sym_size, gap = chain_gap)
   extra_trim <- .dnmb_cct_extra_route_trim(sym_size = sym_size)
@@ -6497,7 +9554,7 @@
   y_4mer <- y_memb + 3.5  # 4-mer polymers (Chitin, Xylan, Pectin, Mannan, Cellulose)
   y_3mer <- y_memb + 3.0  # 3-mer (Raffinose, Inulin)
   y_2mer <- y_memb + 2.0  # 2-mer dimers
-  y_mono <- y_memb + 1.0  # 1-mer monomers
+  y_mono <- y_memb + 1.4  # reserve a clear gutter above transporter buses
   y_extra_top <- y_6mer + 0.5
 
   row_y_map <- c(`6` = y_6mer, `5` = y_5mer, `4` = y_4mer, `3` = y_3mer, `2` = y_2mer)
@@ -6515,6 +9572,19 @@
   extra_y_map <- stats::setNames(extra_layout$y, extra_layout$id)
   extra_top_actual <- if (nrow(extra_layout) > 0) max(extra_layout$y, na.rm = TRUE) + 0.35 else (y_memb + 1.0)
 
+  # Monomer aliases can share a preferred sugar lane (for example GlcA/GalA).
+  # Reserve the positions after deterministic lane separation when sizing the
+  # membrane, otherwise the outer alias can sit just beyond the bilayer.
+  monomer_lane_ids <- .dnmb_cct_extracellular_monomer_ids()
+  monomer_lane_keys <- unname(.dnmb_cct_monomer_lane_map()[monomer_lane_ids])
+  monomer_bound_x <- unname(sugar_lane_x[monomer_lane_keys])
+  names(monomer_bound_x) <- monomer_lane_ids
+  monomer_bound_x <- .dnmb_cct_separate_lanes(
+    monomer_bound_x,
+    min_gap = glyco_grid_step,
+    snap_step = glyco_grid_step / 2
+  )
+
   # x_max adapts to both cytoplasm lanes and extracellular chain width
   x_max <- max(max(cs_x_pos) + 0.6, max(extra_layout$x_right) + 0.2)
 
@@ -6522,13 +9592,19 @@
   pw_colors <- .dnmb_cct_pathway_colors()
   node_sugar_type <- stats::setNames(cyto_nodes$sugar_type, cyto_nodes$id)
   mem_xmin <- min(
-    c(extra_layout$x_left, extra_layout$x_center, carbon_src$x, cyto_nodes$x),
+    c(
+      extra_layout$x_left, extra_layout$x_center,
+      carbon_src$x, cyto_nodes$x, monomer_bound_x
+    ),
     na.rm = TRUE
   ) - 0.20
   mem_xmax <- max(
-    c(extra_layout$x_right, extra_layout$x_center, carbon_src$x, cyto_nodes$x),
+    c(
+      extra_layout$x_right, extra_layout$x_center,
+      carbon_src$x, cyto_nodes$x, monomer_bound_x
+    ),
     na.rm = TRUE
-  ) + 0.20
+  ) + 0.45
 
   # ====================================================================
   # BUILD THE PLOT — clean canvas
@@ -6570,15 +9646,16 @@
       stroke = 0.25, inherit.aes = FALSE)
 
   # --- Zone labels ---
+  zone_label_x <- mem_xmax + 0.14
   p <- p +
-    ggplot2::annotate("text", x = x_max + 0.25, y = extra_top_actual + 0.18,
-                      label = "Extracellular", hjust = 1, size = 3,
+    ggplot2::annotate("text", x = zone_label_x, y = extra_top_actual + 0.18,
+                      label = "Extracellular", hjust = 0, size = 3,
                       fontface = "italic", color = "#BDBDBD") +
-    ggplot2::annotate("text", x = x_max + 0.3, y = y_memb,
-                      label = "Membrane", hjust = 1, size = 2.5,
+    ggplot2::annotate("text", x = zone_label_x, y = y_memb,
+                      label = "Membrane", hjust = 0, size = 2.5,
                       fontface = "italic", color = "#A1887F") +
-    ggplot2::annotate("text", x = x_max + 0.3, y = y_memb - 0.5,
-                      label = "Cytoplasm", hjust = 1, size = 3,
+    ggplot2::annotate("text", x = zone_label_x, y = y_memb - 0.5,
+                      label = "Cytoplasm", hjust = 0, size = 3,
                       fontface = "italic", color = "#BDBDBD")
 
   # ====================================================================
@@ -6593,14 +9670,10 @@
   cs_hub_x <- sugar_lane_x
   composite_product_ids <- c("sucrose", "trehalose", "lactose", "maltose", "cellobiose", "raffinose")
   # Map monomer IDs to their carbon source hub x
-  mono_ids <- c("glucose","galactose","mannose","fructose","glcnac",
-                "xylose","arabinose","ribose","fucose","rhamnose","glca","gala")
+  mono_ids <- monomer_lane_ids
   mono_ids <- unique(c(mono_ids, setdiff(all_prods, composite_product_ids)))
   # Sugar type → monomer ID mapping
-  mono_to_sugar <- c(glucose="glucose", galactose="galactose", mannose="mannose",
-    fructose="fructose", glcnac="glcnac", xylose="xylose", arabinose="arabinose",
-    ribose="ribose", fucose="fucose", rhamnose="fucose", glca="glca", gala="glca",
-    glycerol="glycerol", glucosamine="glcnac")
+  mono_to_sugar <- .dnmb_cct_monomer_lane_map()
   mono_to_csid <- c(
     sucrose = "Sucrose",
     trehalose = "Trehalose",
@@ -6626,28 +9699,50 @@
     gap_xs <- seq(max(used) + 1.5, max(used) + 1.5 + length(na_idx) * 1.5, length.out = length(na_idx))
     mono_xs[na_idx] <- gap_xs
   }
+  mono_xs <- .dnmb_cct_separate_lanes(
+    mono_xs, min_gap = glyco_grid_step, snap_step = glyco_grid_step / 2
+  )
   mono_x_map <- stats::setNames(mono_xs, mono_ids)
   extra_target_id_map <- stats::setNames(extra_substrates$id, tolower(extra_substrates$id))
 
   for (mi in seq_along(mono_ids)) {
     mid <- mono_ids[mi]
     mx <- mono_xs[mi]
-    mono_col <- .dnmb_cct_sugar_route_color(mid)
+    mono_st <- unname(mono_to_sugar[mid])
+    mono_paths <- if (!is.na(mono_st)) {
+      tolower(carbon_src$id[carbon_src$sugar_type == mono_st])
+    } else {
+      tolower(unname(mono_to_csid[mid]))
+    }
+    mono_alpha <- pathway_alpha_for(mono_paths, zone = "node")
     # First render: no label (final overlay at end will add labels above route lines)
-    p <- .dnmb_snfg_render_symbol_v2(p, mx, y_mono, mid, r = 0.10, label = NULL)
-    # Arrow from monomer to membrane
-    p <- p + ggplot2::geom_segment(
-      data = data.frame(x = mx, xend = mx,
-                        y = y_mono, yend = y_memb + 0.25),
-      ggplot2::aes(x=.data$x, xend=.data$xend, y=.data$y, yend=.data$yend),
-      arrow = ggplot2::arrow(length = grid::unit(0.02, "inches"), type = "closed"),
-      linewidth = 0.2, color = mono_col, alpha = 0.7, inherit.aes = FALSE)
+    p <- .dnmb_snfg_render_symbol_v2(
+      p, mx, y_mono, mid, r = sugar_icon_r,
+      label = NULL, alpha = mono_alpha
+    )
   }
 
   # ====================================================================
   # ZONE 1: EXTRACELLULAR — SNFG chains + GH scissors on chain
   # ====================================================================
   gh_label_rows <- list()
+  extra_label_rows <- list()
+  scissor_specs <- list()
+  gh_label_df <- NULL
+  gh_ledger_df <- NULL
+  extra_release_specs <- list()
+  extra_route_anchor_rows <- list(
+    data.frame(
+      kind = "monosaccharide", id = names(mono_x_map),
+      x = unname(mono_x_map), y = rep(y_mono, length(mono_x_map)),
+      stringsAsFactors = FALSE
+    ),
+    data.frame(
+      kind = "complex_chain", id = names(extra_center_map),
+      x = unname(extra_center_map), y = unname(extra_y_map[names(extra_center_map)]),
+      stringsAsFactors = FALSE
+    )
+  )
   for (ri in seq_len(n_extra)) {
     sub   <- extra_substrates[ri, , drop = FALSE]
     ry    <- extra_y_map[sub$id]
@@ -6655,10 +9750,15 @@
     chain_cx <- extra_center_map[sub$id]
     chain <- extra_chains[[sub$id]]
     bond_type <- extra_bonds[[sub$id]]
+    branches <- extra_branches[[sub$id]]
 
-    # Substrate name (above chain)
-    p <- p + ggplot2::annotate("text", x = chain_cx, y = ry + 0.25, label = sub$label,
-                                hjust = 0.5, size = 1.5, color = "#333333", fontface = "bold")
+    extra_label_rows[[length(extra_label_rows) + 1L]] <- data.frame(
+      x = chain_cx, y = ry + 0.30, label = sub$label,
+      color = "#333333", size = 1.7, fontface = "bold", hjust = 0.5,
+      priority = 30, nudge_x = 0, nudge_y = 0,
+      label_kind = "title", anchor_x = chain_cx, anchor_y = ry,
+      stringsAsFactors = FALSE
+    )
 
     # SNFG glycan chain
     n_mono <- length(chain)
@@ -6666,11 +9766,29 @@
       bonds_vec <- if (n_mono > 1 && !is.null(bond_type)) rep(bond_type, n_mono - 1) else NULL
       chain_layers <- .dnmb_draw_sugar_chain_v2(
         x_start = chain_x, y = ry, monomers = chain,
-        bonds = bonds_vec, size = sym_size, gap = chain_gap, show_label = FALSE)
+        bonds = bonds_vec, size = sym_size, gap = chain_gap, show_label = FALSE,
+        show_bond_label = FALSE)
       for (ly in chain_layers) p <- p + ly
+      if (!is.null(bonds_vec) && length(bonds_vec)) {
+        for (bond_i in seq_along(bonds_vec)) {
+          parts <- strsplit(bonds_vec[bond_i], "-")[[1L]]
+          anomer <- if (identical(parts[1L], "alpha")) "\u03b1" else "\u03b2"
+          positions <- if (length(parts) >= 2L) strsplit(parts[2L], ",")[[1L]] else c("1", "4")
+          bond_label <- paste0(anomer, paste(positions, collapse = "-"))
+          extra_label_rows[[length(extra_label_rows) + 1L]] <- data.frame(
+            x = chain_x + (bond_i - 0.5) * chain_step,
+            y = ry + 0.13,
+            label = bond_label,
+            color = "#777777", size = 1.30, fontface = "plain", hjust = 0.5,
+            priority = 8, nudge_x = 0, nudge_y = 0,
+            label_kind = "bond", anchor_x = chain_x + (bond_i - 0.5) * chain_step,
+            anchor_y = ry,
+            stringsAsFactors = FALSE
+          )
+        }
+      }
 
       # Draw branches (side chains hanging below the backbone)
-      branches <- extra_branches[[sub$id]]
       if (!is.null(branches)) {
         for (bi in seq_along(branches)) {
           br <- branches[[bi]]
@@ -6686,7 +9804,7 @@
           lty <- if (is_beta) "dashed" else "solid"
           # Parse bond label: "alpha-1,6" → "α1–6"
           br_label <- sub("^alpha-", "\u03b1", sub("^beta-", "\u03b2", br$bond))
-          br_label <- gsub(",", "\u2013", br_label)  # comma → en-dash
+          br_label <- gsub(",", "-", br_label)
           p <- p + ggplot2::geom_segment(
             data = data.frame(x = br_x, xend = br_x, y = ry - sym_size, yend = br_y + sym_size),
             ggplot2::aes(x=.data$x, xend=.data$xend, y=.data$y, yend=.data$yend),
@@ -6694,10 +9812,15 @@
           # Branch sugar symbol
           abbr_br <- .dnmb_snfg_abbreviation_v2(br$sugar)
           p <- .dnmb_snfg_render_symbol_v2(p, br_x, br_y, br$sugar, r = sym_size, label = abbr_br)
-          # Bond label
-          p <- p + ggplot2::annotate("text", x = br_x + 0.05, y = (ry + br_y)/2,
-                                      label = br_label, size = 0.9, color = "#795548",
-                                      hjust = 0, fontface = "plain")
+          extra_label_rows[[length(extra_label_rows) + 1L]] <- data.frame(
+            x = br_x + 0.05, y = (ry + br_y) / 2,
+            label = br_label, color = "#795548", size = 0.9,
+            fontface = "plain", hjust = 0,
+            priority = 10, nudge_x = 0, nudge_y = 0,
+            label_kind = "branch_bond", anchor_x = br_x,
+            anchor_y = (ry + br_y) / 2,
+            stringsAsFactors = FALSE
+          )
 
           # Debranching enzyme: scissors on the branch bond + GH label + arrow to monomer hub
           debranch_ghs <- br$debranch_gh
@@ -6706,39 +9829,63 @@
             if (nrow(db_matched) > 0) {
               # Small scissors on the branch bond midpoint
               sc_y <- (ry + br_y) / 2
-              sc <- .dnmb_scissors_grob_v2(br_x - 0.1, sc_y, size = 0.03)
-              for (ly in sc) p <- p + ly
-              # Debranching enzyme label
-              db_lab <- db_matched$gh_family[1]
-              if (!is.na(db_matched$gene_name[1]) && nzchar(db_matched$gene_name[1]))
-                db_lab <- .dnmb_cct_short_gh_label(db_matched$gh_family[1], db_matched$gene_name[1])
-              db_priority <- 12 + min(4, nrow(db_matched)) +
-                ifelse(sub$id %in% c("Pectin", "Mannan"), 2, 0)
-              gh_label_rows[[length(gh_label_rows) + 1L]] <- data.frame(
-                x = br_x - 0.18, y = sc_y,
-                label = db_lab, color = "#1565C0", priority = db_priority,
+              scissor_specs[[length(scissor_specs) + 1L]] <- data.frame(
+                x = br_x - 0.055, y = sc_y, size = 0.05, angle = 0,
                 stringsAsFactors = FALSE
               )
+              # Debranching enzyme label
+              for (db_i in seq_len(nrow(db_matched))) {
+                db_lab <- .dnmb_cct_short_gh_label(
+                  db_matched$gh_family[db_i], db_matched$gene_name[db_i]
+                )
+                db_lab <- paste0(db_lab, "\n", db_matched$locus_tag[db_i])
+                db_priority <- 12 + min(4, nrow(db_matched)) +
+                  ifelse(sub$id %in% c("Pectin", "Mannan"), 2, 0)
+                gh_label_rows[[length(gh_label_rows) + 1L]] <- data.frame(
+                  x = br_x - 0.18, y = br_y - 0.13,
+                  label = db_lab, color = "#1565C0", priority = db_priority,
+                  label_kind = "gh", anchor_x = br_x - 0.055, anchor_y = sc_y,
+                  locus_tag = db_matched$locus_tag[db_i],
+                  gh_family = db_matched$gh_family[db_i],
+                  gene_name = db_matched$gene_name[db_i],
+                  substrate = sub$label,
+                  pul_substrate = "",
+                  stringsAsFactors = FALSE
+                )
+              }
               # Arrow from detached branch to monomer hub
               if (tolower(br$sugar) %in% names(mono_x_map)) {
                 target_mx <- unname(mono_x_map[tolower(br$sugar)])
-                mid_y2 <- y_mono + sym_size * 1.5
+                branch_anchor_id <- paste("branch", sub$id, bi, sep = ":")
+                extra_route_anchor_rows[[length(extra_route_anchor_rows) + 1L]] <- data.frame(
+                  kind = "branch_sugar", id = branch_anchor_id,
+                  x = br_x, y = br_y, stringsAsFactors = FALSE
+                )
+                # Leave the branch locally before taking a horizontal lane.
+                # The shared lane packer below separates same-row products.
+                mid_y2 <- br_y - max(0.14, sym_size * 1.6)
                 branch_col <- .dnmb_cct_sugar_route_color(br$sugar, fallback = "#1565C0")
                 branch_imp <- min(1.0, 0.45 + 0.18 * nrow(db_matched))
-                branch_path <- .dnmb_cct_rounded_route_points(
-                  data.frame(
+                extra_release_specs[[length(extra_release_specs) + 1L]] <- list(
+                  route_id = paste("branch", sub$id, bi, tolower(br$sugar), sep = ":"),
+                  source_kind = "branch_sugar",
+                  source_id = branch_anchor_id,
+                  target_kind = "monosaccharide",
+                  target_id = tolower(br$sugar),
+                  group = paste0("release:", tolower(br$sugar)),
+                  priority = branch_imp,
+                  points = data.frame(
                     x = c(br_x, br_x, target_mx, target_mx),
                     y = c(br_y, mid_y2, mid_y2, y_mono)
                   ),
-                  radius = 0.2
-                )
-                for (ly in .dnmb_cct_gradient_path_layers(
-                  branch_path, color = branch_col,
+                  color = branch_col,
                   linewidth = 0.18 + 0.18 * branch_imp,
                   alpha = 0.22 + 0.28 * branch_imp,
-                  linetype = "dashed", arrow_last = TRUE, arrow_length = 0.015,
-                  trim_start = extra_trim, trim_end = 0.11
-                )) p <- p + ly
+                  linetype = "dashed",
+                  gradient = TRUE,
+                  trim_start = extra_trim,
+                  trim_end = 0.11
+                )
               }
             }
           }
@@ -6761,14 +9908,28 @@
         step = chain_step,
         matched_families = matched$gh_family
       )
-      sc <- .dnmb_scissors_grob_v2(cut_x, ry, size = 0.04)
-      for (ly in sc) p <- p + ly
+      scissor_specs[[length(scissor_specs) + 1L]] <- data.frame(
+        x = cut_x, y = ry, size = 0.067, angle = 0,
+        stringsAsFactors = FALSE
+      )
+      scissor_anchor_id <- paste("scissor", sub$id, ckey, sep = ":")
+      extra_route_anchor_rows[[length(extra_route_anchor_rows) + 1L]] <- data.frame(
+        kind = "scissor", id = scissor_anchor_id,
+        x = cut_x, y = ry, stringsAsFactors = FALSE
+      )
 
       # GH label below scissors (with CGC/PUL annotation if available)
-      show_n <- min(if (n_mono >= 4) 2L else 1L, nrow(matched))
-      for (j in seq_len(show_n)) {
+      gh_primary_y <- ry - 0.22
+      if (!is.null(branches) && length(branches)) {
+        branch_ys <- vapply(seq_along(branches), function(branch_i) {
+          ry - sym_size * (2.5 + 1.4 * (branch_i - 1L))
+        }, numeric(1))
+        gh_primary_y <- min(gh_primary_y, min(branch_ys) - 0.13)
+      }
+      for (j in seq_len(nrow(matched))) {
         enz <- matched[j, , drop = FALSE]
         gh_lab <- .dnmb_cct_short_gh_label(enz$gh_family, enz$gene_name)
+        gh_lab <- paste0(gh_lab, "\n", enz$locus_tag)
         # Append PUL substrate or CGC ID if available
         pul_sub <- NULL
         for (pc in intersect(c("dbCAN_dbcan_pul_substrate", "dbcan_pul_substrate"), names(enz))) {
@@ -6782,15 +9943,21 @@
           }
         }
         if (!is.null(pul_sub)) {
-          pul_short <- substr(trimws(strsplit(pul_sub, ";")[[1]][1]), 1, 12)
-          gh_lab <- paste0(gh_lab, " [", pul_short, "]")
+          gh_lab <- paste0(gh_lab, "\nPUL substrate: ", trimws(pul_sub))
         }
         main_priority <- 10 - j + ifelse(sub$id %in% c("Pectin", "Mannan"), 2, 0) +
           ifelse(grepl("GH28|GH35|GH42|GH78|GH106|GH27|GH36|GH26|GH113", enz$gh_family), 1, 0)
         gh_label_rows[[length(gh_label_rows) + 1L]] <- data.frame(
-          x = cut_x, y = ry - 0.15 - (j - 1) * 0.10,
+          x = cut_x, y = gh_primary_y,
           label = gh_lab, color = "#C62828",
-          priority = main_priority, stringsAsFactors = FALSE
+          priority = main_priority,
+          label_kind = "gh", anchor_x = cut_x, anchor_y = ry,
+          locus_tag = enz$locus_tag,
+          gh_family = enz$gh_family,
+          gene_name = enz$gene_name,
+          substrate = sub$label,
+          pul_substrate = if (is.null(pul_sub)) "" else trimws(pul_sub),
+          stringsAsFactors = FALSE
         )
       }
 
@@ -6844,52 +10011,129 @@
           # for endo-acting enzymes, cut is internal. The monomer exits from
           # the cleavage position, not from an arbitrary chain match.
           exit_x <- cut_x
-          # Snap mid_y to 0.5 grid with micro-stagger to avoid overlapping horizontal lines
-          ps_idx <- match(ps, prod_sugars_u)
-          if (is.na(ps_idx)) ps_idx <- 1L
-          micro_stagger <- (ps_idx - 1L) * 0.06 + (ri - 1L) * 0.04
-          mid_y3 <- round(((target_y + extra_trim) + 0.5) * 2) / 2 + micro_stagger
-          cascade_path <- .dnmb_cct_rounded_route_points(
-            data.frame(
+          # Exit just below the cleavage site. Same-row release routes receive
+          # deterministic horizontal lanes after every cascade is collected.
+          mid_y3 <- ry - max(0.14, sym_size * 1.8)
+          extra_release_specs[[length(extra_release_specs) + 1L]] <- list(
+            route_id = paste("cascade", sub$id, ckey, ps, sep = ":"),
+            source_kind = "scissor",
+            source_id = scissor_anchor_id,
+            target_kind = if (ps %in% names(mono_x_map)) {
+              "monosaccharide"
+            } else {
+              "complex_chain"
+            },
+            target_id = if (ps %in% names(mono_x_map)) ps else target_id,
+            group = paste0("release:", ps),
+            priority = route_wt,
+            points = data.frame(
               x = c(exit_x, exit_x, target_x, target_x),
               y = c(ry, mid_y3, mid_y3, target_y)
             ),
-            radius = 0.5
-          )
-          # Simple colored path (no gradient, unified width)
-          p <- p + .dnmb_cct_single_path_layer(
-            cascade_path, color = route_col,
+            color = route_col,
             linewidth = 0.35,
             alpha = 0.45,
-            arrow_last = TRUE, arrow_length = 0.02,
-            trim_start = extra_trim, trim_end = trim_end_val
+            linetype = "solid",
+            gradient = FALSE,
+            trim_start = extra_trim,
+            trim_end = trim_end_val
           )
         }
       }
 
-    } else {
-      # No cascade match — just draw product arrow to membrane if chain exists
-      chain_end_x <- chain_x + max(0, n_mono - 1) * chain_step
-      p <- p + ggplot2::geom_segment(
-        data = data.frame(x = chain_end_x, xend = chain_end_x,
-                          y = ry, yend = y_memb + 0.25),
-        ggplot2::aes(x=.data$x, xend=.data$xend, y=.data$y, yend=.data$yend),
-        arrow = ggplot2::arrow(length = grid::unit(0.02, "inches"), type = "closed"),
-        linewidth = 0.2, color = "#999999", inherit.aes = FALSE)
+    }
+  }
+
+  if (length(extra_release_specs)) {
+    extra_release_specs <- .dnmb_cct_validate_extracellular_routes(
+      specs = extra_release_specs,
+      anchors = dplyr::bind_rows(extra_route_anchor_rows),
+      tolerance = 1e-6
+    )
+  }
+  if (length(extra_release_specs)) {
+    release_metadata <- data.frame(
+      route_id = vapply(extra_release_specs, `[[`, character(1), "route_id"),
+      priority = vapply(extra_release_specs, `[[`, numeric(1), "priority"),
+      group = vapply(extra_release_specs, `[[`, character(1), "group"),
+      stringsAsFactors = FALSE
+    )
+    release_paths <- .dnmb_cct_separate_route_lanes(
+      routes = lapply(extra_release_specs, `[[`, "points"),
+      metadata = release_metadata,
+      lane_step = 0.065,
+      max_offset = 0.22,
+      horizontal_tolerance = 0.01,
+      y_tolerance = 0.18,
+      min_overlap = 0.14,
+      connection_mode = "move_internal",
+      round_radius = 0.08
+    )
+    for (route_index in seq_along(extra_release_specs)) {
+      spec <- extra_release_specs[[route_index]]
+      release_path <- release_paths[[route_index]]
+      if (isTRUE(spec$gradient)) {
+        for (ly in .dnmb_cct_gradient_path_layers(
+          release_path, color = spec$color,
+          linewidth = spec$linewidth, alpha = spec$alpha,
+          linetype = spec$linetype,
+          arrow_last = TRUE, arrow_length = 0.015,
+          trim_start = spec$trim_start, trim_end = spec$trim_end
+        )) p <- p + ly
+      } else {
+        p <- p + .dnmb_cct_single_path_layer(
+          release_path, color = spec$color,
+          linewidth = spec$linewidth, alpha = spec$alpha,
+          linetype = spec$linetype,
+          arrow_last = TRUE, arrow_length = 0.02,
+          trim_start = spec$trim_start, trim_end = spec$trim_end
+        )
+      }
     }
   }
 
   if (length(gh_label_rows) > 0) {
     gh_label_df <- do.call(rbind, gh_label_rows)
-    gh_label_df <- .dnmb_cct_thin_labels(gh_label_df, x_thresh = 0.55, y_thresh = 0.14)
-    gh_label_df <- .dnmb_cct_place_small_labels(gh_label_df, x_thresh = 0.55, y_thresh = 0.14)
-    p <- p + ggplot2::geom_text(
-      data = gh_label_df,
-      ggplot2::aes(x = .data$x_lab, y = .data$y_lab, label = .data$label),
-      size = 0.82, color = gh_label_df$color,
-      fontface = "bold", hjust = gh_label_df$hjust,
-      lineheight = 0.82, inherit.aes = FALSE
+    gh_label_df$locus_tag <- as.character(gh_label_df$locus_tag)
+    gh_label_df <- gh_label_df[
+      !is.na(gh_label_df$locus_tag) & nzchar(gh_label_df$locus_tag),
+      , drop = FALSE
+    ]
+    gh_loci <- sort(unique(gh_label_df$locus_tag))
+    gh_anchor_map <- stats::setNames(sprintf("G%02d", seq_along(gh_loci)), gh_loci)
+    gh_label_df$label <- unname(gh_anchor_map[gh_label_df$locus_tag])
+    gh_ledger_rows <- lapply(gh_loci, function(locus) {
+      rows <- gh_label_df[gh_label_df$locus_tag == locus, , drop = FALSE]
+      families <- unique(as.character(rows$gh_family))
+      genes <- unique(as.character(rows$gene_name))
+      genes <- genes[!is.na(genes) & nzchar(genes)]
+      substrates <- unique(as.character(rows$substrate))
+      substrates <- substrates[!is.na(substrates) & nzchar(substrates)]
+      pul <- unique(as.character(rows$pul_substrate))
+      pul <- pul[!is.na(pul) & nzchar(pul)]
+      data.frame(
+        anchor_id = unname(gh_anchor_map[locus]),
+        locus_tag = locus,
+        gh_family = paste(families, collapse = " | "),
+        gene_name = if (length(genes)) paste(genes, collapse = " | ") else "Gene symbol not annotated",
+        substrate_names = paste(substrates, collapse = " | "),
+        pul_substrate = if (length(pul)) paste(pul, collapse = " | ") else "No direct PUL substrate call",
+        stringsAsFactors = FALSE
+      )
+    })
+    gh_ledger_df <- dplyr::bind_rows(gh_ledger_rows)
+    gh_ledger_df$ledger_text <- paste0(
+      gh_ledger_df$anchor_id, "  ", gh_ledger_df$locus_tag,
+      " | dbCAN family: ", gh_ledger_df$gh_family,
+      " | Gene: ", gh_ledger_df$gene_name,
+      " | Cleavage context: ", gh_ledger_df$substrate_names,
+      " | PUL substrate: ", gh_ledger_df$pul_substrate
     )
+    gh_label_df$size <- 1.55
+    gh_label_df$fontface <- "bold"
+    gh_label_df$hjust <- 0.5
+    gh_label_df$nudge_x <- 0
+    gh_label_df$nudge_y <- 0
   }
 
   # ====================================================================
@@ -6897,190 +10141,310 @@
   # PTS transporters (orange dashed), non-PTS (solid colored arrows)
   # ====================================================================
   # Map carbon source IDs to x positions for alignment
-  cs_x_map <- stats::setNames(carbon_src$x, carbon_src$id)
+  transport_source_nodes <- carbon_src
+  glucose_node <- cyto_nodes[
+    cyto_nodes$id == "Glucose",
+    c("id", "x", "y", "label", "type", "sugar_type"),
+    drop = FALSE
+  ]
+  if (nrow(glucose_node) && !"Glucose" %in% transport_source_nodes$id) {
+    transport_source_nodes <- dplyr::bind_rows(
+      transport_source_nodes, glucose_node[1L, , drop = FALSE]
+    )
+  }
+  cs_x_map <- stats::setNames(
+    transport_source_nodes$x, transport_source_nodes$id
+  )
   # Also map pathway names to carbon source IDs
-  pathway_to_cs <- c(
-    maltose = "Maltose", cellobiose = "Cellobiose", galactose = "Galactose",
-    trehalose = "Trehalose", lactose = "Lactose", mannose = "Mannose",
-    NAG = "NAG", glucosamine = "Glucosamine", fructose = "Fructose",
-    sucrose = "Sucrose", mannitol = "Mannitol", glycerol = "Glycerol",
-    xylose = "Xylose", arabinose = "Arabinose", ribose = "Ribose",
-    fucose = "Fucose", rhamnose = "Rhamnose", gluconate = "Gluconate",
-    glucose = "Maltose", deoxyribose = "Ribose", deoxyribonate = "Gluconate")
+  pathway_to_cs <- .dnmb_cct_transporter_pathway_map()
 
+  transporter_label_df <- NULL
+  transporter_ledger_df <- NULL
+  transporter_entities_df <- NULL
+  transporter_bus_layout <- NULL
+  transporter_source_anchors <- NULL
+  transporter_interior_routes <- list()
   if (!is.null(transporters) && nrow(transporters) > 0) {
-    transporters <- transporters[!duplicated(transporters$locus_tag), , drop = FALSE]
-    # Determine if PTS
-    transporters$is_pts <- grepl("pts|PTS|EIIC|EIIB|crr", transporters$step, ignore.case = TRUE) |
-      grepl("pts|PTS", transporters$gene_name, ignore.case = TRUE)
-    transporters$cs_id <- unname(pathway_to_cs[transporters$pathway])
-    transporters <- transporters[!is.na(transporters$cs_id) & transporters$cs_id %in% names(cs_x_map), , drop = FALSE]
+    transporters$is_pts <- grepl(
+      "pts|EIIC|EIIB|crr", transporters$step, ignore.case = TRUE
+    ) | grepl("pts", transporters$gene_name, ignore.case = TRUE)
+    transporters$cs_id <- unname(pathway_to_cs[tolower(transporters$pathway)])
+    transporters <- transporters[
+      !is.na(transporters$cs_id) & transporters$cs_id %in% names(cs_x_map),
+      , drop = FALSE
+    ]
     if (nrow(transporters) > 0) {
       if (!"step_score" %in% names(transporters)) transporters$step_score <- NA_real_
       transporters <- .dnmb_cct_annotate_transport_context(transporters, genbank_table)
-      transporters$tx <- unname(cs_x_map[transporters$cs_id])
-      tr_entry_map <- .dnmb_cct_auto_entry_map()
-      tr_target_nodes <- rbind(
-        entry_inter,
-        backbone_nodes,
-        ppp_nodes,
-        cyto_nodes[cyto_nodes$type == "ed", , drop = FALSE]
-      )
-      tr_target_x <- stats::setNames(tr_target_nodes$x, tr_target_nodes$id)
-      transporters$entry_target <- unname(tr_entry_map[tolower(transporters$cs_id)])
-      transporters$center_x <- transporters$tx
-      transporters$desired_x <- transporters$tx
-      has_target <- !is.na(transporters$entry_target) & transporters$entry_target %in% names(tr_target_x)
-      if (any(has_target)) {
-        tx_target <- unname(tr_target_x[transporters$entry_target[has_target]])
-        delta_x <- tx_target - transporters$tx[has_target]
-        transporters$center_x[has_target] <- transporters$tx[has_target] +
-          pmax(-0.75, pmin(0.75, 0.18 * delta_x))
-        transporters$desired_x[has_target] <- transporters$tx[has_target] +
-          pmax(-1.00, pmin(1.00, 0.32 * delta_x))
-      }
-      transporters$matched <- !is.na(transporters$locus_tag) & nzchar(transporters$locus_tag)
-      transporters$conf_rank <- conf_rank[transporters$confidence]
+      transporters$conf_rank <- unname(conf_rank[tolower(transporters$confidence)])
       transporters$conf_rank[is.na(transporters$conf_rank)] <- 0L
-      if (!"kind" %in% names(transporters)) {
-        transporters$kind <- mapply(.dnmb_cct_transporter_kind, transporters$step, transporters$gene_name, is_pts)
-      }
-      transporters <- .dnmb_cct_select_transporters(transporters, max_per_lane = 8L)
-      split_lane <- split(seq_len(nrow(transporters)), paste(transporters$cs_id, round(transporters$tx, 3)))
-      transporters$lane_rank <- 1L
-      transporters$lane_top_score <- transporters$display_score
-      lane_center_ref <- stats::median(cs_x_map, na.rm = TRUE)
-      transporters$central_lane <- abs(transporters$tx - lane_center_ref) <= 2.2
-      for (grp in split_lane) {
-        ord <- grp[order(transporters$display_score[grp], transporters$matched[grp], transporters$conf_rank[grp],
-                         transporters$gene_name[grp], decreasing = TRUE, na.last = TRUE)]
-        transporters$lane_rank[ord] <- seq_along(ord)
-        transporters$lane_top_score[grp] <- max(transporters$display_score[grp], na.rm = TRUE)
-      }
-      transporters$show_ctx <- !is.na(transporters$context_score) &
-        transporters$context_score >= 1.0 &
-        (transporters$lane_rank == 1L | transporters$context_score >= 2.2)
-      transporters$show_label <- transporters$matched | transporters$lane_rank == 1L
-      transporters$ctx_lab <- ifelse(
-        transporters$show_ctx,
-        vapply(transporters$context_hits, .dnmb_cct_short_context_summary, character(1)),
-        ""
+      transporters$kind <- mapply(
+        .dnmb_cct_transporter_kind,
+        transporters$step, transporters$gene_name, transporters$is_pts
       )
-      transporters$label_text <- vapply(seq_len(nrow(transporters)), function(i) {
-        tr <- transporters[i, , drop = FALSE]
-        human_lab <- .dnmb_cct_prefer_human_label(tr$step, tr$gene_name, pathway_id = tr$pathway)
-        if (tr$lane_rank == 1L) {
-          if (!is.na(human_lab) && nzchar(human_lab)) {
-            paste0(
-              human_lab,
-              ifelse(tr$is_pts, " (PTS)", ""),
-              ifelse(tr$matched, paste0("\n", tr$locus_tag), ""),
-              ifelse(nzchar(tr$ctx_lab), paste0("\n", tr$ctx_lab), "")
-            )
-          } else if (tr$matched) {
-            paste0(tr$locus_tag, ifelse(nzchar(tr$ctx_lab), paste0("\n", tr$ctx_lab), ""))
-          } else {
-            paste0(.dnmb_cct_short_step_label(tr$step, tr$pathway),
-                   ifelse(nzchar(tr$ctx_lab), paste0("\n", tr$ctx_lab), ""))
-          }
-        } else {
-          if (tr$matched) {
-            paste0(human_lab, ifelse(nzchar(human_lab), "\n", ""), tr$locus_tag)
-          } else if (!is.na(human_lab) && nzchar(human_lab)) {
-            paste0(human_lab, ifelse(tr$is_pts, " (PTS)", ""))
-          } else if (tr$matched) {
-            tr$locus_tag
-          } else {
-            .dnmb_cct_short_step_label(tr$step, tr$pathway)
-          }
-        }
-      }, character(1))
-      transporters$label_width <- vapply(transporters$label_text, .dnmb_cct_estimate_text_width, numeric(1))
-      transporters$seg_half <- mapply(.dnmb_cct_transporter_half_span, transporters$step, transporters$gene_name, transporters$is_pts)
-      transporters$label_dx <- 0
-      transporters$tx_draw <- transporters$tx
-      transporters$ty_draw <- 8.56
-      transporters$row_draw <- 1L
-      global_cs_center <- stats::median(carbon_src$x, na.rm = TRUE)
-      for (grp in split_lane) {
-        ord <- grp[order(transporters$lane_rank[grp])]
-        lane_dir <- sign(mean(transporters$tx[ord], na.rm = TRUE) - global_cs_center)
-        if (!is.finite(lane_dir) || lane_dir == 0) {
-          lane_dir <- sign(mean(transporters$desired_x[ord] - transporters$tx[ord], na.rm = TRUE))
-        }
-        ord_dx <- .dnmb_cct_lane_label_offsets(length(ord), lane_dir = lane_dir)
-        transporters$label_dx[ord] <- ord_dx
-        packed <- .dnmb_cct_pack_transporters_lane(
-          center_x = transporters$center_x[ord[1]],
-          half_spans = transporters$seg_half[ord],
-          lane_ranks = transporters$display_score[ord],
-          label_widths = transporters$label_width[ord],
-          label_dx = ord_dx,
-          desired_x = transporters$desired_x[ord]
-        )
-        transporters$tx_draw[ord] <- packed$tx
-        transporters$ty_draw[ord] <- packed$ty
-        transporters$row_draw[ord] <- packed$row_id
+
+      positive <- transporters$conf_rank >= 2L |
+        (!is.na(transporters$step_score) & transporters$step_score >= 1)
+      transporters <- transporters[positive, , drop = FALSE]
+    }
+    if (nrow(transporters) > 0) {
+      # Keep every high-confidence locus. Medium calls are ranked within each
+      # substrate lane and contribute only the strongest additional locus.
+      high_loci <- unique(transporters$locus_tag[
+        transporters$conf_rank >= 3L |
+          (!is.na(transporters$step_score) & transporters$step_score >= 2)
+      ])
+      medium_pool <- transporters[!transporters$locus_tag %in% high_loci, , drop = FALSE]
+      if (nrow(medium_pool)) {
+        medium_pool <- .dnmb_cct_select_transporters(medium_pool, max_per_lane = 1L)
       }
-      transporter_label_rows <- list()
+      selected_loci <- unique(c(high_loci, medium_pool$locus_tag))
+      transporters <- transporters[transporters$locus_tag %in% selected_loci, , drop = FALSE]
 
-      for (i in seq_len(nrow(transporters))) {
-        tr <- transporters[i, , drop = FALSE]
-        tx <- tr$tx_draw
-        conf <- if (!is.na(tr$confidence)) tr$confidence else "medium"
-        sugar_type <- tolower(as.character(carbon_src$sugar_type[match(tr$cs_id, carbon_src$id)]))
-        frac_val <- if (!is.null(pstats) && tolower(tr$pathway) %in% pstats$pathway_id) {
-          pstats$fraction[pstats$pathway_id == tolower(tr$pathway)][1]
-        } else {
-          NA_real_
-        }
-        tr_importance <- .dnmb_cct_path_importance(confidence = conf, fraction = frac_val, sink_weight = 1)
-        arr_col <- if (isTRUE(tr$matched)) {
-          .dnmb_cct_sugar_route_color(sugar_type, fallback = "#666666")
-        } else {
-          "#BDBDBD"
-        }
-        seg_alpha <- switch(conf, high = 0.9, medium = 0.75, low = 0.55, 0.4)
-        tr_kind <- tr$kind
-        seg_half <- tr$seg_half
-        ty <- tr$ty_draw
-        lbl_dx <- tr$label_dx
-        base_lbl_y <- if (tr$row_draw == 1) y_memb + 0.28 else y_memb - 0.28
-        lbl_y <- base_lbl_y + if (tr$row_draw == 1) 0.04 * ((tr$lane_rank - 1) %/% 2) else -0.04 * ((tr$lane_rank - 1) %/% 2)
+      entity_result <- .dnmb_cct_transporter_entities(transporters)
+      transporter_entities_df <- entity_result$entities
+      transporters <- entity_result$memberships
+      if (nrow(transporter_entities_df)) {
+        transporter_entities_df$anchor_id <- sprintf(
+          "T%02d", seq_len(nrow(transporter_entities_df))
+        )
+        transporters$anchor_id <- transporter_entities_df$anchor_id[
+          match(transporters$locus_tag, transporter_entities_df$locus_tag)
+        ]
+        transporter_source_anchors <- .dnmb_cct_transporter_source_anchors(
+          cs_ids = unique(transporters$cs_id), carbon_src = transport_source_nodes,
+          mono_x_map = mono_x_map, y_mono = y_mono,
+          extra_center_map = extra_center_map, extra_y_map = extra_y_map
+        )
+        source_idx <- match(
+          transporters$cs_id, transporter_source_anchors$cs_id
+        )
+        transporters$source_x <- transporter_source_anchors$source_x[source_idx]
+        transporters$source_y <- transporter_source_anchors$source_y[source_idx]
+        transporters$source_kind <- transporter_source_anchors$source_kind[source_idx]
+        transporters$source_trim <- ifelse(
+          transporters$source_kind == "complex_chain", extra_trim, sugar_icon_r
+        )
+        transporters$cyto_x <- transporter_source_anchors$cyto_x[source_idx]
+        transporters$cyto_y <- transporter_source_anchors$cyto_y[source_idx]
+        transporters$lane_x <- transporters$source_x
+        transporters <- transporters[
+          is.finite(transporters$source_x) &
+            is.finite(transporters$source_y) &
+            is.finite(transporters$cyto_x) &
+            is.finite(transporters$cyto_y),
+          , drop = FALSE
+        ]
 
-        for (ly in .dnmb_cct_transporter_glyph_layers(
-          tx = tx, ty = ty, half_span = seg_half, core_color = arr_col,
-          confidence = conf, is_pts = tr$is_pts, kind = tr_kind
-        )) p <- p + ly
-        if (isTRUE(tr$matched)) {
+        product_col <- .dnmb_pick_column(genbank_table, c("product", "description"))
+        product_map <- if (!is.null(product_col) && "locus_tag" %in% names(genbank_table)) {
+          stats::setNames(as.character(genbank_table[[product_col]]), genbank_table$locus_tag)
+        } else {
+          character()
+        }
+        transporter_entities_df$product <- unname(product_map[transporter_entities_df$locus_tag])
+        missing_product <- is.na(transporter_entities_df$product) |
+          !nzchar(transporter_entities_df$product)
+        transporter_entities_df$product[missing_product] <- "Product not annotated"
+
+        entity_members <- split(seq_len(nrow(transporters)), transporters$locus_tag)
+        transporter_entities_df$anchor_x <- vapply(
+          transporter_entities_df$locus_tag,
+          function(locus) stats::median(unique(transporters$lane_x[entity_members[[locus]]]), na.rm = TRUE),
+          numeric(1)
+        )
+        transporter_entities_df$confidence <- vapply(
+          transporter_entities_df$locus_tag,
+          function(locus) {
+            rows <- transporters[entity_members[[locus]], , drop = FALSE]
+            if (any(rows$confidence == "high")) "high" else "medium"
+          }, character(1)
+        )
+        transporter_entities_df$is_pts <- vapply(
+          transporter_entities_df$locus_tag,
+          function(locus) any(transporters$is_pts[entity_members[[locus]]]),
+          logical(1)
+        )
+        transporter_entities_df$kind <- vapply(
+          transporter_entities_df$locus_tag,
+          function(locus) {
+            kinds <- transporters$kind[entity_members[[locus]]]
+            kinds[order(match(kinds, c("PTS", "ABC", "MFS", "GEN")))][1]
+          }, character(1)
+        )
+        transporter_entities_df$seg_half <- vapply(
+          transporter_entities_df$locus_tag,
+          function(locus) {
+            rows <- transporters[entity_members[[locus]], , drop = FALSE]
+            max(mapply(
+              .dnmb_cct_transporter_half_span,
+              rows$step, rows$gene_name, rows$is_pts
+            ))
+          }, numeric(1)
+        )
+        transporter_entities_df$anchor_y <- y_memb
+        transporter_entities_df$row_draw <- 1L
+        packed <- .dnmb_cct_pack_transporters_lane(
+          center_x = mean(transporter_entities_df$anchor_x),
+          half_spans = transporter_entities_df$seg_half,
+          lane_ranks = ifelse(
+            transporter_entities_df$confidence == "high", 2, 1
+          ),
+          desired_x = transporter_entities_df$anchor_x,
+          stable_ids = transporter_entities_df$locus_tag,
+          y_memb = y_memb,
+          xlim = c(mem_xmin, mem_xmax),
+          min_gap = 0.08,
+          row_step = 0.12,
+          max_rows = 3L
+        )
+        transporter_entities_df$anchor_x <- packed$tx
+        transporter_entities_df$anchor_y <- packed$ty
+        transporter_entities_df$row_draw <- packed$row_id
+
+        transporters$tx_draw <- transporter_entities_df$anchor_x[
+          match(transporters$locus_tag, transporter_entities_df$locus_tag)
+        ]
+        transporters$ty_draw <- transporter_entities_df$anchor_y[
+          match(transporters$locus_tag, transporter_entities_df$locus_tag)
+        ]
+
+        # Many substrate lanes may converge on the same physical transporter.
+        # Consolidate them into one bus per substrate and one trunk per locus;
+        # the evidence ledger still retains every selected membership.
+        connector_rows <- unique(transporters[, c(
+          "anchor_id", "locus_tag", "cs_id", "lane_x", "source_x", "source_y",
+          "source_kind", "source_trim",
+          "cyto_x", "cyto_y", "tx_draw", "ty_draw", "confidence"
+        ), drop = FALSE])
+        connector_rows$color <- vapply(seq_len(nrow(connector_rows)), function(i) {
+          member <- connector_rows[i, , drop = FALSE]
+          sugar_type <- transporter_source_anchors$sugar_type[
+            match(member$cs_id, transporter_source_anchors$cs_id)
+          ]
+          .dnmb_cct_sugar_route_color(sugar_type, fallback = "#78909C")
+        }, character(1))
+        transporter_bus_layout <- .dnmb_cct_transporter_bus_layout(
+          connector_rows,
+          y_memb = y_memb,
+          bus_offset = 0.70,
+          tier_step = 0.065,
+          max_bus_offset = 1.12,
+          source_offset = 0.76,
+          glyph_clearance = 0.11,
+          membrane_half_height = 0.20,
+          route_gap = 0.10,
+          interval_gap = 0.05,
+          corner_radius = 0.08,
+          suppress_redundant_medium = TRUE
+        )
+        for (route in transporter_bus_layout$exterior_render_routes) {
+          p <- p + .dnmb_cct_single_path_layer(
+            route$points, color = route$color,
+            linewidth = route$linewidth, alpha = route$alpha,
+            linetype = route$linetype,
+            arrow_last = isTRUE(route$arrow_last),
+            arrow_length = 0.015, trim_start = route$trim_start
+          )
+        }
+
+        draw_members <- transporter_bus_layout$memberships[
+          transporter_bus_layout$memberships$draw, , drop = FALSE
+        ]
+        draw_keys <- paste(draw_members$cs_id, draw_members$target_key, sep = "\r")
+        connector_keys <- paste(connector_rows$cs_id, connector_rows$locus_tag, sep = "\r")
+        drawn_connector_rows <- connector_rows[connector_keys %in% draw_keys, , drop = FALSE]
+        transporter_interior_routes <- .dnmb_cct_transporter_interior_routes(
+          drawn_connector_rows, y_memb = y_memb,
+          glyph_clearance = 0.11, source_clearance = 0.11,
+          membrane_half_height = 0.20, route_gap = 0.10,
+          lane_step = 0.045, max_lane_offset = 0.18,
+          corner_radius = 0.08
+        )
+        for (route in transporter_interior_routes) {
+          p <- p + .dnmb_cct_single_path_layer(
+            route$points, color = route$color,
+            linewidth = route$linewidth, alpha = route$alpha,
+            linetype = route$linetype, arrow_last = TRUE,
+            arrow_length = 0.015
+          )
+        }
+
+        drawn_source_ids <- unique(drawn_connector_rows$cs_id)
+        explicit_sources <- transporter_source_anchors[
+          transporter_source_anchors$create_glyph &
+            transporter_source_anchors$cs_id %in% drawn_source_ids,
+          , drop = FALSE
+        ]
+        for (i in seq_len(nrow(explicit_sources))) {
+          src <- explicit_sources[i, , drop = FALSE]
+          p <- .dnmb_cct_render_carbon_source_node(
+            p, src$source_x, src$source_y, src$glyph_source_id,
+            r = sugar_icon_r
+          )
+        }
+
+        transporter_ledger_df <- transporter_entities_df
+        transporter_ledger_df$evidence_label <- ifelse(
+          transporter_ledger_df$confidence == "high",
+          "high confidence",
+          "medium candidate"
+        )
+        transporter_ledger_df$shared_label <- ifelse(
+          transporter_ledger_df$shared,
+          "shared predicted transporter",
+          "predicted transporter"
+        )
+        transporter_ledger_df$ledger_text <- paste0(
+          transporter_ledger_df$anchor_id, "  ",
+          transporter_ledger_df$locus_tag,
+          " | Product: ", transporter_ledger_df$product,
+          " | GapMind models: ", transporter_ledger_df$model_names,
+          " | Supported substrates: ", transporter_ledger_df$substrate_names,
+          " | Evidence: ", transporter_ledger_df$evidence_label,
+          " | ", transporter_ledger_df$shared_label
+        )
+        transporter_entities_df <- .dnmb_cct_drawn_transporter_entities(
+          transporter_entities_df, transporter_bus_layout$memberships
+        )
+
+        for (i in seq_len(nrow(transporter_entities_df))) {
+          entity <- transporter_entities_df[i, , drop = FALSE]
+          core_color <- if (isTRUE(entity$shared)) "#455A64" else {
+            first_member <- transporters[transporters$locus_tag == entity$locus_tag, , drop = FALSE][1, ]
+            sugar_type <- transporter_source_anchors$sugar_type[
+              match(first_member$cs_id, transporter_source_anchors$cs_id)
+            ]
+            .dnmb_cct_sugar_route_color(sugar_type, fallback = "#607D8B")
+          }
+          for (ly in .dnmb_cct_transporter_glyph_layers(
+            tx = entity$anchor_x, ty = entity$anchor_y,
+            half_span = entity$seg_half, core_color = core_color,
+            confidence = entity$confidence, is_pts = entity$is_pts,
+            kind = entity$kind
+          )) p <- p + ly
           for (ly in .dnmb_cct_junction_glyph_layers(
-            x = tx, y = if (tr$row_draw == 1) y_memb + 0.18 else y_memb - 0.18, color = arr_col,
-            size = 1.4 + 0.8 * tr_importance, alpha = 0.65 + 0.2 * tr_importance
+            x = entity$anchor_x, y = entity$anchor_y,
+            color = core_color,
+            size = if (isTRUE(entity$shared)) 2.4 else 1.8,
+            alpha = if (entity$confidence == "high") 0.9 else 0.65
           )) p <- p + ly
         }
 
-        if (isTRUE(tr$show_label)) {
-          transporter_label_rows[[length(transporter_label_rows) + 1L]] <- data.frame(
-            x = tx + lbl_dx * ifelse(tr$lane_rank == 1L, 0.75, 0.55),
-            y = lbl_y,
-            label = tr$label_text,
-            color = arr_col,
-            lane_rank = tr$lane_rank,
-            priority = if (isTRUE(tr$matched)) 10 * tr_importance + tr$display_score else tr$display_score,
-            stringsAsFactors = FALSE
-          )
-        }
-      }
-
-      if (length(transporter_label_rows) > 0) {
-        tlab_df <- do.call(rbind, transporter_label_rows)
-        tlab_df <- .dnmb_cct_place_small_labels(tlab_df, x_thresh = 0.34, y_thresh = 0.08)
-        p <- p + ggplot2::geom_text(
-          data = tlab_df,
-          ggplot2::aes(x = .data$x_lab, y = .data$y_lab, label = .data$label),
-          size = 0.58, color = tlab_df$color,
-          fontface = "bold", lineheight = 0.84,
-          inherit.aes = FALSE
+        transporter_label_df <- data.frame(
+          x = transporter_entities_df$anchor_x,
+          y = transporter_entities_df$anchor_y,
+          anchor_x = transporter_entities_df$anchor_x,
+          anchor_y = transporter_entities_df$anchor_y,
+          label = transporter_entities_df$anchor_id,
+          color = ifelse(transporter_entities_df$confidence == "high", "#102A43", "#52616B"),
+          size = 1.60,
+          fontface = "bold",
+          hjust = 0.5,
+          priority = ifelse(transporter_entities_df$confidence == "high", 20, 10),
+          nudge_x = 0,
+          nudge_y = ifelse(transporter_entities_df$anchor_y >= y_memb, 0.26, -0.26),
+          stringsAsFactors = FALSE
         )
       }
     }
@@ -7141,37 +10505,22 @@
         }
         p <- p + ggplot2::geom_segment(data = seg_df,
           ggplot2::aes(x=.data$x, xend=.data$xend, y=.data$y, yend=.data$yend),
-          color="#999999", linewidth=0.35, alpha=0.5,
+          color="#B8B8B8", linewidth=0.24, alpha=0.15,
           lineend="round", inherit.aes=FALSE)
       } else {
-        # Non-backbone: L-shaped routing
-        stagger <- (i %% 5 - 2) * 0.25
-        if (is_straight) {
-          edge_pts <- data.frame(x = c(x1, x2), y = c(y1, y2))
-        } else {
-          is_mostly_vertical <- abs(y2 - y1) >= abs(x2 - x1)
-          if (is_mostly_vertical) {
-            mid_y <- round((y2 + stagger) * 4) / 4
-            route_pts <- data.frame(
-              x = c(x1, x1, x2, x2),
-              y = c(y1, mid_y, mid_y, y2)
-            )
-          } else {
-            mid_x <- round((x2 + stagger) * 4) / 4
-            route_pts <- data.frame(
-              x = c(x1, mid_x, mid_x, x2),
-              y = c(y1, y1, y2, y2)
-            )
-          }
-          edge_pts <- .dnmb_cct_rounded_route_points(route_pts, radius = glyco_grid_step)
-        }
+        # Keep orthogonal routes inside their endpoint bounding box.  The old
+        # target-based stagger could overshoot short PPP edges and fold back
+        # into pale circular loops around Xu-5-P/R-5-P/S-7-P/E-4-P.
+        edge_pts <- .dnmb_cct_edge_points_from_row(
+          ce, edge_idx = i, grid_step = glyco_grid_step
+        )
         # Adaptive trim: at least node radius (0.10) so lines don't pass through symbols
         edge_total_len <- sqrt((x2 - x1)^2 + (y2 - y1)^2)
         edge_trim <- min(0.12, max(0.10, edge_total_len * 0.15))
         # Simple gray line with arrow (unified width)
         p <- p + .dnmb_cct_single_path_layer(
-          edge_pts, color = "#AAAAAA",
-          linewidth = 0.35, alpha = 0.5,
+          edge_pts, color = "#B8B8B8",
+          linewidth = 0.24, alpha = 0.12,
           arrow_last = TRUE, arrow_length = 0.015,
           trim_start = edge_trim, trim_end = edge_trim
         )
@@ -7183,7 +10532,11 @@
   # draw a single continuous route from entry through central metabolism.
   continuity_routes <- .dnmb_cct_continuity_routes()
   continuity_entry_map <- .dnmb_cct_auto_entry_map()
-  active_continuity <- intersect(tolower(names(continuity_entry_map)), matched_pathway_ids)
+  active_continuity <- intersect(
+    tolower(names(continuity_entry_map)),
+    names(cytoplasm_status)[cytoplasm_status %in% c("active", "partial")]
+  )
+  continuity_specs <- list()
   if (length(active_continuity) > 0) {
     for (pid in active_continuity) {
       best_hit <- route_best_match(pid)
@@ -7201,13 +10554,18 @@
       )
       fallback_nodes <- if (pid %in% names(continuity_routes)) continuity_routes[[pid]] else NULL
       cont_node_ids <- if (!is.null(generic_nodes)) generic_nodes else fallback_nodes
-      cont_pts <- .dnmb_cct_route_overlay_points(
+      # Substrate colour ends at the first shared central-carbon merge. The
+      # shared glycolysis/PPP reaction remains a single core/reference edge,
+      # rather than becoming one parallel coloured line per carbon source.
+      cont_node_ids <- .dnmb_cct_route_to_first_core_merge(cont_node_ids)
+      if (is.null(cont_node_ids)) next
+      cont_edges <- .dnmb_cct_route_overlay_edges(
         node_ids = cont_node_ids,
         node_x = node_x,
         node_y = node_y,
         grid_step = glyco_grid_step
       )
-      if (is.null(cont_pts) || nrow(cont_pts) < 2) next
+      if (!length(cont_edges)) next
       frac <- if (!is.null(pstats) && pid %in% pstats$pathway_id) {
         pstats$fraction[pstats$pathway_id == pid][1]
       } else {
@@ -7219,56 +10577,222 @@
         fraction = frac,
         sink_weight = if (!is.null(generic_nodes) && !is.null(attr(generic_nodes, "sink_weight"))) attr(generic_nodes, "sink_weight") else 1
       )
-      cont_alpha <- 0.25 + 0.15 * cont_imp
-      cont_lw <- 0.35  # unified with all other edges
-      # Simple colored line (no gradient)
+      cont_state <- pathway_state_for(pid)
+      cont_alpha <- pathway_alpha_for(pid, zone = "route")
+      cont_lw <- if (cont_state == "active") 0.50 else 0.34
+      cont_lty <- if (cont_state == "active") "solid" else "dashed"
+      for (edge_index in seq_along(cont_edges)) {
+        edge_points <- cont_edges[[edge_index]]
+        continuity_specs[[length(continuity_specs) + 1L]] <- list(
+          route_id = paste0("continuity:", pid, ":", edge_index),
+          group = .dnmb_cct_route_group_for_pathway(pid, route_group_members),
+          priority = cont_imp,
+          points = edge_points,
+          from_id = attr(edge_points, "from_id"),
+          to_id = attr(edge_points, "to_id"),
+          color = cont_col,
+          linewidth = cont_lw,
+          alpha = cont_alpha,
+          linetype = cont_lty
+        )
+      }
+    }
+  }
+  if (length(continuity_specs)) {
+    continuity_metadata <- data.frame(
+      route_id = vapply(continuity_specs, `[[`, character(1), "route_id"),
+      priority = vapply(continuity_specs, `[[`, numeric(1), "priority"),
+      group = vapply(continuity_specs, function(spec) {
+        group <- as.character(spec$group)[1L]
+        if (is.na(group) || !nzchar(group)) "ungrouped" else group
+      }, character(1)),
+      stringsAsFactors = FALSE
+    )
+    continuity_paths <- .dnmb_cct_separate_route_lanes(
+      routes = lapply(continuity_specs, `[[`, "points"),
+      metadata = continuity_metadata,
+      lane_step = 0.04,
+      max_offset = 0.16,
+      horizontal_tolerance = 0.01,
+      y_tolerance = 0.035,
+      min_overlap = 0.20,
+      connection_mode = "move_internal",
+      round_radius = 0.04
+    )
+    for (route_index in seq_along(continuity_specs)) {
+      spec <- continuity_specs[[route_index]]
       p <- p + .dnmb_cct_single_path_layer(
-        cont_pts, color = cont_col, linewidth = cont_lw, alpha = cont_alpha,
+        continuity_paths[[route_index]],
+        color = spec$color, linewidth = spec$linewidth,
+        alpha = spec$alpha, linetype = spec$linetype,
         trim_start = 0.12, trim_end = 0.12
       )
     }
   }
 
-  # Draw TCA cycle arc (smooth circle behind TCA nodes)
+  # Foreground every reaction that has an exact directed step mapping. This
+  # includes branches that a single continuity path cannot represent, such as
+  # the two products of deoxyribose-phosphate aldolase.
+  if (nrow(exact_edge_hits)) {
+    exact_by_edge <- split(seq_len(nrow(exact_edge_hits)), exact_edge_hits$edge_index)
+    for (idx in exact_by_edge) {
+      edge_index <- exact_edge_hits$edge_index[idx[1L]]
+      if (!is.finite(edge_index) || edge_index < 1L || edge_index > nrow(cyto_edges)) next
+      ce <- cyto_edges[edge_index, , drop = FALSE]
+      edge_pts <- .dnmb_cct_edge_points_from_row(
+        ce, edge_idx = edge_index, grid_step = glyco_grid_step
+      )
+      if (nrow(edge_pts) < 2L) next
+      ranks <- suppressWarnings(as.integer(exact_edge_hits$rank[idx]))
+      ranks <- ranks[is.finite(ranks)]
+      if (!length(ranks) || max(ranks) < 2L) next
+      edge_rank <- max(ranks)
+      edge_color <- unname(pw_colors[as.character(ce$pathway[1L])])
+      if (is.na(edge_color) || !nzchar(edge_color)) edge_color <- "#52616B"
+      p <- p + .dnmb_cct_single_path_layer(
+        edge_pts,
+        color = edge_color,
+        linewidth = if (edge_rank >= 3L) 0.56 else 0.38,
+        alpha = if (edge_rank >= 3L) 0.88 else 0.64,
+        linetype = if (edge_rank >= 3L) "solid" else "dashed",
+        arrow_last = TRUE,
+        arrow_length = 0.016,
+        trim_start = 0.11,
+        trim_end = 0.11
+      )
+    }
+  }
+
+  # Draw a faint biochemical reference ring, then foreground each TCA
+  # reaction independently from the conservative genome-annotation scan.
   tca_nodes <- cyto_nodes[cyto_nodes$type == "tca", , drop = FALSE]
   tca_shunt_nodes <- cyto_nodes[cyto_nodes$type == "tca_shunt", , drop = FALSE]
+  core_state_color <- function(state) {
+    switch(state, active = "#2B6F77", partial = "#C78932", "#B8B8B8")
+  }
+  core_state_alpha <- function(state) {
+    switch(state, active = 0.90, partial = 0.66, reference = 0.12, 0.12)
+  }
+
+  glycolysis_steps <- core_steps[core_steps$pathway == "Glycolysis", , drop = FALSE]
+  if (nrow(glycolysis_steps)) {
+    for (i in seq_len(nrow(glycolysis_steps))) {
+      step <- glycolysis_steps[i, , drop = FALSE]
+      if (identical(step$status, "reference") ||
+          !all(c(step$from, step$to) %in% names(node_x))) next
+      endpoint_pairs <- list(c(step$from, step$to))
+      if (identical(step$reaction_id, "C14") && "DHAP" %in% names(node_x)) {
+        endpoint_pairs[[2L]] <- c(step$from, "DHAP")
+      }
+      for (pair in endpoint_pairs) {
+        x1 <- unname(node_x[pair[1]]); y1 <- unname(node_y[pair[1]])
+        x2 <- unname(node_x[pair[2]]); y2 <- unname(node_y[pair[2]])
+        edge_len <- sqrt((x2 - x1)^2 + (y2 - y1)^2)
+        trim <- min(0.12, edge_len * 0.22)
+        frac <- if (edge_len > 0) trim / edge_len else 0
+        seg <- data.frame(
+          x = x1 + (x2 - x1) * frac,
+          y = y1 + (y2 - y1) * frac,
+          xend = x2 - (x2 - x1) * frac,
+          yend = y2 - (y2 - y1) * frac
+        )
+        p <- p + ggplot2::geom_segment(
+          data = seg,
+          ggplot2::aes(x = .data$x, y = .data$y,
+                       xend = .data$xend, yend = .data$yend),
+          color = core_state_color(step$status),
+          linewidth = if (step$status == "active") 0.60 else 0.46,
+          alpha = core_state_alpha(step$status),
+          linetype = if (step$status == "partial") "dashed" else "solid",
+          lineend = "round", inherit.aes = FALSE
+        )
+      }
+    }
+  }
+
   if (nrow(tca_nodes) >= 3) {
     tca_cx <- mean(tca_nodes$x)
     tca_cy <- mean(tca_nodes$y)
     tca_r  <- max(sqrt((tca_nodes$x - tca_cx)^2 + (tca_nodes$y - tca_cy)^2))
-    # Step 1: Draw perfect circle (gapmind_aa style — thick grey dashed)
     theta_seq <- seq(0, 2 * pi, length.out = 200)
     tca_circle <- data.frame(x = tca_cx + tca_r * cos(theta_seq),
                               y = tca_cy + tca_r * sin(theta_seq))
     p <- p + ggplot2::geom_path(
       data = tca_circle,
       ggplot2::aes(x = .data$x, y = .data$y),
-      color = "#CCCCCC", linewidth = 1.5, linetype = "solid", inherit.aes = FALSE)
+      color = "#B8B8B8", linewidth = 0.70, alpha = 0.16,
+      linetype = "solid", inherit.aes = FALSE)
+
+    tca_step_rows <- core_steps[core_steps$pathway == "TCA cycle", , drop = FALSE]
+    for (i in seq_len(nrow(tca_step_rows))) {
+      step <- tca_step_rows[i, , drop = FALSE]
+      if (!all(c(step$from, step$to) %in% names(node_x))) next
+      a_from <- atan2(unname(node_y[step$from]) - tca_cy,
+                      unname(node_x[step$from]) - tca_cx)
+      a_to <- atan2(unname(node_y[step$to]) - tca_cy,
+                    unname(node_x[step$to]) - tca_cx)
+      delta <- ((a_to - a_from + pi) %% (2 * pi)) - pi
+      trim_angle <- min(0.055, abs(delta) * 0.18)
+      theta <- seq(
+        a_from + sign(delta) * trim_angle,
+        a_from + delta - sign(delta) * trim_angle,
+        length.out = 28
+      )
+      arc <- data.frame(x = tca_cx + tca_r * cos(theta),
+                        y = tca_cy + tca_r * sin(theta))
+      state <- step$status[1]
+      p <- p + ggplot2::geom_path(
+        data = arc,
+        ggplot2::aes(x = .data$x, y = .data$y),
+        color = core_state_color(state),
+        linewidth = if (state == "active") 0.82 else if (state == "partial") 0.64 else 0.34,
+        alpha = core_state_alpha(state),
+        linetype = if (state == "partial") "dashed" else "solid",
+        lineend = "round", inherit.aes = FALSE
+      )
+    }
   }
 
-  if (nrow(tca_shunt_nodes) > 0 &&
-      all(c("Isocit", "Malate") %in% names(node_x))) {
-    p <- p + ggplot2::geom_curve(
-      data = data.frame(
-        x = unname(node_x["Isocit"]),
-        y = unname(node_y["Isocit"]),
-        xend = unname(node_x["Malate"]),
-        yend = unname(node_y["Malate"])
-      ),
-      ggplot2::aes(x = .data$x, y = .data$y, xend = .data$xend, yend = .data$yend),
-      color = "#B8B8B8", linewidth = 0.45, linetype = "dashed",
-      curvature = -0.30, inherit.aes = FALSE
-    )
+  shunt_steps <- core_steps[core_steps$pathway == "Glyoxylate shunt", , drop = FALSE]
+  if (nrow(tca_shunt_nodes) > 0 && nrow(shunt_steps)) {
+    for (i in seq_len(nrow(shunt_steps))) {
+      step <- shunt_steps[i, , drop = FALSE]
+      if (!all(c(step$from, step$to) %in% names(node_x))) next
+      state <- step$status[1]
+      p <- p + ggplot2::geom_curve(
+        data = data.frame(
+          x = unname(node_x[step$from]), y = unname(node_y[step$from]),
+          xend = unname(node_x[step$to]), yend = unname(node_y[step$to])
+        ),
+        ggplot2::aes(x = .data$x, y = .data$y, xend = .data$xend, yend = .data$yend),
+        color = core_state_color(state),
+        linewidth = if (state == "active") 0.62 else 0.46,
+        linetype = if (state == "active") "solid" else "dashed",
+        alpha = core_state_alpha(state),
+        curvature = if (step$reaction_id == "C09") 0.12 else -0.12,
+        lineend = "round", inherit.aes = FALSE
+      )
+    }
   }
+  core_direct_label_df <- .dnmb_cct_core_direct_labels(
+    core_steps = core_steps,
+    display_hits = core_display_hits,
+    nodes = cyto_nodes
+  )
 
   # Draw SNFG nodes for all cytoplasm node types (symbols only, no labels)
-  node_r <- 0.10  # unified size
+  node_r <- sugar_icon_r
   for (ntype in c("backbone", "ppp", "entry_intermediate", "tca", "tca_shunt", "ed", "pyruvate_branch")) {
     nset <- cyto_nodes[cyto_nodes$type == ntype, , drop = FALSE]
     for (i in seq_len(nrow(nset))) {
       nd <- nset[i, , drop = FALSE]
       # Symbol only — full name labels are rendered separately below
-      p <- .dnmb_snfg_render_symbol_v2(p, nd$x, nd$y, nd$sugar_type, r = node_r, label = NULL)
+      node_alpha_i <- unname(cyto_node_alpha[nd$id])
+      if (!is.finite(node_alpha_i)) node_alpha_i <- 0.22
+      p <- .dnmb_snfg_render_symbol_v2(
+        p, nd$x, nd$y, nd$sugar_type, r = node_r, label = NULL,
+        alpha = node_alpha_i
+      )
     }
   }
 
@@ -7279,9 +10803,10 @@
   # 2) Draw converging arrows from each substrate label → hub SNFG symbol
   # 3) Hub connects onward to entry intermediate
   cs_groups <- split(seq_len(nrow(carbon_src)), carbon_src$sugar_type)
-  hidden_secondary_cs_labels <- c("Lactose")
   hub_positions <- list()  # sugar_type -> list(x, y)
   route_label_rows <- list()
+  metabolic_ledger_df <- NULL
+  hub_guide_specs <- list()
   for (st in names(cs_groups)) {
     idx <- cs_groups[[st]]
     hub_x <- if (st %in% names(sugar_lane_x)) {
@@ -7290,40 +10815,86 @@
       .dnmb_cct_snap_to_grid(mean(carbon_src$x[idx]), step = glyco_grid_step)
     }
     hub_y <- .dnmb_cct_snap_to_grid(carbon_src$y[idx[1]], step = glyco_grid_step)
-    hub_positions[[st]] <- list(x = hub_x, y = hub_y)
-    # Draw hub SNFG symbol (no label — final overlay adds label above route lines)
-    p <- .dnmb_snfg_render_symbol_v2(p, hub_x, hub_y, st, r = 0.10, label = NULL)
+    hub_path_ids <- tolower(carbon_src$id[idx])
+    hub_alpha <- pathway_alpha_for(hub_path_ids, zone = "node")
+    source_at_hub <- any(
+      abs(carbon_src$x[idx] - hub_x) < 0.02 &
+        abs(carbon_src$y[idx] - hub_y) < 0.02
+    )
+    hub_positions[[st]] <- list(
+      x = hub_x, y = hub_y, alpha = hub_alpha, path_ids = hub_path_ids,
+      source_at_hub = source_at_hub
+    )
+    # A source exactly on the convergence coordinate doubles as the hub. Its
+    # substrate-specific glyph is drawn in the final overlay instead of
+    # stacking a generic family glyph underneath it.
+    if (!source_at_hub) {
+      p <- .dnmb_snfg_render_symbol_v2(
+        p, hub_x, hub_y, st, r = sugar_icon_r,
+        label = NULL, alpha = hub_alpha
+      )
+    }
     # Draw converging lines from each substrate to hub
     for (i in idx) {
       nd <- carbon_src[i, , drop = FALSE]
       if (abs(nd$x - hub_x) > 0.2) {
-        # Substrate label at its original x, slightly above
-        if (!nd$id %in% hidden_secondary_cs_labels) {
-          p <- p + ggplot2::annotate("text", x = nd$x, y = nd$y + 0.20,
-            label = nd$label, size = 0.8, color = "#111111", hjust = 0.5, angle = 0)
-        }
-        # Orthogonal guide segments snapped to the glycolysis grid
-        guide_y <- .dnmb_cct_snap_to_grid(hub_y + glyco_grid_step, step = glyco_grid_step)
+        # Keep source-to-hub convergence in its own cytoplasmic band instead
+        # of letting it merge with the membrane centerline and T-ID glyphs.
+        guide_y <- .dnmb_cct_snap_to_grid(
+          hub_y + glyco_grid_step / 2,
+          step = glyco_grid_step / 2
+        )
         guide_col <- route_color_for(path_ids = tolower(nd$id), sugar_type = st)
-        guide_path <- .dnmb_cct_rounded_route_points(
-          data.frame(
-            x = c(nd$x, nd$x, hub_x, hub_x),
-            y = c(nd$y + 0.15, guide_y, guide_y, hub_y)
-          ),
-          radius = glyco_grid_step
+        guide_path <- data.frame(
+          x = c(nd$x, nd$x, hub_x, hub_x),
+          y = c(nd$y + 0.15, guide_y, guide_y, hub_y)
         )
-        p <- p + .dnmb_cct_single_path_layer(
-          guide_path, color = .dnmb_cct_reference_gray("light"), linewidth = 0.16, alpha = 0.26
+        guide_state <- pathway_state_for(tolower(nd$id))
+        hub_guide_specs[[length(hub_guide_specs) + 1L]] <- list(
+          route_id = paste("source", st, nd$id, sep = ":"),
+          group = paste0("hub:", st),
+          priority = if (guide_state == "active") 2 else if (guide_state == "partial") 1 else 0,
+          points = guide_path,
+          color = guide_col,
+          state = guide_state,
+          supported = !is.null(route_best_match(tolower(nd$id))) && guide_state != "reference",
+          path_id = nd$id
         )
-        if (!is.null(route_best_match(tolower(nd$id)))) {
-          for (ly in .dnmb_cct_gradient_path_layers(
-            guide_path, color = guide_col, linewidth = 0.18, alpha = 0.40
-          )) p <- p + ly
-        }
-      } else {
-        # Single substrate = same as hub, just label below
-        p <- p + ggplot2::annotate("text", x = nd$x, y = nd$y - 0.20,
-          label = nd$label, size = 0.9, fontface = "bold", color = "#111111", hjust = 0.5)
+      }
+    }
+  }
+  if (length(hub_guide_specs)) {
+    guide_metadata <- data.frame(
+      route_id = vapply(hub_guide_specs, `[[`, character(1), "route_id"),
+      priority = vapply(hub_guide_specs, `[[`, numeric(1), "priority"),
+      group = vapply(hub_guide_specs, `[[`, character(1), "group"),
+      stringsAsFactors = FALSE
+    )
+    hub_guide_paths <- .dnmb_cct_separate_route_lanes(
+      routes = lapply(hub_guide_specs, `[[`, "points"),
+      metadata = guide_metadata,
+      lane_step = 0.04,
+      max_offset = 0.12,
+      horizontal_tolerance = 0.01,
+      y_tolerance = 0.04,
+      min_overlap = 0.16,
+      connection_mode = "move_internal",
+      round_radius = 0.04
+    )
+    for (route_index in seq_along(hub_guide_specs)) {
+      spec <- hub_guide_specs[[route_index]]
+      guide_path <- hub_guide_paths[[route_index]]
+      p <- p + .dnmb_cct_single_path_layer(
+        guide_path, color = .dnmb_cct_reference_gray("light"),
+        linewidth = 0.16, alpha = 0.12
+      )
+      if (isTRUE(spec$supported)) {
+        for (ly in .dnmb_cct_gradient_path_layers(
+          guide_path, color = spec$color,
+          linewidth = if (spec$state == "active") 0.34 else 0.22,
+          alpha = pathway_alpha_for(spec$path_id, zone = "route"),
+          linetype = if (spec$state == "active") "solid" else "dashed"
+        )) p <- p + ly
       }
     }
   }
@@ -7342,16 +10913,30 @@
   for (st in names(hub_positions)) {
     hp <- hub_positions[[st]]
     cs_of_type <- carbon_src$id[carbon_src$sugar_type == st]
-    route_key <- vapply(cs_of_type, function(csid) {
-      paste(.dnmb_cct_entry_route_nodes(tolower(csid), node_ids = names(target_x)), collapse = "|")
-    }, character(1))
-    route_groups <- split(cs_of_type, route_key)
-    for (rk in names(route_groups)) {
-      route_csids <- route_groups[[rk]]
-      route_nodes <- unlist(strsplit(rk, "|", fixed = TRUE))
-      route_nodes <- route_nodes[nzchar(route_nodes)]
+    target_rows <- dplyr::bind_rows(lapply(cs_of_type, function(csid) {
+      targets <- .dnmb_cct_initial_entry_targets(
+        tolower(csid), node_ids = names(target_x)
+      )
+      if (!length(targets)) {
+        fallback <- unname(entry_map[tolower(csid)])
+        targets <- fallback[!is.na(fallback) & fallback %in% names(target_x)]
+      }
+      if (!length(targets)) return(NULL)
+      data.frame(
+        cs_id = rep(csid, length(targets)),
+        target_id = targets,
+        stringsAsFactors = FALSE
+      )
+    }))
+    if (!nrow(target_rows)) next
+    target_groups <- split(target_rows$cs_id, target_rows$target_id)
+    for (entry_target in names(target_groups)) {
+      route_csids <- sort(unique(target_groups[[entry_target]]))
+      route_nodes <- entry_target
       rep_csid <- route_csids[1]
-      entry_target <- if (length(route_nodes) > 0) tail(route_nodes, 1) else unname(entry_map[tolower(rep_csid)])
+      # The hub owns only the connection to the first intracellular node.
+      # Substrate-specific continuity then carries that node to the first core
+      # merge, avoiding a duplicate foreground path over the same reactions.
       if (is.na(entry_target) || !entry_target %in% names(target_x)) next
       best_hit <- route_best_match(tolower(route_csids))
       route_col <- route_color_for(path_ids = tolower(route_csids), sugar_type = st)
@@ -7398,7 +10983,9 @@
       hub_route_df$target_rank[ord] <- seq_along(ord)
       hub_route_df$target_count[grp] <- length(grp)
     }
-
+    route_obstacle_x <- c(target_x, carbon_src$x, hub_route_df$hub_x)
+    route_obstacle_y <- c(target_y, carbon_src$y, hub_route_df$hub_y)
+    hub_paths <- vector("list", nrow(hub_route_df))
     for (i in seq_len(nrow(hub_route_df))) {
       rr <- hub_route_df[i, , drop = FALSE]
       route_nodes <- unlist(strsplit(rr$route_nodes, "|", fixed = TRUE))
@@ -7411,7 +10998,9 @@
         node_y = target_y,
         grid_step = glyco_grid_step,
         lane_rank = rr$target_rank,
-        lane_count = rr$target_count
+        lane_count = rr$target_count,
+        obstacle_x = route_obstacle_x,
+        obstacle_y = route_obstacle_y
       )
       if (is.null(main_path)) {
         main_path <- .dnmb_cct_hub_entry_path(
@@ -7421,176 +11010,140 @@
           target_y = rr$target_y,
           lane_rank = rr$target_rank,
           target_count = rr$target_count,
-          grid_step = glyco_grid_step
+          grid_step = glyco_grid_step,
+          rounded = FALSE
         )
       }
-      # Simple colored line from hub to entry intermediate
-      hub_col <- if (rr$label_rank > 0) rr$route_col else "#AAAAAA"
-      hub_alpha <- if (rr$label_rank > 0) 0.55 else 0.35
+      hub_paths[[i]] <- main_path
+    }
+    hub_metadata <- data.frame(
+      route_id = paste0(
+        "hub:", seq_len(nrow(hub_route_df)), ":",
+        hub_route_df$path_ids, ":", hub_route_df$target_id
+      ),
+      priority = hub_route_df$route_imp,
+      group = paste0("target:", hub_route_df$target_id),
+      stringsAsFactors = FALSE
+    )
+    hub_paths <- .dnmb_cct_separate_route_lanes(
+      routes = hub_paths,
+      metadata = hub_metadata,
+      lane_step = 0.045,
+      max_offset = 0.14,
+      horizontal_tolerance = 0.01,
+      y_tolerance = 0.04,
+      min_overlap = 0.18,
+      connection_mode = "move_internal",
+      round_radius = 0.04
+    )
+
+    for (i in seq_len(nrow(hub_route_df))) {
+      rr <- hub_route_df[i, , drop = FALSE]
+      main_path <- hub_paths[[i]]
+      # Keep the biochemical reference route faint, then foreground only
+      # pathways with positive intracellular evidence.
+      hub_state <- pathway_state_for(hit_ids <- unlist(strsplit(rr$path_ids, "|", fixed = TRUE)))
       p <- p + .dnmb_cct_single_path_layer(
-        main_path, color = hub_col,
-        linewidth = 0.35,
-        alpha = hub_alpha,
+        main_path, color = "#B8B8B8",
+        linewidth = 0.22,
+        alpha = 0.12,
         arrow_last = TRUE, arrow_length = 0.02,
         trim_end = 0.08
       )
-      for (ly in .dnmb_cct_junction_glyph_layers(
-        x = rr$target_x, y = rr$target_y, color = .dnmb_cct_reference_gray("dark"),
-        size = 1.3 + 0.5 * rr$route_imp, alpha = 0.45
-      )) p <- p + ly
-      if (rr$label_rank > 0) {
-        for (ly in .dnmb_cct_junction_glyph_layers(
-          x = rr$target_x, y = rr$target_y, color = rr$route_col,
-          size = 1.5 + 0.7 * rr$route_imp, alpha = 0.7
-        )) p <- p + ly
-      }
-
-      hit_ids <- unlist(strsplit(rr$path_ids, "|", fixed = TRUE))
-      route_hits <- matched_steps[tolower(matched_steps$pathway_id) %in% hit_ids, , drop = FALSE]
-      if (nrow(route_hits) > 0) {
-        keep_tr_like <- unlist(mapply(
-          .dnmb_cct_is_transport_like_step,
-          step_id = route_hits$step_id,
-          gene_name = route_hits$step_id,
-          is_pts = FALSE,
-          SIMPLIFY = TRUE
-        ))
-        route_hits <- route_hits[keep_tr_like, , drop = FALSE]
-      }
-      if (nrow(route_hits) == 0 && nzchar(rr$label_step) && nzchar(rr$label_locus)) {
-        route_hits <- data.frame(
-          step_id = rr$best_step_id,
-          locus_tag = rr$label_locus,
-          rank = rr$label_rank,
-          stringsAsFactors = FALSE
+      if (hub_state != "reference") {
+        p <- p + .dnmb_cct_single_path_layer(
+          main_path, color = rr$route_col,
+          linewidth = if (hub_state == "active") 0.48 else 0.32,
+          alpha = pathway_alpha_for(hit_ids, zone = "route"),
+          linetype = if (hub_state == "active") "solid" else "dashed",
+          arrow_last = TRUE, arrow_length = 0.02,
+          trim_end = 0.08
         )
       }
-      if (nrow(route_hits) > 0) {
-        route_hits <- route_hits[order(-route_hits$rank, route_hits$step_id, route_hits$locus_tag), , drop = FALSE]
-        route_hits <- utils::head(route_hits, 3L)  # max 3 labels per route
-        for (hi in seq_len(nrow(route_hits))) {
-          # Place label at midpoint of the path (between two metabolites)
-          path_idx <- .dnmb_cct_route_label_index(
-            main_path,
-            frac = 0.50 + 0.12 * (hi - 1L)
-          )
-          path_mid <- main_path[path_idx, , drop = FALSE]
-          route_label_rows[[length(route_label_rows) + 1L]] <- data.frame(
-            x = path_mid$x + 0.12,
-            y = path_mid$y,
-            label = paste0(.dnmb_cct_short_step_label(route_hits$step_id[hi], rr$cs_id), "\n", route_hits$locus_tag[hi]),
-            step_id = route_hits$step_id[hi],
-            locus_tag = route_hits$locus_tag[hi],
-            color = rr$route_col,
-            target_id = rr$target_id,
-            target_rank = rr$target_rank,
-            priority = 10 * rr$route_imp + route_hits$rank[hi] + 0.01 * (nrow(route_hits) - hi),
-            angle = 0,
-            stringsAsFactors = FALSE
-          )
-        }
-      }
+      # The SNFG metabolite at the route target already marks the junction.
+      # A second circular junction glyph creates a false ring behind stars such
+      # as Xu-5-P and R-5-P, so metabolic targets use the native symbol only.
+      # Step labels are added only through the exact directed-edge mapping
+      # below. A pathway-level best hit is not a biochemical reaction anchor.
     }
   }
 
-  shown_route_keys <- character(0)
-  if (length(route_label_rows) > 0) {
-    shown_route_keys <- unique(vapply(route_label_rows, function(x) {
-      paste(x$step_id[1], x$locus_tag[1], sep = "::")
-    }, character(1)))
-  }
-  edge_label_count <- integer(if (!is.null(cyto_edges)) nrow(cyto_edges) else 0L)
-  if (!is.null(cyto_edges) && nrow(cyto_edges) > 0 && nrow(matched_steps) > 0) {
-    # Only label high/medium confidence steps to reduce clutter
-    ms_ord <- matched_steps[matched_steps$rank >= 2L, , drop = FALSE]
-    ms_ord <- ms_ord[order(-ms_ord$rank, ms_ord$pathway_id, ms_ord$step_id), , drop = FALSE]
-    for (mi in seq_len(nrow(ms_ord))) {
-      ms <- ms_ord[mi, , drop = FALSE]
-      key <- paste(ms$step_id, ms$locus_tag, sep = "::")
-      if (key %in% shown_route_keys) next
-      # Also skip if this locus_tag was already shown (different step, same gene)
-      if (ms$locus_tag %in% sub("^.*::", "", shown_route_keys)) next
+  # Map labels require an exact, directed (pathway, step) -> reaction-edge
+  # mapping. There is intentionally no nearest-node or pathway-level fallback.
+  route_label_df <- .dnmb_cct_exact_step_labels(
+    step_evidence = matched_steps,
+    cyto_edges = cyto_edges
+  )
+  if (!nrow(route_label_df)) route_label_df <- NULL
 
-      tgt_nodes <- .dnmb_cct_step_target_nodes(ms$step_id, ms$pathway_id)
-      hint_nodes <- unique(c(
-        tgt_nodes,
-        .dnmb_cct_pathway_hint_nodes(
-          path_ids = ms$pathway_id,
-          matched_steps = ms,
-          transporters = transporters,
-          entry_map = entry_map
-        )
+  # The ledger is deliberately broader than the map: every high/medium
+  # intracellular hit remains reviewable even when no displayed edge can
+  # localize it without ambiguity.
+  ledger_hits <- matched_steps[
+    !is.na(matched_steps$locus_tag) & nzchar(matched_steps$locus_tag) &
+      matched_steps$rank >= 2L,
+    , drop = FALSE
+  ]
+  if (nrow(ledger_hits)) {
+    localized_matches <- .dnmb_cct_exact_step_edge_matches(
+      step_evidence = ledger_hits,
+      cyto_edges = cyto_edges
+    )
+    localized_keys <- if (nrow(localized_matches)) {
+      unique(paste(
+        localized_matches$.path_step_key,
+        localized_matches$locus_tag,
+        sep = "\r"
       ))
-      cand_idx <- integer(0)
-      if (length(hint_nodes) > 0) {
-        cand_idx <- which(cyto_edges$from %in% hint_nodes | cyto_edges$to %in% hint_nodes)
+    } else {
+      character()
+    }
+    ledger_hits$.path_step_key <- .dnmb_cct_path_step_key(
+      ledger_hits$pathway_id, ledger_hits$step_id
+    )
+    ledger_hits$.localized <- paste(
+      ledger_hits$.path_step_key, ledger_hits$locus_tag, sep = "\r"
+    ) %in% localized_keys
+    metabolic_loci <- sort(unique(as.character(ledger_hits$locus_tag)))
+    product_col <- .dnmb_pick_column(genbank_table, c("product", "description"))
+    metabolic_product_map <- if (!is.null(product_col) && "locus_tag" %in% names(genbank_table)) {
+      stats::setNames(as.character(genbank_table[[product_col]]), genbank_table$locus_tag)
+    } else {
+      character()
+    }
+    metabolic_ledger_df <- dplyr::bind_rows(lapply(metabolic_loci, function(locus) {
+      rows <- ledger_hits[ledger_hits$locus_tag == locus, , drop = FALSE]
+      steps <- unique(as.character(rows$step_id))
+      pathways <- unique(as.character(rows$pathway_id))
+      steps <- steps[!is.na(steps) & nzchar(steps)]
+      pathways <- pathways[!is.na(pathways) & nzchar(pathways)]
+      product <- unname(metabolic_product_map[locus])
+      if (is.na(product) || !nzchar(product)) product <- "Product not annotated"
+      evidence <- if (any(rows$confidence == "high" | rows$rank >= 3L)) {
+        "high confidence"
+      } else {
+        "medium confidence"
       }
-      if (length(cand_idx) == 0) {
-        cand_idx <- which(cyto_edges$pathway %in% c(
-          .dnmb_cct_route_group_for_pathway(ms$pathway_id, route_group_members),
-          "ppp", "ed", "backbone"
-        ))
-      }
-      if (length(cand_idx) == 0) next
-
-      score_edge <- function(ii) {
-        ce <- cyto_edges[ii, , drop = FALSE]
-        score <- 0
-        if (ce$to %in% tgt_nodes) score <- score + 3
-        if (ce$from %in% tgt_nodes) score <- score + 2
-        if (ce$to %in% hint_nodes || ce$from %in% hint_nodes) score <- score + 1
-        if (ce$pathway == .dnmb_cct_route_group_for_pathway(ms$pathway_id, route_group_members)) score <- score + 0.8
-        score - 0.05 * edge_label_count[ii]
-      }
-      edge_scores <- vapply(cand_idx, score_edge, numeric(1))
-      best_idx <- cand_idx[which.max(edge_scores)]
-      edge_label_count[best_idx] <- edge_label_count[best_idx] + 1L
-      if (edge_label_count[best_idx] > 2L) next  # max 2 labels per edge
-      ce <- cyto_edges[best_idx, , drop = FALSE]
-      edge_pts <- .dnmb_cct_edge_points_from_row(ce, edge_idx = best_idx, grid_step = glyco_grid_step)
-      if (is.null(edge_pts) || nrow(edge_pts) == 0) next
-      tgt_node <- if (length(tgt_nodes) > 0) tgt_nodes[1] else ce$to
-      edge_sugar <- unname(node_sugar_type[tgt_node])
-      if (is.na(edge_sugar) || !nzchar(edge_sugar) || edge_sugar == "intermediate") {
-        edge_sugar <- unname(node_sugar_type[ce$to])
-      }
-      # Place label at midpoint of the edge (between two metabolites)
-      path_idx <- .dnmb_cct_route_label_index(
-        edge_pts,
-        frac = 0.50 + 0.15 * (edge_label_count[best_idx] - 1L)
-      )
-      path_mid <- edge_pts[path_idx, , drop = FALSE]
-      route_label_rows[[length(route_label_rows) + 1L]] <- data.frame(
-        x = path_mid$x + 0.12,
-        y = path_mid$y,
-        label = paste0(.dnmb_cct_short_step_label(ms$step_id, ms$pathway_id), "\n", ms$locus_tag),
-        step_id = ms$step_id,
-        locus_tag = ms$locus_tag,
-        color = route_color_for(path_ids = ms$pathway_id, sugar_type = edge_sugar, fallback = "#8C8C8C"),
-        target_id = tgt_node,
-        target_rank = edge_label_count[best_idx],
-        priority = 8 + ms$rank,
-        angle = 0,
+      data.frame(
+        locus_tag = locus,
+        evidence_label = evidence,
+        ledger_text = paste0(
+          locus, " | Product: ", product,
+          " | GapMind intracellular steps: ", paste(steps, collapse = " | "),
+          " | Supported pathways: ", paste(pathways, collapse = " | "),
+          " | Evidence: ", evidence,
+          " | Map localization: ",
+          if (any(rows$.localized)) "exact directed reaction edge" else "ledger only"
+        ),
         stringsAsFactors = FALSE
       )
-      shown_route_keys <- c(shown_route_keys, key)
-    }
-  }
-
-  # Route labels (gene/locus_tag) are deferred to render LAST — see below after metabolite labels
-  if (length(route_label_rows) > 0) {
-    route_label_df <- do.call(rbind, route_label_rows)
-    route_label_df <- route_label_df[order(-route_label_df$priority), , drop = FALSE]
-    route_label_df <- route_label_df[!duplicated(route_label_df$locus_tag), , drop = FALSE]
-    center_ref <- stats::median(backbone_nodes$x, na.rm = TRUE)
-    route_label_df$priority <- route_label_df$priority -
-      2.1 * pmax(0, 1.6 - abs(route_label_df$x - center_ref))
-    route_label_df <- .dnmb_cct_layout_route_labels(route_label_df, center_x = center_ref)
+    }))
   } else {
-    route_label_df <- NULL
+    metabolic_ledger_df <- NULL
   }
 
   # ---- Final extracellular symbol overlay: keep polymer/branch nodes above route lines ----
+  extra_obstacle_rows <- list()
   for (ri in seq_len(n_extra)) {
     sub <- extra_substrates[ri, , drop = FALSE]
     ry <- extra_y_map[sub$id]
@@ -7598,6 +11151,10 @@
     chain <- extra_chains[[sub$id]]
     if (length(chain) > 0) {
       chain_xs <- chain_x + (seq_along(chain) - 1) * chain_step
+      extra_obstacle_rows[[length(extra_obstacle_rows) + 1L]] <- .dnmb_cct_obstacle_perimeter(
+        x = chain_xs, y = rep(ry, length(chain_xs)),
+        rx = sym_size * 1.15, ry = sym_size * 1.15
+      )
       for (ci in seq_along(chain)) {
         sug <- chain[[ci]]
         abbr <- .dnmb_snfg_abbreviation_v2(sug)
@@ -7615,6 +11172,9 @@
           gap = chain_gap
         )
         br_y <- ry - sym_size * (2.5 + 1.4 * (bi - 1))
+        extra_obstacle_rows[[length(extra_obstacle_rows) + 1L]] <- .dnmb_cct_obstacle_perimeter(
+          x = br_x, y = br_y, rx = sym_size * 1.15, ry = sym_size * 1.15
+        )
         abbr_br <- .dnmb_snfg_abbreviation_v2(br$sugar)
         p <- .dnmb_snfg_render_symbol_v2(p, br_x, br_y, br$sugar, r = sym_size, label = abbr_br)
       }
@@ -7626,37 +11186,92 @@
     mid <- mono_ids[mi]
     mx <- mono_xs[mi]
     abbr <- .dnmb_snfg_abbreviation_v2(mid)
-    p <- .dnmb_snfg_render_symbol_v2(p, mx, y_mono, mid, r = 0.10, label = abbr)
+    mono_st <- unname(mono_to_sugar[mid])
+    mono_paths <- if (!is.na(mono_st)) {
+      tolower(carbon_src$id[carbon_src$sugar_type == mono_st])
+    } else {
+      tolower(unname(mono_to_csid[mid]))
+    }
+    p <- .dnmb_snfg_render_symbol_v2(
+      p, mx, y_mono, mid, r = sugar_icon_r, label = abbr,
+      alpha = pathway_alpha_for(mono_paths, zone = "node")
+    )
   }
 
   for (st in names(hub_positions)) {
     hp <- hub_positions[[st]]
-    abbr <- .dnmb_snfg_abbreviation_v2(st)
-    p <- .dnmb_snfg_render_symbol_v2(p, hp$x, hp$y, st, r = 0.10, label = abbr)
+    if (!isTRUE(hp$source_at_hub)) {
+      abbr <- .dnmb_snfg_abbreviation_v2(st)
+      p <- .dnmb_snfg_render_symbol_v2(
+        p, hp$x, hp$y, st, r = sugar_icon_r, label = abbr,
+        alpha = hp$alpha %||% 0.22
+      )
+    }
+  }
+
+  # Draw every cytoplasmic source after all route lines. Source abbreviations
+  # are embedded in their glyphs, including composite disaccharide symbols.
+  for (i in seq_len(nrow(carbon_src))) {
+    nd <- carbon_src[i, , drop = FALSE]
+    p <- .dnmb_cct_render_carbon_source_node(
+      p, nd$x, nd$y, nd$id, r = sugar_icon_r,
+      alpha = pathway_alpha_for(tolower(nd$id), zone = "node")
+    )
   }
 
   for (ntype in c("backbone", "ppp", "entry_intermediate", "tca", "tca_shunt", "ed", "pyruvate_branch")) {
     nset <- cyto_nodes[cyto_nodes$type == ntype, , drop = FALSE]
     for (i in seq_len(nrow(nset))) {
       nd <- nset[i, , drop = FALSE]
-      # Symbol only — full name labels are rendered below
-      p <- .dnmb_snfg_render_symbol_v2(p, nd$x, nd$y, nd$sugar_type, r = node_r, label = NULL)
+      inside_label <- .dnmb_cct_cytoplasmic_inside_label(
+        nd$id, nd$label, nd$type, nd$sugar_type
+      )
+      node_alpha_i <- unname(cyto_node_alpha[nd$id])
+      if (!is.finite(node_alpha_i)) node_alpha_i <- 0.22
+      p <- .dnmb_snfg_render_symbol_v2(
+        p, nd$x, nd$y, nd$sugar_type, r = node_r,
+        label = if (nzchar(inside_label)) inside_label else NULL,
+        alpha = node_alpha_i
+      )
     }
   }
 
-  # ---- Metabolite labels: unified bold style, rendered LAST (above all symbols) ----
+  # Cleavage marks are annotations, so draw them only after every route and
+  # extracellular symbol. This keeps the blades, handles, and pivot visible.
+  scissor_df <- if (length(scissor_specs)) dplyr::bind_rows(scissor_specs) else data.frame()
+  if (nrow(scissor_df)) {
+    for (i in seq_len(nrow(scissor_df))) {
+      scissor_layers <- .dnmb_scissors_grob_v2(
+        scissor_df$x[i], scissor_df$y[i],
+        size = scissor_df$size[i], angle = scissor_df$angle[i]
+      )
+      for (layer in scissor_layers) p <- p + layer
+    }
+  }
+
+  # ---- External labels for non-sugar metabolites only ----
   all_metab_labels <- data.frame(
     x = numeric(0), y = numeric(0), label = character(0),
     nudge_x = numeric(0), nudge_y = numeric(0),
+    alpha = numeric(0),
     stringsAsFactors = FALSE
   )
-  # All cytoplasmic metabolites: unified style
+  # Sugar and sugar-phosphate abbreviations are already inside their glyphs.
   for (ntype in c("backbone", "ppp", "entry_intermediate", "ed", "pyruvate_branch")) {
     nset <- cyto_nodes[cyto_nodes$type == ntype, , drop = FALSE]
+    if (nrow(nset) > 0) {
+      inside_labels <- mapply(
+        .dnmb_cct_cytoplasmic_inside_label,
+        nset$id, nset$label, nset$type, nset$sugar_type,
+        USE.NAMES = FALSE
+      )
+      nset <- nset[!nzchar(inside_labels), , drop = FALSE]
+    }
     if (nrow(nset) > 0) {
       all_metab_labels <- rbind(all_metab_labels, data.frame(
         x = nset$x, y = nset$y, label = nset$label,
         nudge_x = 0, nudge_y = 0.16,
+        alpha = unname(cyto_node_alpha[nset$id]),
         stringsAsFactors = FALSE
       ))
     }
@@ -7674,6 +11289,7 @@
       all_metab_labels <- rbind(all_metab_labels, data.frame(
         x = tca_ring$x, y = tca_ring$y, label = tca_ring$label,
         nudge_x = tca_ring$ux * 0.20, nudge_y = tca_ring$uy * 0.20,
+        alpha = unname(cyto_node_alpha[tca_ring$id]),
         stringsAsFactors = FALSE
       ))
     }
@@ -7685,84 +11301,158 @@
       label = tca_shunt_nodes$label,
       nudge_x = 0,
       nudge_y = 0,
+      alpha = unname(cyto_node_alpha[tca_shunt_nodes$id]),
       stringsAsFactors = FALSE
     ))
   }
-  # Single unified ggrepel layer — bold, size 1.3, dark gray
-  if (nrow(all_metab_labels) > 0) {
-    p <- p + ggrepel::geom_text_repel(
-      data = all_metab_labels,
-      ggplot2::aes(x = .data$x, y = .data$y, label = .data$label),
-      size = 1.3, fontface = "bold", color = "#333333",
-      nudge_x = all_metab_labels$nudge_x,
-      nudge_y = all_metab_labels$nudge_y,
-      segment.size = 0.12, segment.color = "#CCCCCC",
-      segment.alpha = 0.3,
-      box.padding = 0.06, point.padding = 0.04,
-      min.segment.length = 0.12,
-      max.overlaps = 60,
-      force = 1.2, force_pull = 2.5,
-      max.iter = 5000,
-      seed = 42,
+  if (nrow(all_metab_labels)) {
+    all_metab_labels$color <- "#333333"
+    all_metab_labels$size <- 1.50
+    all_metab_labels$fontface <- "bold"
+    all_metab_labels$hjust <- 0.5
+    all_metab_labels$priority <- 20
+  }
+
+  extra_label_df <- dplyr::bind_rows(
+    extra_label_rows,
+    if (!is.null(gh_label_df)) list(gh_label_df) else list()
+  )
+  extra_label_df <- .dnmb_cct_layout_external_labels(
+    extra_label_df,
+    xlim = c(mem_xmin, mem_xmax),
+    row_step = 0.15,
+    max_aux_rows = 2L,
+    min_gap = 0.08
+  )
+  cyto_label_df <- dplyr::bind_rows(all_metab_labels, route_label_df)
+
+  extra_obstacles <- dplyr::bind_rows(
+    extra_obstacle_rows,
+    .dnmb_cct_obstacle_perimeter(
+      x = mono_xs, y = rep(y_mono, length(mono_xs)), rx = 0.12, ry = 0.12
+    ),
+    if (nrow(scissor_df)) {
+      .dnmb_cct_obstacle_perimeter(
+        x = scissor_df$x, y = scissor_df$y,
+        rx = scissor_df$size * 1.25, ry = scissor_df$size * 0.75
+      )
+    } else NULL
+  )
+  membrane_obstacles <- if (!is.null(transporter_entities_df) &&
+      nrow(transporter_entities_df) &&
+      all(c("anchor_x", "anchor_y", "seg_half") %in% names(transporter_entities_df))) {
+    .dnmb_cct_obstacle_perimeter(
+      x = transporter_entities_df$anchor_x,
+      y = transporter_entities_df$anchor_y,
+      rx = pmax(0.12, transporter_entities_df$seg_half + 0.03), ry = 0.10
+    )
+  } else {
+    data.frame(x = numeric(), y = numeric())
+  }
+  hub_obstacles <- dplyr::bind_rows(lapply(hub_positions, function(hp) {
+    .dnmb_cct_obstacle_perimeter(hp$x, hp$y, rx = 0.12, ry = 0.12)
+  }))
+  cyto_obstacles <- dplyr::bind_rows(
+    .dnmb_cct_obstacle_perimeter(cyto_nodes$x, cyto_nodes$y, rx = 0.12, ry = 0.12),
+    .dnmb_cct_obstacle_perimeter(carbon_src$x, carbon_src$y, rx = 0.12, ry = 0.12),
+    hub_obstacles
+  )
+
+  extra_leader_df <- .dnmb_cct_external_label_leaders(extra_label_df)
+  if (nrow(extra_leader_df)) {
+    p <- p + ggplot2::geom_path(
+      data = extra_leader_df,
+      ggplot2::aes(
+        x = .data$x, y = .data$y, group = .data$group
+      ),
+      color = extra_leader_df$color,
+      linewidth = 0.12, alpha = 0.52, lineend = "round",
+      show.legend = FALSE, inherit.aes = FALSE
+    )
+  }
+  if (nrow(extra_label_df)) {
+    p <- p + ggplot2::geom_text(
+      data = extra_label_df,
+      ggplot2::aes(x = .data$x_lab, y = .data$y_lab, label = .data$label),
+      color = extra_label_df$color,
+      size = extra_label_df$size,
+      fontface = extra_label_df$fontface,
+      hjust = extra_label_df$hjust,
+      alpha = if ("alpha" %in% names(extra_label_df)) extra_label_df$alpha else 1,
+      lineheight = 0.9,
+      check_overlap = FALSE,
       inherit.aes = FALSE
     )
   }
 
-  # ---- Route labels (gene/locus_tag): rendered LAST, above all symbols and metabolite labels ----
-  if (!is.null(route_label_df) && nrow(route_label_df) > 0) {
-    # Thin connector segments from label to anchor point
-    conn_df <- route_label_df[abs(route_label_df$x_lab - route_label_df$x) > 0.08 |
-                               abs(route_label_df$y_lab - route_label_df$y) > 0.08, , drop = FALSE]
-    if (nrow(conn_df) > 0) {
-      p <- p + ggplot2::geom_segment(
-        data = conn_df,
-        ggplot2::aes(x = .data$x, y = .data$y, xend = .data$x_lab, yend = .data$y_lab),
-        linewidth = 0.10, color = "#BBBBBB", alpha = 0.4,
-        inherit.aes = FALSE
-      )
-    }
-    p <- p + ggplot2::geom_text(
-      data = route_label_df,
-      ggplot2::aes(x = .data$x_lab, y = .data$y_lab, label = .data$label),
-      size = 0.72, color = "#111111",
-      fontface = "bold", hjust = route_label_df$hjust,
-      angle = 0,
-      lineheight = 0.85, inherit.aes = FALSE
+  transporter_label_df <- .dnmb_cct_layout_transporter_labels(
+    transporter_label_df,
+    xlim = c(mem_xmin, mem_xmax),
+    y_memb = y_memb,
+    base_offset = 0.26,
+    track_step = 0.11,
+    max_aux_tracks = 2L,
+    min_gap = 0.08
+  )
+  transporter_leader_df <- .dnmb_cct_transporter_label_leaders(
+    transporter_label_df
+  )
+  if (nrow(transporter_leader_df)) {
+    p <- p + ggplot2::geom_path(
+      data = transporter_leader_df,
+      ggplot2::aes(x = .data$x, y = .data$y, group = .data$group),
+      color = transporter_leader_df$color,
+      linewidth = 0.12, alpha = 0.58, lineend = "round",
+      show.legend = FALSE, inherit.aes = FALSE
     )
   }
+  membrane_text_layer <- .dnmb_cct_transporter_text_layer(transporter_label_df)
+  if (!is.null(membrane_text_layer)) p <- p + membrane_text_layer
+
+  cyto_text_layer <- .dnmb_cct_final_text_layer(
+    cyto_label_df,
+    obstacles = cyto_obstacles,
+    xlim = c(mem_xmin, mem_xmax),
+    ylim = c(y_bot - 0.40, y_memb - 0.28),
+    seed = 44L,
+    force = 1.35,
+    force_pull = 2.5
+  )
+  if (!is.null(cyto_text_layer)) p <- p + cyto_text_layer
 
   # ====================================================================
   # LEGENDS
   # ====================================================================
-  p <- p + ggplot2::scale_color_manual(
-    name = "Pathway\nCompleteness",
-    values = c(high = "#2CA25F", medium = "#FEC44F", low = "#F03B20", none = "#CCCCCC"),
-    labels = c(high = "High (\u226575%)", medium = "Medium (50-74%)",
-               low = "Low (<50%)", none = "Not found"),
-    drop = FALSE)
-
-  # SNFG legend — compact, RIGHT side, aligned with TCA circle height
-  snfg_leg <- data.frame(
-    sugar = c("glucose", "galactose", "mannose", "fructose", "glcnac",
-              "fucose", "rhamnose", "xylose", "arabinose", "glca", "gala", "ribose"),
-    label = c("Glc", "Gal", "Man", "Fru", "GlcNAc", "Fuc", "Rha", "Xyl",
-              "Ara", "GlcA", "GalA", "Rib"),
-    stringsAsFactors = FALSE, row.names = NULL)
+  # Build the legend from every sugar type actually rendered in this map.
+  used_snfg_types <- .dnmb_cct_used_snfg_types(
+    cyto_nodes = cyto_nodes,
+    source_ids = carbon_src$id,
+    monomer_ids = mono_ids,
+    extra_chains = extra_chains,
+    extra_branches = extra_branches
+  )
+  snfg_leg <- .dnmb_cct_snfg_legend_data(used_snfg_types)
+  snfg_legend_width <- max(1.02, 0.052 * max(nchar(snfg_leg$label)) + 0.36)
   # Pull the legend into the unused lower-right interior space.
   leg_x <- max(cyto_nodes$x) - 0.28
   # y aligned slightly above the TCA circle center so the block sits tighter.
   tca_cy_leg <- if (nrow(tca_nodes) > 0) mean(tca_nodes$y) + 0.20 else 0.7
-  sp <- 0.19
+  sp <- max(
+    if (nrow(snfg_leg) > 14L) 0.165 else 0.19,
+    sugar_icon_r * 2.35
+  )
   n_snfg <- nrow(snfg_leg)
   leg_y_top <- tca_cy_leg + (n_snfg / 2) * sp
   p <- p + ggplot2::annotate("text", x = leg_x, y = leg_y_top + 0.22,
     hjust = 0, size = 1.9, fontface = "bold", color = "#333333",
-    label = "SNFG Symbols")
+    label = "SNFG / sugar symbols")
   for (i in seq_len(n_snfg)) {
     ly <- leg_y_top - (i - 1) * sp
-    p <- .dnmb_snfg_render_symbol_v2(p, leg_x, ly, snfg_leg$sugar[i], r = 0.08)
+    p <- .dnmb_snfg_render_symbol_v2(
+      p, leg_x, ly, snfg_leg$sugar[i], r = sugar_icon_r
+    )
     p <- p + ggplot2::annotate("text", x = leg_x + 0.19, y = ly,
-      label = snfg_leg$label[i], hjust = 0, size = 1.7, color = "#555555")
+      label = snfg_leg$label[i], hjust = 0, size = 1.35, color = "#555555")
   }
   # Bond legend below SNFG
   bleg_y <- leg_y_top - n_snfg * sp - 0.15
@@ -7781,11 +11471,65 @@
     ggplot2::annotate("text", x = leg_x + 0.33, y = bleg_y - sp,
       label = "\u03b2 bond", hjust = 0, size = 1.45, color = "#555555")
   # Scissors
-  sc_ly <- .dnmb_scissors_grob_v2(leg_x + 0.09, bleg_y - 2 * sp, size = 0.09)
+  sc_ly <- .dnmb_scissors_grob_v2(leg_x + 0.09, bleg_y - 2 * sp, size = 0.10)
   for (l in sc_ly) p <- p + l
   p <- p + ggplot2::annotate("text", x = leg_x + 0.33, y = bleg_y - 2 * sp,
     label = "GH cleavage", hjust = 0, size = 1.45, color = "#555555")
   enz_leg_y <- bleg_y - 3 * sp
+  p <- p + ggplot2::annotate(
+    "text", x = leg_x, y = enz_leg_y,
+    label = "Pathway evidence", hjust = 0, size = 1.75,
+    fontface = "bold", color = "#333333"
+  )
+  evidence_legend <- data.frame(
+    y = enz_leg_y - sp * seq_len(3),
+    color = c("#2A7F62", "#7F8C8D", "#B8B8B8"),
+    alpha = c(0.85, 0.55, 0.25),
+    linewidth = c(0.75, 0.55, 0.35),
+    linetype = c("solid", "dashed", "solid"),
+    label = c("Supported pathway", "Partial evidence", "Reference / not supported"),
+    stringsAsFactors = FALSE
+  )
+  for (i in seq_len(nrow(evidence_legend))) {
+    ev <- evidence_legend[i, , drop = FALSE]
+    p <- p + ggplot2::geom_segment(
+      data = data.frame(
+        x = leg_x, xend = leg_x + 0.24,
+        y = ev$y, yend = ev$y
+      ),
+      ggplot2::aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$yend),
+      color = ev$color, alpha = ev$alpha, linewidth = ev$linewidth,
+      linetype = ev$linetype, inherit.aes = FALSE
+    ) + ggplot2::annotate(
+      "text", x = leg_x + 0.33, y = ev$y,
+      label = ev$label, hjust = 0, size = 1.35, color = "#555555"
+    )
+  }
+
+  # Central-carbon loci are written beside the supported reaction itself.
+  # This final overlay keeps them readable without a separate lookup panel.
+  if (nrow(core_direct_label_df)) {
+    direct_colors <- vapply(
+      core_direct_label_df$status, core_state_color, character(1)
+    )
+    direct_alpha <- pmax(
+      0.55,
+      vapply(core_direct_label_df$status, core_state_alpha, numeric(1))
+    )
+    p <- p + ggplot2::geom_text(
+      data = core_direct_label_df,
+      ggplot2::aes(x = .data$x, y = .data$y, label = .data$label),
+      hjust = core_direct_label_df$hjust,
+      vjust = core_direct_label_df$vjust,
+      size = core_direct_label_df$size,
+      color = direct_colors,
+      alpha = direct_alpha,
+      lineheight = 0.90,
+      fontface = "plain",
+      inherit.aes = FALSE,
+      show.legend = FALSE
+    )
+  }
 
   # ====================================================================
   # THEME & OUTPUT
@@ -7793,21 +11537,152 @@
   y_bottom <- y_bot - 0.5
   y_top_plot <- max(extra_top_actual + 0.55, max(cyto_nodes$y) + 1.15)
   x_left <- mem_xmin - 0.05
-  x_right <- max(mem_xmax + 0.10, leg_x + 1.02)
+  x_right <- max(zone_label_x + 1.30, leg_x + snfg_legend_width)
+
+  core_ledger_df <- core_steps[core_steps$status != "reference", , drop = FALSE]
+  if (nrow(core_ledger_df)) {
+    core_ledger_df$ledger_text <- paste0(
+      core_ledger_df$reaction_label,
+      " | Components/loci: ", core_ledger_df$components,
+      " | Products: ", core_ledger_df$product_evidence,
+      " | Status: ", core_ledger_df$status,
+      " | Evidence: conservative gene/product/EC/KO annotation agreement"
+    )
+  }
+  evidence_ledger_df <- dplyr::bind_rows(
+    if (!is.null(transporter_ledger_df) && nrow(transporter_ledger_df)) {
+      data.frame(
+        ledger_text = transporter_ledger_df$ledger_text,
+        ledger_type = "Transporter",
+        ledger_priority = ifelse(
+          transporter_ledger_df$confidence == "high",
+          ifelse(transporter_ledger_df$shared, 4.0, 3.5),
+          ifelse(transporter_ledger_df$shared, 3.0, 2.5)
+        ),
+        ledger_color = ifelse(
+          transporter_ledger_df$confidence == "high", "#102A43", "#52616B"
+        ),
+        ledger_fontface = ifelse(
+          transporter_ledger_df$confidence == "high", "bold", "plain"
+        ),
+        stringsAsFactors = FALSE
+      )
+    } else NULL,
+    if (!is.null(gh_ledger_df) && nrow(gh_ledger_df)) {
+      data.frame(
+        ledger_text = gh_ledger_df$ledger_text,
+        ledger_type = "GH cleavage",
+        ledger_priority = 1.5,
+        ledger_color = "#9B1C1C",
+        ledger_fontface = "plain",
+        stringsAsFactors = FALSE
+      )
+    } else NULL,
+    if (!is.null(metabolic_ledger_df) && nrow(metabolic_ledger_df)) {
+      data.frame(
+        ledger_text = metabolic_ledger_df$ledger_text,
+        ledger_type = "Intracellular",
+        ledger_priority = ifelse(
+          metabolic_ledger_df$evidence_label == "high confidence", 2.0, 1.0
+        ),
+        ledger_color = "#214E3A",
+        ledger_fontface = ifelse(
+          metabolic_ledger_df$evidence_label == "high confidence", "bold", "plain"
+        ),
+        stringsAsFactors = FALSE
+      )
+    } else NULL,
+    if (nrow(core_ledger_df)) {
+      data.frame(
+        ledger_text = core_ledger_df$ledger_text,
+        ledger_type = "Core metabolism",
+        ledger_priority = ifelse(core_ledger_df$status == "active", 2.75, 1.75),
+        ledger_color = vapply(core_ledger_df$status, core_state_color, character(1)),
+        ledger_fontface = ifelse(core_ledger_df$status == "active", "bold", "plain"),
+        stringsAsFactors = FALSE
+      )
+    } else NULL
+  )
+  if (nrow(evidence_ledger_df)) {
+    map_y_bottom <- y_bottom
+    max_rows_per_block <- 24L
+    n_blocks <- ceiling(nrow(evidence_ledger_df) / max_rows_per_block)
+    rows_per_block <- ceiling(nrow(evidence_ledger_df) / n_blocks)
+    evidence_ledger_df$block <- rep(
+      seq_len(n_blocks), each = rows_per_block,
+      length.out = nrow(evidence_ledger_df)
+    )
+    evidence_ledger_df$row_in_block <- ave(
+      seq_len(nrow(evidence_ledger_df)),
+      evidence_ledger_df$block,
+      FUN = seq_along
+    )
+    ledger_x0 <- x_left + 0.30
+    block_width <- (x_right - x_left - 0.60) / n_blocks
+    wrap_chars <- max(60L, floor(block_width / 0.075))
+    evidence_ledger_df$wrapped_text <- vapply(
+      evidence_ledger_df$ledger_text,
+      function(value) paste(strwrap(value, width = wrap_chars), collapse = "\n"),
+      character(1)
+    )
+    evidence_ledger_df$n_lines <- pmax(
+      1L,
+      lengths(strsplit(evidence_ledger_df$wrapped_text, "\n", fixed = TRUE))
+    )
+    evidence_ledger_df$x <- ledger_x0 +
+      (evidence_ledger_df$block - 1L) * block_width
+    ledger_y_title <- map_y_bottom - 0.55
+    ledger_y_top <- ledger_y_title - 0.72
+    evidence_ledger_df$y <- NA_real_
+    ledger_bottom <- ledger_y_top
+    for (block_id in seq_len(n_blocks)) {
+      idx <- which(evidence_ledger_df$block == block_id)
+      row_height <- 0.25 * evidence_ledger_df$n_lines[idx] + 0.20
+      row_bottom <- ledger_y_top - cumsum(row_height)
+      evidence_ledger_df$y[idx] <- row_bottom + row_height / 2
+      ledger_bottom <- min(ledger_bottom, min(row_bottom))
+    }
+    y_bottom <- ledger_bottom - 0.45
+    p <- p + ggplot2::annotate(
+      "text",
+      x = ledger_x0, y = ledger_y_title,
+      label = "Full functional evidence",
+      hjust = 0, size = 2.5,
+      fontface = "bold", color = "#243B53"
+    ) + ggplot2::annotate(
+      "text",
+      x = ledger_x0, y = ledger_y_title - 0.28,
+      label = paste0(
+        "T-ID = membrane transporter locus; G-ID = extracellular GH locus; ",
+        "intracellular and central-carbon genes are labeled beside reactions; ",
+        "all retained evidence is listed below"
+      ),
+      hjust = 0, size = 1.55, color = "#607D8B"
+    ) + ggplot2::geom_text(
+      data = evidence_ledger_df,
+      ggplot2::aes(x = .data$x, y = .data$y, label = .data$wrapped_text),
+      hjust = 0, vjust = 0.5, size = 1.55,
+      color = evidence_ledger_df$ledger_color,
+      fontface = evidence_ledger_df$ledger_fontface,
+      lineheight = 0.95, inherit.aes = FALSE
+    )
+  }
   x_span <- max(1, x_right - x_left)
   y_span <- max(1, y_top_plot - y_bottom)
   n_active <- length(cs_ids_ordered)
-  # Derive dimensions from coordinate span to match coord_fixed(ratio=1)
-  scale_factor <- 0.78
-  plot_height <- max(15.5, min(40, y_span * scale_factor))
+  # Match the device to the fixed-coordinate content so the one-page map does
+  # not retain the large blank band created by the former square minimum.
+  unit_in <- 0.82
+  plot_height <- max(10, min(24, y_span * unit_in + 0.9))
   min_width <- max(8, 5 + n_active * 0.55)
-  plot_width <- max(min_width, min(40, x_span * scale_factor + 0.9))
+  plot_width <- max(min_width, min(30, x_span * unit_in + 0.9))
 
   p <- p +
     ggplot2::coord_fixed(ratio = 1,
-      xlim = c(x_left, x_right), ylim = c(y_bottom, y_top_plot), clip = "off") +
+      xlim = c(x_left, x_right), ylim = c(y_bottom, y_top_plot),
+      expand = FALSE, clip = "off") +
     ggplot2::labs(
-      title = "CAZy Carbon Transport Map (3-Zone)",
+      title = "CAZy Carbon Transport Map",
       subtitle = paste0(
         "Extracellular: SNFG glycan chains + GH cleavage | ",
         "Membrane: transporters | Cytoplasm: grid metabolism")) +
@@ -7831,7 +11706,11 @@
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, paste0(file_stub, ".pdf"))
-  .dnmb_module_plot_save(p, pdf_path, width = plot_width, height = plot_height)
+  .dnmb_module_plot_save(
+    p, pdf_path,
+    width = plot_width, height = plot_height,
+    device = grDevices::cairo_pdf
+  )
   list(pdf = pdf_path)
 }
 
@@ -7862,6 +11741,8 @@
     xylose = "Xu-5-P", arabinose = "Xu-5-P",
     # → Ribose → R-5-P (PPP)
     ribose = "R-5-P",
+    # → 2-deoxyribose-5-P → GA3P + acetaldehyde
+    deoxyribose = "GA3P",
     # → Gluconate → 6-PG (PPP)
     gluconate = "6-PG",
     # → Glycerol → DHAP
@@ -7894,6 +11775,7 @@
     xylose      = list(c("Xylulose", "xylose", "xylA"), c("Xu-5-P", "xylose", "xylB")),
     arabinose   = list(c("Ribulose", "arabinose", "araA"), c("Ribulose-5-P", "arabinose", "araB"), c("Xu-5-P", "xylose", "araD")),
     ribose      = list(c("R-5-P", "ribose", "rbsK")),
+    deoxyribose = list(c("Deoxyribose-5-P", "deoxyribose", "deoK")),
     gluconate   = list(c("6-PG", "gluconate", "gntK")),
     glycerol    = list(c("Glycerol-3-P", "glycerol", "glpK")),
     fucose      = list(c("Fuculose", "fucose", "fucI"), c("Fuculose-1-P", "fucose", "fucK")),

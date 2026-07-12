@@ -105,7 +105,9 @@
   x
 }
 
-.dnmb_prepare_query_proteins <- function(genes) {
+.dnmb_prepare_query_proteins <- function(
+    genes,
+    key_normalizer = .dnmb_module_clean_annotation_key) {
   if (!is.data.frame(genes)) {
     stop("`genes` must be a data frame.", call. = FALSE)
   }
@@ -122,7 +124,7 @@
   }
 
   proteins <- tibble::as_tibble(genes)
-  proteins$locus_tag <- .dnmb_module_clean_annotation_key(proteins$locus_tag)
+  proteins$locus_tag <- key_normalizer(proteins$locus_tag)
   proteins$translation <- .dnmb_normalize_translation(proteins$translation)
   proteins <- proteins[!is.na(proteins$locus_tag) & nzchar(proteins$locus_tag) & !is.na(proteins$translation), , drop = FALSE]
   proteins <- proteins[!duplicated(proteins$locus_tag), , drop = FALSE]
@@ -130,8 +132,14 @@
   proteins
 }
 
-.dnmb_write_query_fasta <- function(genes, path) {
-  proteins <- .dnmb_prepare_query_proteins(genes)
+.dnmb_write_query_fasta <- function(
+    genes,
+    path,
+    key_normalizer = .dnmb_module_clean_annotation_key) {
+  proteins <- .dnmb_prepare_query_proteins(
+    genes,
+    key_normalizer = key_normalizer
+  )
   if (!nrow(proteins)) {
     writeLines(character(), con = path)
     return(list(path = path, proteins = proteins, n = 0L))
@@ -158,8 +166,14 @@
   headers
 }
 
-.dnmb_can_reuse_query_fasta <- function(path, genes) {
-  proteins <- .dnmb_prepare_query_proteins(genes)
+.dnmb_can_reuse_query_fasta <- function(
+    path,
+    genes,
+    key_normalizer = .dnmb_module_clean_annotation_key) {
+  proteins <- .dnmb_prepare_query_proteins(
+    genes,
+    key_normalizer = key_normalizer
+  )
   headers <- .dnmb_fasta_headers(path)
   if (!length(headers) || length(headers) != nrow(proteins)) {
     return(FALSE)
@@ -168,7 +182,9 @@
   identical(headers, proteins$locus_tag)
 }
 
-.dnmb_best_module_hits <- function(hits) {
+.dnmb_best_module_hits <- function(
+    hits,
+    key_normalizer = .dnmb_module_clean_annotation_key) {
   if (is.null(hits) || !is.data.frame(hits) || !nrow(hits)) {
     return(.dnmb_module_empty_optional_long_table())
   }
@@ -181,7 +197,7 @@
   }
 
   hits <- as.data.frame(hits, stringsAsFactors = FALSE)
-  hits$query <- .dnmb_module_clean_annotation_key(hits$query)
+  hits$query <- key_normalizer(hits$query)
   ordered_columns <- c(required, extra_columns)
   hits <- hits[!is.na(hits$query), ordered_columns, drop = FALSE]
   if (!nrow(hits)) {
@@ -212,9 +228,12 @@
   rep(NA_character_, n)
 }
 
-.dnmb_module_output_table <- function(genes, hits) {
+.dnmb_module_output_table <- function(
+    genes,
+    hits,
+    key_normalizer = .dnmb_module_clean_annotation_key) {
   genes <- as.data.frame(genes, stringsAsFactors = FALSE)
-  genes$locus_tag <- .dnmb_module_clean_annotation_key(genes$locus_tag)
+  genes$locus_tag <- key_normalizer(genes$locus_tag)
   base_cols <- intersect(
     c("locus_tag", "gene", "product", "protein_id", "contig", "start", "end", "direction"),
     names(genes)
@@ -228,7 +247,10 @@
   out$support <- NA_character_
   out$typing_eligible <- NA
 
-  best_hits <- .dnmb_best_module_hits(hits)
+  best_hits <- .dnmb_best_module_hits(
+    hits,
+    key_normalizer = key_normalizer
+  )
   if (!nrow(best_hits)) {
     return(out)
   }

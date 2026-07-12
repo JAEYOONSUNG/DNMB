@@ -249,6 +249,17 @@
       error = function(e) list(found = FALSE)
     )
     signatures$dbCAN$run_dbcan_available <- isTRUE(run_dbcan$found)
+    signatures$dbCAN$run_dbcan_version <- if (isTRUE(run_dbcan$found)) {
+      tryCatch(.dnmb_dbcan_tool_version(), error = function(e) NA_character_)
+    } else {
+      NA_character_
+    }
+    signatures$dbCAN$run_dbcan_path <- if (isTRUE(run_dbcan$found)) {
+      normalizePath(run_dbcan$path, winslash = "/", mustWork = FALSE)
+    } else {
+      NA_character_
+    }
+    signatures$dbCAN$pipeline_contract_version <- .dnmb_dbcan_pipeline_contract_version()
   }
   if ("PAZy" %in% module_aliases) {
     signatures$PAZy <- .dnmb_db_manifest_identity("pazy", current_version, cache_root = module_cache_root)
@@ -432,7 +443,12 @@
     ),
     dbCAN = list(
       mode = "all",
-      paths = c(file.path(wd, "dnmb_module_dbcan", "run_dbcan", "overview.tsv"))
+      paths = c(
+        file.path(wd, "dnmb_module_dbcan", "dbcan_gene_id_map.tsv"),
+        file.path(wd, "dnmb_module_dbcan", "run_dbcan", "overview.tsv"),
+        file.path(wd, "dnmb_module_dbcan", "run_dbcan", "dnmb_mapped_domains.tsv"),
+        file.path(wd, "dnmb_module_dbcan", "run_dbcan", "dnmb_cazy_gene_summary.tsv")
+      )
     ),
     PAZy = list(
       mode = "all",
@@ -541,6 +557,22 @@
   if (file.exists(.dnmb_module_completion_sentinel_path(alias, wd = wd))) {
     if (identical(as.character(alias)[1], "Promotech")) {
       return(.dnmb_promotech_stage_artifacts_complete(wd = wd))
+    }
+    if (identical(as.character(alias)[1], "dbCAN")) {
+      spec <- .dnmb_module_stage_expected_artifacts(alias, wd = wd)
+      if (file.exists(file.path(wd, "dnmb_module_dbcan", "run_dbcan", "overview.tsv"))) {
+        return(all(file.exists(spec$paths)))
+      }
+      query_fasta <- file.path(wd, "dnmb_module_dbcan", "dbcan_query_proteins.faa")
+      gene_map <- file.path(wd, "dnmb_module_dbcan", "dbcan_gene_id_map.tsv")
+      if (file.exists(query_fasta) && file.exists(gene_map) &&
+          isTRUE(file.info(query_fasta)$size == 0)) {
+        return(TRUE)
+      }
+      return(all(file.exists(c(
+        gene_map,
+        file.path(wd, "dnmb_module_dbcan", "dbcan_hmmsearch.domtblout")
+      ))))
     }
     return(TRUE)
   }

@@ -12,7 +12,8 @@
 # ---- Split diamond (upper triangle colored / lower triangle white) for SNFG uronic acids ----
 # This matches the SNFG symbol sheet: top triangle filled, bottom triangle white.
 .dnmb_snfg_split_diamond_layers <- function(cx, cy, r = 0.20, fill_color = "#0072BC",
-                                            border_color = "black", border_lw = 0.3) {
+                                            border_color = "black", border_lw = 0.3,
+                                            alpha = 1) {
   # Diamond vertices: top, right, bottom, left
   top   <- c(cx, cy + r)
   right <- c(cx + r, cy)
@@ -38,17 +39,18 @@
   list(
     ggplot2::geom_polygon(data = lower_df,
       ggplot2::aes(x = .data$x, y = .data$y),
-      fill = "white", color = NA, inherit.aes = FALSE),
+      fill = "white", color = NA, alpha = alpha, inherit.aes = FALSE),
     ggplot2::geom_polygon(data = upper_df,
       ggplot2::aes(x = .data$x, y = .data$y),
-      fill = fill_color, color = NA, inherit.aes = FALSE),
+      fill = fill_color, color = NA, alpha = alpha, inherit.aes = FALSE),
     ggplot2::geom_polygon(data = outline_df,
       ggplot2::aes(x = .data$x, y = .data$y),
-      fill = NA, color = border_color, linewidth = border_lw, inherit.aes = FALSE),
+      fill = NA, color = border_color, linewidth = border_lw, alpha = alpha,
+      inherit.aes = FALSE),
     ggplot2::annotate(
       "segment",
       x = left[1], xend = right[1], y = left[2], yend = right[2],
-      color = border_color, linewidth = border_lw
+      color = border_color, linewidth = border_lw, alpha = alpha
     )
   )
 }

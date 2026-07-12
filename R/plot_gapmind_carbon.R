@@ -14,6 +14,32 @@
   path_col <- "GapMindCarbon_pathway_id"; step_col <- "GapMindCarbon_step_id"
   conf_col <- "GapMindCarbon_confidence"; bp_col <- "GapMindCarbon_on_best_path"
   lt_col <- "locus_tag"
+  confidence_rank <- c(none = 0L, low = 1L, medium = 2L, high = 3L)
+  score_confidence <- function(score) {
+    score <- suppressWarnings(base::as.numeric(score))
+    base::ifelse(
+      !base::is.na(score) & score >= 2, "high",
+      base::ifelse(!base::is.na(score) & score >= 1, "medium", "none")
+    )
+  }
+  clean_locus <- function(x) {
+    x <- base::trimws(base::as.character(x))
+    x[base::is.na(x) | !base::nzchar(x)] <- NA_character_
+    x
+  }
+  collapse_exact_locus <- function(x) {
+    if (!base::nrow(x)) return(x)
+    locus_key <- base::ifelse(base::is.na(x$locus_tag), "<missing>", x$locus_tag)
+    key <- base::paste(x$pathway_id, x$step_id, locus_key, sep = "\r")
+    rank <- unname(confidence_rank[x$confidence])
+    rank[base::is.na(rank)] <- 0L
+    keep_order <- base::order(key, -rank, base::seq_len(base::nrow(x)))
+    x <- x[keep_order, , drop = FALSE]
+    key <- key[keep_order]
+    x <- x[!base::duplicated(key), , drop = FALSE]
+    base::rownames(x) <- NULL
+    x
+  }
   found <- data.frame(
     pathway_id = character(),
     step_id = character(),
@@ -21,21 +47,39 @@
     locus_tag = character(),
     stringsAsFactors = FALSE
   )
-  if (path_col %in% base::names(tbl)) {
+  if (base::all(c(path_col, step_col) %in% base::names(tbl))) {
     tbl <- tbl[!is.na(tbl[[path_col]]) & base::nzchar(tbl[[path_col]]), , drop = FALSE]
     if (base::nrow(tbl)) {
       has_bp <- bp_col %in% names(tbl)
-      bp_tbl <- if (has_bp) tbl[!is.na(tbl[[bp_col]]) & tbl[[bp_col]] == TRUE, , drop = FALSE] else tbl
-      has_lt <- lt_col %in% names(bp_tbl)
-      found <- bp_tbl |>
-        dplyr::group_by(pathway_id = .data[[path_col]], step_id = .data[[step_col]]) |>
-        dplyr::summarise(
-          confidence = dplyr::case_when(
-            any(.data[[conf_col]] == "high") ~ "high",
-            any(.data[[conf_col]] == "medium") ~ "medium", TRUE ~ "low"),
-          locus_tag = if (has_lt) dplyr::first(.data[[lt_col]]) else NA_character_,
-          .groups = "drop") |>
-        as.data.frame(stringsAsFactors = FALSE)
+      if (has_bp) {
+        bp_value <- base::tolower(base::trimws(base::as.character(tbl[[bp_col]])))
+        keep_bp <- !base::is.na(bp_value) & bp_value %in% c("1", "true", "t")
+        bp_tbl <- tbl[keep_bp, , drop = FALSE]
+      } else {
+        bp_tbl <- tbl
+      }
+      if (base::nrow(bp_tbl)) {
+        workbook_confidence <- if (conf_col %in% base::names(bp_tbl)) {
+          base::tolower(base::trimws(base::as.character(bp_tbl[[conf_col]])))
+        } else if ("GapMindCarbon_step_score" %in% base::names(bp_tbl)) {
+          score_confidence(bp_tbl[["GapMindCarbon_step_score"]])
+        } else {
+          base::rep("low", base::nrow(bp_tbl))
+        }
+        workbook_confidence[!workbook_confidence %in% base::names(confidence_rank)] <- "low"
+        found <- data.frame(
+          pathway_id = base::as.character(bp_tbl[[path_col]]),
+          step_id = base::as.character(bp_tbl[[step_col]]),
+          confidence = workbook_confidence,
+          locus_tag = if (lt_col %in% base::names(bp_tbl)) {
+            clean_locus(bp_tbl[[lt_col]])
+          } else {
+            base::rep(NA_character_, base::nrow(bp_tbl))
+          },
+          stringsAsFactors = FALSE
+        )
+        found <- collapse_exact_locus(found)
+      }
     }
   }
   # Supplement from aa.sum.steps in carbon module directory
@@ -50,14 +94,36 @@
   if (!is.null(steps_file)) {
     st <- utils::read.delim(steps_file, stringsAsFactors = FALSE)
     if (all(c("onBestPath","pathway","step","score") %in% names(st))) {
-      bp_st <- st[st$onBestPath == 1 & !duplicated(st[,c("pathway","step")]), , drop = FALSE]
-      bp_st$confidence <- dplyr::case_when(bp_st$score>=2~"high", bp_st$score>=1~"medium", TRUE~"low")
-      lt_s <- if ("locusId" %in% names(bp_st)) bp_st$locusId else NA_character_
-      extra <- data.frame(pathway_id=bp_st$pathway, step_id=bp_st$step,
-                          confidence=bp_st$confidence, locus_tag=lt_s, stringsAsFactors=FALSE)
-      ekey <- paste0(extra$pathway_id,"::",extra$step_id)
-      fkey <- paste0(found$pathway_id,"::",found$step_id)
-      found <- rbind(found, extra[!ekey %in% fkey, , drop=FALSE])
+      best_path <- suppressWarnings(base::as.numeric(st$onBestPath)) == 1
+      best_path[base::is.na(best_path)] <- FALSE
+      bp_st <- st[best_path, , drop = FALSE]
+      if (base::nrow(bp_st)) {
+        primary <- data.frame(
+          pathway_id = base::as.character(bp_st$pathway),
+          step_id = base::as.character(bp_st$step),
+          confidence = score_confidence(bp_st$score),
+          locus_tag = if ("locusId" %in% names(bp_st)) {
+            clean_locus(bp_st$locusId)
+          } else {
+            base::rep(NA_character_, base::nrow(bp_st))
+          },
+          stringsAsFactors = FALSE
+        )
+        secondary <- found[0, , drop = FALSE]
+        if (base::all(c("score2", "locusId2") %in% base::names(bp_st))) {
+          score2 <- suppressWarnings(base::as.numeric(bp_st$score2))
+          locus2 <- clean_locus(bp_st$locusId2)
+          keep_secondary <- !base::is.na(score2) & score2 > 0 & !base::is.na(locus2)
+          secondary <- data.frame(
+            pathway_id = base::as.character(bp_st$pathway[keep_secondary]),
+            step_id = base::as.character(bp_st$step[keep_secondary]),
+            confidence = score_confidence(score2[keep_secondary]),
+            locus_tag = locus2[keep_secondary],
+            stringsAsFactors = FALSE
+          )
+        }
+        found <- collapse_exact_locus(base::rbind(found, primary, secondary))
+      }
     }
   }
   if (!base::nrow(found)) return(NULL)

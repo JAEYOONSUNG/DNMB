@@ -135,24 +135,20 @@ dnmb_plot_comparative_dbcan_family <- function(
 # ---- dbCAN-specific collector ----
 
 .dnmb_comparative_dbcan_token <- function(call, level = c("class", "family")) {
-  # Calls look like "GH13_3", "GT2", "CE1(24-257)", "GH18_e66|CBM5_e25",
-  # "CBM50_e705|CBM50_e699|GH18_e157". Take the first "|"-separated token,
-  # strip any "(...)" positional suffix, then either collapse to the
-  # leading alphabetic prefix (class) or to the alpha+digit head (family,
-  # with the "_subfamily" suffix dropped so GH13_3 rolls into GH13).
+  # A dbCAN call may contain several domains. Count each unique gene-family
+  # pair instead of silently keeping only the first token.
   level <- match.arg(level)
   x <- as.character(call)
-  x[is.na(x) | x == "-" | !nzchar(x)] <- NA_character_
-  first <- vapply(strsplit(x, "[|+]"), function(v) if (length(v)) v[[1]] else NA_character_,
-                  character(1))
-  first <- sub("\\(.*$", "", first)
-  if (level == "class") {
-    out <- sub("^([A-Za-z]+).*$", "\\1", first)
-  } else {
-    out <- sub("^([A-Za-z]+\\d+).*$", "\\1", first)
-  }
-  out[!nzchar(out)] <- NA_character_
-  out
+  token_list <- lapply(x, function(value) {
+    families <- .dnmb_dbcan_family_tokens(value)
+    if (!length(families)) return(character())
+    if (level == "class") {
+      unique(sub("^([A-Za-z]+).*$", "\\1", families))
+    } else {
+      unique(sub("^([A-Za-z]+[0-9]+).*$", "\\1", families))
+    }
+  })
+  unname(unlist(token_list, use.names = FALSE))
 }
 
 .dnmb_comparative_collect_dbcan <- function(data_root, marker_rel,
@@ -177,25 +173,12 @@ dnmb_plot_comparative_dbcan_family <- function(
       if (verbose) message("  ", genome_id, " — 0 CAZymes (not analyzed)")
       next
     }
-    tab <- tryCatch(
-      utils::read.delim(marker_path, header = TRUE, stringsAsFactors = FALSE,
-                        na.strings = c("", "NA", "-"), check.names = FALSE,
-                        quote = "", comment.char = ""),
-      error = function(e) NULL
-    )
+    tab <- tryCatch(dnmb_dbcan_parse_overview(marker_path), error = function(e) NULL)
     if (is.null(tab) || !nrow(tab)) {
       if (verbose) message("  ", genome_id, " — 0 CAZymes (analyzed, empty)")
       next
     }
-    # Prefer Recommend Results, then dbCAN_sub, then dbCAN_hmm, then DIAMOND.
-    pick <- rep(NA_character_, nrow(tab))
-    for (col in c("Recommend Results", "dbCAN_sub", "dbCAN_hmm", "DIAMOND")) {
-      if (!col %in% names(tab)) next
-      val <- as.character(tab[[col]])
-      take <- is.na(pick) & !is.na(val) & nzchar(val) & val != "-"
-      pick[take] <- val[take]
-    }
-    tokens <- .dnmb_comparative_dbcan_token(pick, level = level)
+    tokens <- .dnmb_comparative_dbcan_token(tab$dbcan_all_families, level = level)
     tokens <- tokens[!is.na(tokens) & nzchar(tokens)]
     if (!length(tokens)) {
       if (verbose) message("  ", genome_id, " — 0 CAZymes (analyzed, empty)")

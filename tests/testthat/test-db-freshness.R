@@ -148,6 +148,89 @@ test_that("InterProScan uses the resolved tool release", {
   expect_true(is.na(unknown$update_available))
 })
 
+test_that("InterProScan latest release prefers the EBI distribution index", {
+  local_mocked_bindings(
+    .dnmb_interproscan_ftp_index = function() c(
+      '<a href="5.77-108.0/">5.77-108.0/</a>',
+      '<a href="5.78-109.0/">5.78-109.0/</a>',
+      '<a href="5RC7/">5RC7/</a>'
+    ),
+    .dnmb_interproscan_github_latest_version = function() stop("GitHub fallback should not run"),
+    .package = "DNMB"
+  )
+  expect_identical(DNMB:::.dnmb_interproscan_latest_version(), "5.78-109.0")
+})
+
+test_that("InterProScan latest release falls back to GitHub then the pin", {
+  local_mocked_bindings(
+    .dnmb_interproscan_ftp_index = function() stop("FTP unavailable"),
+    .dnmb_interproscan_github_latest_version = function() "5.78-109.0",
+    .package = "DNMB"
+  )
+  expect_identical(DNMB:::.dnmb_interproscan_latest_version(), "5.78-109.0")
+
+  local_mocked_bindings(
+    .dnmb_interproscan_github_latest_version = function() stop("GitHub unavailable"),
+    .package = "DNMB"
+  )
+  expect_identical(
+    DNMB:::.dnmb_interproscan_latest_version(),
+    DNMB:::.dnmb_interproscan_pinned_version()
+  )
+})
+
+test_that("InterProScan exact cache lookup does not silently select an older release", {
+  cache_root <- tempfile("dnmb-interproscan-exact-")
+  old_dir <- file.path(cache_root, "db_modules", "interproscan", "5.77-108.0")
+  dir.create(old_dir, recursive = TRUE)
+  writeLines("#!/bin/sh", file.path(old_dir, "interproscan.sh"))
+  on.exit(unlink(cache_root, recursive = TRUE, force = TRUE), add = TRUE)
+
+  expect_null(DNMB:::.dnmb_interproscan_existing_path(
+    cache_root = cache_root,
+    version = "5.78-109.0"
+  ))
+  expect_match(
+    DNMB:::.dnmb_interproscan_existing_path(cache_root = cache_root),
+    "5[.]77-108[.]0/interproscan[.]sh$"
+  )
+})
+
+test_that("InterProScan update policy supports ask, always, and never", {
+  withr::local_envvar(DNMB_INTERPROSCAN_UPDATE = "yes")
+  expect_identical(DNMB:::.dnmb_interproscan_update_policy(), "always")
+  expect_true(DNMB:::.dnmb_interproscan_should_update("5.77-108.0", "5.78-109.0"))
+
+  withr::local_envvar(DNMB_INTERPROSCAN_UPDATE = "never")
+  expect_identical(DNMB:::.dnmb_interproscan_update_policy(), "never")
+  expect_false(DNMB:::.dnmb_interproscan_should_update("5.77-108.0", "5.78-109.0"))
+})
+
+test_that("approved InterProScan update removes the old cache before installation", {
+  cache_root <- tempfile("dnmb-interproscan-update-")
+  old_dir <- file.path(cache_root, "db_modules", "interproscan", "5.77-108.0")
+  dir.create(old_dir, recursive = TRUE)
+  writeLines("#!/bin/sh", file.path(old_dir, "interproscan.sh"))
+  on.exit(unlink(cache_root, recursive = TRUE, force = TRUE), add = TRUE)
+
+  local_mocked_bindings(
+    .dnmb_interproscan_default_version = function() "5.78-109.0",
+    .dnmb_interproscan_should_update = function(installed, latest, policy = NULL) TRUE,
+    .dnmb_ensure_interproscan = function(cache_root = NULL, version = NULL) {
+      expect_false(dir.exists(old_dir))
+      new_dir <- file.path(cache_root, "db_modules", "interproscan", version)
+      dir.create(new_dir, recursive = TRUE)
+      writeLines("#!/bin/sh", file.path(new_dir, "interproscan.sh"))
+      new_dir
+    },
+    .package = "DNMB"
+  )
+  withr::local_envvar(INTERPROSCAN_HOME = "")
+  launcher <- DNMB:::.dnmb_find_interproscan(cache_root = cache_root)
+  expect_match(launcher, "5[.]78-109[.]0/interproscan[.]sh$")
+  expect_false(dir.exists(old_dir))
+})
+
 test_that("unknown remote comparisons are not presented as latest", {
   cache_root <- tempfile("dnmb-freshness-")
   dir.create(cache_root)

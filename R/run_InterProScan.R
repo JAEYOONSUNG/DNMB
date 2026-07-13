@@ -170,7 +170,25 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
 
 # ── Internal helpers ──────────────────────────────────────────
 
-.dnmb_interproscan_pinned_version <- function() "5.77-108.0"
+.dnmb_interproscan_pinned_version <- function() "5.78-109.0"
+
+.dnmb_interproscan_ftp_index <- function() {
+  con <- url("https://ftp.ebi.ac.uk/pub/software/unix/iprscan/5/")
+  on.exit(close(con))
+  readLines(con, warn = FALSE)
+}
+
+.dnmb_interproscan_github_latest_version <- function() {
+  con <- url("https://api.github.com/repos/ebi-pf-team/interproscan/releases/latest")
+  on.exit(close(con))
+  lines <- readLines(con, warn = FALSE)
+  tag <- sub('.*"tag_name"\\s*:\\s*"([^"]+)".*', "\\1", grep('"tag_name"', lines, value = TRUE)[1])
+  if (is.na(tag) || !nzchar(tag)) NA_character_ else trimws(tag)
+}
+
+.dnmb_interproscan_version_key <- function(version) {
+  base::package_version(gsub("-", ".", as.character(version)[1], fixed = TRUE))
+}
 
 .dnmb_interproscan_output_dir <- function(wd = getwd()) {
   file.path(wd, "dnmb_module_interproscan")
@@ -178,12 +196,21 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
 
 .dnmb_interproscan_latest_version <- function() {
   latest <- tryCatch({
-    con <- url("https://api.github.com/repos/ebi-pf-team/interproscan/releases/latest")
-    on.exit(close(con))
-    lines <- readLines(con, warn = FALSE)
-    tag <- sub('.*"tag_name"\\s*:\\s*"([^"]+)".*', "\\1", grep('"tag_name"', lines, value = TRUE)[1])
-    if (is.na(tag) || !nzchar(tag)) NA_character_ else trimws(tag)
+    lines <- .dnmb_interproscan_ftp_index()
+    versions <- unique(sub(
+      '.*href="(5\\.[0-9]+-[0-9]+\\.[0-9]+)/".*',
+      "\\1",
+      grep('href="5\\.[0-9]+-[0-9]+\\.[0-9]+/"', lines, value = TRUE)
+    ))
+    if (!length(versions)) NA_character_ else {
+      keys <- base::package_version(gsub("-", ".", versions, fixed = TRUE))
+      versions[order(keys, decreasing = TRUE)[1]]
+    }
   }, error = function(e) NA_character_)
+
+  if (is.na(latest) || !nzchar(latest)) {
+    latest <- tryCatch(.dnmb_interproscan_github_latest_version(), error = function(e) NA_character_)
+  }
 
   if (!is.na(latest) && nzchar(latest)) {
     latest
@@ -233,6 +260,7 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
     if (file.exists(candidate)) {
       return(normalizePath(candidate, winslash = "/", mustWork = TRUE))
     }
+    return(NULL)
   }
   versions <- .dnmb_interproscan_cached_versions(cache_root = cache_root)
   for (ver in versions) {
@@ -242,6 +270,51 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
     }
   }
   NULL
+}
+
+.dnmb_interproscan_update_policy <- function() {
+  policy <- tolower(trimws(Sys.getenv("DNMB_INTERPROSCAN_UPDATE", unset = "ask")))
+  aliases <- c("1" = "always", "true" = "always", "yes" = "always", "0" = "never", "false" = "never", "no" = "never")
+  if (policy %in% names(aliases)) policy <- unname(aliases[[policy]])
+  if (!policy %in% c("ask", "always", "never")) {
+    warning("[InterProScan] Invalid DNMB_INTERPROSCAN_UPDATE=", policy, "; using 'ask'.", call. = FALSE)
+    policy <- "ask"
+  }
+  policy
+}
+
+.dnmb_interproscan_should_update <- function(installed, latest, policy = .dnmb_interproscan_update_policy()) {
+  if (identical(policy, "always")) return(TRUE)
+  if (identical(policy, "never")) return(FALSE)
+
+  if (!isTRUE(base::isatty(stdin()))) {
+    message(
+      "[InterProScan] Update available: ", installed, " -> ", latest, ". ",
+      "No interactive terminal is attached; keeping ", installed, ". ",
+      "Re-run with -it to answer the prompt, or set DNMB_INTERPROSCAN_UPDATE=always."
+    )
+    return(FALSE)
+  }
+
+  answer <- readline(paste0(
+    "[InterProScan] Update available (", installed, " -> ", latest,
+    "). Remove the old InterProScan cache and install the new release? [y/N] "
+  ))
+  tolower(trimws(answer)) %in% c("y", "yes")
+}
+
+.dnmb_interproscan_remove_versions <- function(versions, cache_root = NULL) {
+  root <- .dnmb_interproscan_cache_root(cache_root = cache_root, create = FALSE)
+  versions <- unique(as.character(versions))
+  versions <- versions[nzchar(versions) & basename(versions) == versions]
+  for (version in versions) {
+    path <- file.path(root, version)
+    if (dir.exists(path)) {
+      message("[InterProScan] Removing outdated cache: ", path)
+      unlink(path, recursive = TRUE, force = TRUE)
+    }
+  }
+  invisible(TRUE)
 }
 
 .dnmb_interproscan_write_manifest <- function(version,
@@ -315,12 +388,15 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
   }
 
   message("[InterProScan] Downloading InterProScan ", version, " to cache...")
-  message("[InterProScan] This is a one-time download (~15GB). Please wait.")
+  message("[InterProScan] This is a one-time download (~7GB archive; ~50GB installed). Please wait.")
   dir.create(ipr_dir, recursive = TRUE, showWarnings = FALSE)
 
   tarball <- paste0("interproscan-", version, "-64-bit.tar.gz")
   url <- paste0("https://ftp.ebi.ac.uk/pub/software/unix/iprscan/5/", version, "/", tarball)
-  dest <- file.path(tempdir(), tarball)
+  download_dir <- file.path(.dnmb_interproscan_cache_root(cache_root = cache_root, create = TRUE), ".downloads")
+  dir.create(download_dir, recursive = TRUE, showWarnings = FALSE)
+  dest <- file.path(download_dir, tarball)
+  on.exit(unlink(dest, force = TRUE), add = TRUE)
 
   dl <- dnmb_run_external("wget", args = c("-q", "--no-check-certificate", url, "-O", dest), required = FALSE)
   if (!isTRUE(dl$ok) || !file.exists(dest)) {
@@ -388,19 +464,34 @@ run_interproscan_pipeline <- function(fasta_path = NULL,
     return(normalizePath(on_path, winslash = "/", mustWork = TRUE))
   }
 
-  # 4. Existing cached install
+  # 4. Existing cached install. Prefer the remote release exactly; do not
+  # silently fall back to an older cache before applying the update policy.
+  latest <- .dnmb_interproscan_default_version()
   cached <- .dnmb_interproscan_existing_path(
     cache_root = cache_root,
-    version = .dnmb_interproscan_default_version()
+    version = latest
   )
   if (!is.null(cached) && file.exists(cached)) {
     return(cached)
   }
 
+  cached_versions <- .dnmb_interproscan_cached_versions(cache_root = cache_root)
+  if (length(cached_versions)) {
+    installed <- cached_versions[1]
+    update_available <- tryCatch(
+      .dnmb_interproscan_version_key(latest) > .dnmb_interproscan_version_key(installed),
+      error = function(e) !identical(latest, installed)
+    )
+    if (!isTRUE(update_available) || !.dnmb_interproscan_should_update(installed, latest)) {
+      return(.dnmb_interproscan_existing_path(cache_root = cache_root, version = installed))
+    }
+    .dnmb_interproscan_remove_versions(cached_versions, cache_root = cache_root)
+  }
+
   # 5. Auto-download to cache
   ensure_error <- NULL
   ipr_dir <- tryCatch(
-    .dnmb_ensure_interproscan(cache_root = cache_root),
+    .dnmb_ensure_interproscan(cache_root = cache_root, version = latest),
     error = function(e) {
       ensure_error <<- conditionMessage(e)
       NULL

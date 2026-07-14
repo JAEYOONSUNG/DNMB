@@ -14,12 +14,34 @@
   "https://api.pazy.eu/api/proteins/fasta/"
 }
 
+.dnmb_pazy_fasta_contract_version <- function() {
+  2L
+}
+
+.dnmb_pazy_makedb_timeout <- function() {
+  # PAZy currently contains only a few hundred proteins. A database build that
+  # runs for more than five minutes is wedged rather than merely slow.
+  .dnmb_external_timeout_seconds(base::getOption("dnmb.pazy_makedb_timeout", 300))
+}
+
+.dnmb_pazy_search_timeout <- function() {
+  .dnmb_external_timeout_seconds(base::getOption("dnmb.pazy_search_timeout", 1800))
+}
+
+.dnmb_pazy_network_timeout <- function() {
+  .dnmb_external_timeout_seconds(base::getOption("dnmb.pazy_network_timeout", 300))
+}
+
 .dnmb_pazy_remote_asset_state <- function(metadata_url, fasta_url, enabled = TRUE) {
   if (!base::isTRUE(enabled)) return(NULL)
   urls <- c(metadata = metadata_url, fasta = fasta_url)
   checked_at <- base::format(base::Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
   rows <- base::lapply(base::names(urls), function(asset_name) {
-    metadata <- .dnmb_remote_asset_metadata(urls[[asset_name]], insecure = FALSE)
+    metadata <- .dnmb_remote_asset_metadata(
+      urls[[asset_name]],
+      insecure = FALSE,
+      timeout = .dnmb_pazy_network_timeout()
+    )
     tibble::tibble(
       asset_name = asset_name,
       url = metadata$url %||% NA_character_,
@@ -73,7 +95,11 @@
 }
 
 .dnmb_pazy_empty_status <- function() {
-  .dnmb_pazy_status_row(character(), character(), character())
+  tibble::tibble(
+    component = character(),
+    status = character(),
+    detail = character()
+  )
 }
 
 .dnmb_pazy_trace <- function(path, text) {
@@ -119,9 +145,19 @@
 }
 
 .dnmb_pazy_fetch_json_text <- function(url) {
-  run <- dnmb_run_external("curl", args = c("-L", "-sS", url), required = FALSE)
+  run <- dnmb_run_external(
+    "curl",
+    args = c("-L", "-sS", url),
+    required = FALSE,
+    timeout = .dnmb_pazy_network_timeout()
+  )
   if (!base::isTRUE(run$ok) || !base::length(run$stdout)) {
-    run <- dnmb_run_external("wget", args = c("-qO-", url), required = FALSE)
+    run <- dnmb_run_external(
+      "wget",
+      args = c("-qO-", url),
+      required = FALSE,
+      timeout = .dnmb_pazy_network_timeout()
+    )
   }
   if (!base::isTRUE(run$ok) || !base::length(run$stdout)) {
     base::stop(run$error %||% base::paste("Failed to fetch PAZy JSON from", url), call. = FALSE)
@@ -141,6 +177,14 @@
   dplyr::bind_rows(pages)
 }
 
+.dnmb_pazy_metadata_scalar <- function(row, field, default) {
+  if (!field %in% base::names(row)) return(default)
+  value <- row[[field]]
+  if (base::is.list(value)) value <- value[[1]]
+  if (base::is.null(value) || !base::length(value)) return(default)
+  value[[1]]
+}
+
 .dnmb_pazy_flatten_metadata <- function(metadata_tbl) {
   if (base::is.null(metadata_tbl) || !base::is.data.frame(metadata_tbl) || !base::nrow(metadata_tbl)) {
     return(data.frame())
@@ -152,6 +196,15 @@
     accessions <- row$accessions[[1]]
     organism <- row$organism[[1]]
     literature <- row$literature[[1]]
+    amino_acid_sequence <- base::as.character(
+      .dnmb_pazy_metadata_scalar(row, "amino_acid_sequence", NA_character_)
+    )
+    sequence_length <- base::suppressWarnings(base::as.integer(
+      .dnmb_pazy_metadata_scalar(row, "sequence_length", NA_integer_)
+    ))
+    sequence_md5 <- base::as.character(
+      .dnmb_pazy_metadata_scalar(row, "sequence_md5", NA_character_)
+    )
     tibble::tibble(
       pazy_id = base::paste0("PAZY_", base::as.character(row$id[[1]])),
       pazy_name = base::as.character(row$name[[1]]),
@@ -163,43 +216,376 @@
       phylum = if (base::is.list(organism)) base::as.character(organism$phylum %||% NA_character_) else NA_character_,
       accession_list = if (base::is.data.frame(accessions) && base::nrow(accessions)) base::paste(accessions$accession, collapse = "; ") else NA_character_,
       accession_db_list = if (base::is.data.frame(accessions) && base::nrow(accessions)) base::paste(accessions$database, collapse = "; ") else NA_character_,
-      literature_doi = if (base::is.data.frame(literature) && base::nrow(literature)) base::paste(literature$doi, collapse = "; ") else NA_character_
+      literature_doi = if (base::is.data.frame(literature) && base::nrow(literature)) base::paste(literature$doi, collapse = "; ") else NA_character_,
+      amino_acid_sequence = amino_acid_sequence,
+      sequence_length = sequence_length,
+      sequence_md5 = sequence_md5
     )
   })
 
   dplyr::bind_rows(rows)
 }
 
-.dnmb_pazy_rewrite_fasta_with_ids <- function(source_fasta, dest_fasta, metadata_flat) {
-  lines <- base::readLines(source_fasta, warn = FALSE)
-  out <- character()
-  current_id <- NA_character_
-  for (line in lines) {
-    if (base::startsWith(line, ">")) {
-      header <- base::sub("^>", "", line)
-      source_id <- base::strsplit(header, " ", fixed = TRUE)[[1]][1]
-      source_id <- base::trimws(source_id)
-      current_id <- if (base::startsWith(source_id, "PAZY_")) source_id else base::paste0("PAZY_", source_id)
-      label <- metadata_flat$pazy_name[base::match(current_id, metadata_flat$pazy_id)]
-      label <- ifelse(base::is.na(label) | !base::nzchar(label), current_id, label)
-      out <- base::c(out, base::paste0(">", current_id, " ", label))
+.dnmb_pazy_normalize_record_id <- function(source_id) {
+  source_id <- base::trimws(base::as.character(source_id)[1])
+  if (base::is.na(source_id) || !base::nzchar(source_id)) {
+    return(NA_character_)
+  }
+  normalized <- if (base::startsWith(source_id, "PAZY_")) {
+    source_id
+  } else {
+    base::paste0("PAZY_", source_id)
+  }
+  normalized <- base::gsub("[^A-Za-z0-9_.:-]", "_", normalized)
+  if (base::identical(normalized, "PAZY_") || !base::nzchar(normalized)) NA_character_ else normalized
+}
+
+.dnmb_pazy_clean_residues <- function(sequence) {
+  sequence <- base::as.character(sequence)
+  sequence[base::is.na(sequence)] <- ""
+  raw <- base::paste(sequence, collapse = "")
+  without_space <- base::gsub("[[:space:]]", "", raw)
+  upper <- base::toupper(without_space)
+  terminal_stop <- base::grepl("[*]+$", upper)
+  cleaned <- base::sub("[*]+$", "", upper)
+  valid <- base::nzchar(cleaned) &&
+    base::grepl("^[ACDEFGHIKLMNPQRSTVWYBXZJUO]+$", cleaned)
+  list(
+    sequence = cleaned,
+    valid = base::isTRUE(valid),
+    whitespace_fixed = !base::identical(raw, without_space),
+    whitespace_removed = base::nchar(raw, type = "chars") - base::nchar(without_space, type = "chars"),
+    case_fixed = !base::identical(without_space, upper),
+    terminal_stop_fixed = base::isTRUE(terminal_stop),
+    invalid_symbols = if (base::isTRUE(valid) || !base::nzchar(cleaned)) {
+      character()
     } else {
-      # Upstream PAZy records can carry stray whitespace inside the residue run
-      # (e.g. PAZY_490). diamond makedb deadlocks on such a character instead of
-      # erroring, which hangs the whole pipeline, so strip it here.
-      residues <- base::gsub("[[:space:]]", "", line)
-      if (base::nzchar(residues)) {
-        out <- base::c(out, residues)
-      }
+      base::unique(base::strsplit(base::gsub("[ACDEFGHIKLMNPQRSTVWYBXZJUO]", "", cleaned), "", fixed = TRUE)[[1]])
+    }
+  )
+}
+
+.dnmb_pazy_sequence_md5 <- function(sequence) {
+  sequence <- base::as.character(sequence)[1]
+  if (base::is.na(sequence)) return(NA_character_)
+  path <- base::tempfile("dnmb-pazy-sequence-")
+  base::on.exit(base::unlink(path, force = TRUE), add = TRUE)
+  base::writeBin(base::charToRaw(sequence), path)
+  base::unname(tools::md5sum(path)[[1]])
+}
+
+.dnmb_pazy_metadata_sequences <- function(metadata_flat) {
+  empty <- base::data.frame(
+    pazy_id = character(),
+    pazy_name = character(),
+    sequence = character(),
+    stringsAsFactors = FALSE
+  )
+  if (base::is.null(metadata_flat) || !base::is.data.frame(metadata_flat) ||
+      !base::all(c("pazy_id", "amino_acid_sequence") %in% base::names(metadata_flat))) {
+    return(empty)
+  }
+  ids <- base::as.character(metadata_flat$pazy_id)
+  names <- if ("pazy_name" %in% base::names(metadata_flat)) {
+    base::as.character(metadata_flat$pazy_name)
+  } else {
+    ids
+  }
+  raw_sequences <- base::as.character(metadata_flat$amino_acid_sequence)
+  normalized <- base::lapply(raw_sequences, .dnmb_pazy_clean_residues)
+  normalized_sequences <- base::vapply(normalized, `[[`, character(1), "sequence")
+  valid <- base::vapply(normalized, function(x) base::isTRUE(x$valid), logical(1))
+  if ("sequence_length" %in% base::names(metadata_flat)) {
+    expected_length <- base::suppressWarnings(base::as.integer(metadata_flat$sequence_length))
+    valid <- valid & (base::is.na(expected_length) | base::nchar(normalized_sequences) == expected_length)
+  }
+  if ("sequence_md5" %in% base::names(metadata_flat)) {
+    expected_md5 <- base::tolower(base::trimws(base::as.character(metadata_flat$sequence_md5)))
+    verify <- base::which(valid & !base::is.na(expected_md5) & base::nzchar(expected_md5))
+    if (base::length(verify)) {
+      observed_md5 <- base::vapply(
+        normalized_sequences[verify],
+        .dnmb_pazy_sequence_md5,
+        character(1)
+      )
+      valid[verify] <- observed_md5 == expected_md5[verify]
     }
   }
-  base::writeLines(out, dest_fasta)
-  invisible(dest_fasta)
+  if (!base::any(valid)) return(empty)
+  out <- base::data.frame(
+    pazy_id = ids[valid],
+    pazy_name = names[valid],
+    sequence = normalized_sequences[valid],
+    stringsAsFactors = FALSE
+  )
+  out <- out[!base::is.na(out$pazy_id) & base::nzchar(out$pazy_id), , drop = FALSE]
+  out <- out[!base::duplicated(out$pazy_id), , drop = FALSE]
+  base::rownames(out) <- NULL
+  out
+}
+
+.dnmb_pazy_fasta_audit_summary <- function(audit) {
+  fields <- c(
+    "ok", "clean", "n_input_records", "n_output_records",
+    "n_whitespace_fixed", "n_whitespace_removed", "n_case_fixed", "n_terminal_stop_fixed",
+    "n_empty_dropped", "n_invalid_dropped", "n_metadata_recovered",
+    "n_metadata_added", "n_exact_duplicates_dropped",
+    "n_conflicting_duplicates", "n_empty_headers", "n_orphan_lines",
+    "n_ids_normalized", "corrected_ids", "dropped_ids", "detail"
+  )
+  audit[base::intersect(fields, base::names(audit))]
+}
+
+.dnmb_pazy_fasta_audit_detail <- function(audit) {
+  base::sprintf(
+    paste0(
+      "records=%d/%d; whitespace_fixed=%d(%d chars); empty_dropped=%d; ",
+      "invalid_dropped=%d; metadata_recovered=%d; duplicates_dropped=%d"
+    ),
+    audit$n_output_records,
+    audit$n_input_records,
+    audit$n_whitespace_fixed,
+    audit$n_whitespace_removed,
+    audit$n_empty_dropped,
+    audit$n_invalid_dropped,
+    audit$n_metadata_recovered + audit$n_metadata_added,
+    audit$n_exact_duplicates_dropped
+  )
+}
+
+.dnmb_pazy_sanitize_fasta <- function(source_fasta, dest_fasta = NULL, metadata_flat = NULL) {
+  source_fasta <- base::path.expand(base::as.character(source_fasta)[1])
+  if (base::is.na(source_fasta) || !base::nzchar(source_fasta) || !base::file.exists(source_fasta)) {
+    return(list(ok = FALSE, clean = FALSE, detail = base::paste0("PAZy FASTA not found: ", source_fasta)))
+  }
+
+  lines <- base::readLines(source_fasta, warn = FALSE)
+  header_index <- base::which(base::startsWith(lines, ">"))
+  orphan_index <- if (base::length(header_index)) {
+    base::seq_len(header_index[[1]] - 1L)
+  } else {
+    base::seq_along(lines)
+  }
+  orphan_lines <- if (base::length(orphan_index)) {
+    lines[orphan_index][base::nzchar(base::trimws(lines[orphan_index]))]
+  } else {
+    character()
+  }
+
+  metadata_sequences <- .dnmb_pazy_metadata_sequences(metadata_flat)
+  metadata_names <- if (!base::is.null(metadata_flat) && base::is.data.frame(metadata_flat) &&
+                        base::all(c("pazy_id", "pazy_name") %in% base::names(metadata_flat))) {
+    stats::setNames(base::as.character(metadata_flat$pazy_name), base::as.character(metadata_flat$pazy_id))
+  } else {
+    character()
+  }
+  canonical_sequences <- stats::setNames(metadata_sequences$sequence, metadata_sequences$pazy_id)
+
+  records <- list()
+  record_ids <- character()
+  corrected_ids <- character()
+  dropped_ids <- character()
+  whitespace_fixed <- 0L
+  whitespace_removed <- 0L
+  case_fixed <- 0L
+  terminal_stop_fixed <- 0L
+  empty_dropped <- 0L
+  invalid_dropped <- 0L
+  metadata_recovered <- 0L
+  metadata_added <- 0L
+  exact_duplicates <- 0L
+  conflicting_duplicates <- 0L
+  conflicting_ids <- character()
+  empty_headers <- 0L
+  ids_normalized <- 0L
+
+  if (base::length(header_index)) {
+    record_end <- base::c(header_index[-1L] - 1L, base::length(lines))
+    for (i in base::seq_along(header_index)) {
+      header <- base::trimws(base::sub("^>", "", lines[header_index[[i]]]))
+      if (!base::nzchar(header)) {
+        empty_headers <- empty_headers + 1L
+        next
+      }
+      source_id <- base::strsplit(header, "[[:space:]]+", perl = TRUE)[[1]][[1]]
+      current_id <- .dnmb_pazy_normalize_record_id(source_id)
+      if (base::is.na(current_id) || !base::nzchar(current_id)) {
+        empty_headers <- empty_headers + 1L
+        next
+      }
+      if (!base::identical(source_id, current_id)) ids_normalized <- ids_normalized + 1L
+
+      sequence_lines <- if (record_end[[i]] > header_index[[i]]) {
+        lines[(header_index[[i]] + 1L):record_end[[i]]]
+      } else {
+        character()
+      }
+      cleaned <- .dnmb_pazy_clean_residues(sequence_lines)
+      whitespace_fixed <- whitespace_fixed + base::as.integer(cleaned$whitespace_fixed)
+      whitespace_removed <- whitespace_removed + base::as.integer(cleaned$whitespace_removed)
+      case_fixed <- case_fixed + base::as.integer(cleaned$case_fixed)
+      terminal_stop_fixed <- terminal_stop_fixed + base::as.integer(cleaned$terminal_stop_fixed)
+      if (cleaned$whitespace_fixed || cleaned$case_fixed || cleaned$terminal_stop_fixed) {
+        corrected_ids <- base::c(corrected_ids, current_id)
+      }
+
+      canonical <- base::unname(canonical_sequences[current_id])
+      has_canonical <- !base::is.na(canonical) && base::nzchar(canonical)
+      if (!base::isTRUE(cleaned$valid)) {
+        if (has_canonical) {
+          cleaned$sequence <- canonical
+          cleaned$valid <- TRUE
+          metadata_recovered <- metadata_recovered + 1L
+          corrected_ids <- base::c(corrected_ids, current_id)
+        } else {
+          if (!base::nzchar(cleaned$sequence)) {
+            empty_dropped <- empty_dropped + 1L
+          } else {
+            invalid_dropped <- invalid_dropped + 1L
+          }
+          dropped_ids <- base::c(dropped_ids, current_id)
+          next
+        }
+      } else if (has_canonical && !base::identical(cleaned$sequence, canonical)) {
+        cleaned$sequence <- canonical
+        metadata_recovered <- metadata_recovered + 1L
+        corrected_ids <- base::c(corrected_ids, current_id)
+      }
+
+      duplicate_index <- base::match(current_id, record_ids)
+      if (!base::is.na(duplicate_index)) {
+        if (base::identical(records[[duplicate_index]]$sequence, cleaned$sequence)) {
+          exact_duplicates <- exact_duplicates + 1L
+          dropped_ids <- base::c(dropped_ids, current_id)
+        } else {
+          conflicting_duplicates <- conflicting_duplicates + 1L
+          conflicting_ids <- base::c(conflicting_ids, current_id)
+        }
+        next
+      }
+
+      original_label <- base::trimws(base::sub("^[^[:space:]]+[[:space:]]*", "", header))
+      label <- base::unname(metadata_names[current_id])
+      if (!base::length(label) || base::is.na(label) || !base::nzchar(base::trimws(label))) {
+        label <- original_label
+      }
+      if (base::is.na(label) || !base::nzchar(base::trimws(label))) label <- current_id
+      label <- base::trimws(base::gsub("[[:space:]>]+", " ", base::as.character(label)[1]))
+      records[[base::length(records) + 1L]] <- list(
+        id = current_id,
+        label = label,
+        sequence = cleaned$sequence
+      )
+      record_ids <- base::c(record_ids, current_id)
+    }
+  }
+
+  if (base::nrow(metadata_sequences)) {
+    missing_metadata <- base::setdiff(metadata_sequences$pazy_id, record_ids)
+    for (current_id in missing_metadata) {
+      label <- metadata_sequences$pazy_name[base::match(current_id, metadata_sequences$pazy_id)]
+      if (base::is.na(label) || !base::nzchar(base::trimws(label))) label <- current_id
+      records[[base::length(records) + 1L]] <- list(
+        id = current_id,
+        label = base::trimws(base::gsub("[[:space:]>]+", " ", label)),
+        sequence = base::unname(canonical_sequences[current_id])
+      )
+      record_ids <- base::c(record_ids, current_id)
+      metadata_added <- metadata_added + 1L
+      corrected_ids <- base::c(corrected_ids, current_id)
+    }
+  }
+
+  fatal_detail <- character()
+  if (!base::length(header_index) && !base::nrow(metadata_sequences)) {
+    fatal_detail <- base::c(fatal_detail, "no FASTA headers")
+  }
+  if (base::length(orphan_lines)) {
+    fatal_detail <- base::c(fatal_detail, "residues before the first FASTA header")
+  }
+  if (empty_headers > 0L) {
+    fatal_detail <- base::c(fatal_detail, base::paste0(empty_headers, " empty FASTA header(s)"))
+  }
+  if (conflicting_duplicates > 0L) {
+    fatal_detail <- base::c(
+      fatal_detail,
+      base::paste0("conflicting duplicate ID(s): ", base::paste(base::unique(conflicting_ids), collapse = ", "))
+    )
+  }
+  if (!base::length(records)) {
+    fatal_detail <- base::c(fatal_detail, "no valid PAZy protein records")
+  }
+  ok <- !base::length(fatal_detail)
+  clean <- base::isTRUE(ok) &&
+    whitespace_fixed == 0L && case_fixed == 0L && terminal_stop_fixed == 0L &&
+    empty_dropped == 0L && invalid_dropped == 0L && metadata_recovered == 0L &&
+    metadata_added == 0L && exact_duplicates == 0L && empty_headers == 0L &&
+    !base::length(orphan_lines) && ids_normalized == 0L
+
+  audit <- list(
+    ok = ok,
+    clean = clean,
+    n_input_records = base::length(header_index),
+    n_output_records = base::length(records),
+    n_whitespace_fixed = whitespace_fixed,
+    n_whitespace_removed = whitespace_removed,
+    n_case_fixed = case_fixed,
+    n_terminal_stop_fixed = terminal_stop_fixed,
+    n_empty_dropped = empty_dropped,
+    n_invalid_dropped = invalid_dropped,
+    n_metadata_recovered = metadata_recovered,
+    n_metadata_added = metadata_added,
+    n_exact_duplicates_dropped = exact_duplicates,
+    n_conflicting_duplicates = conflicting_duplicates,
+    n_empty_headers = empty_headers,
+    n_orphan_lines = base::length(orphan_lines),
+    n_ids_normalized = ids_normalized,
+    corrected_ids = base::unique(corrected_ids),
+    dropped_ids = base::unique(dropped_ids),
+    detail = if (ok) "" else base::paste(fatal_detail, collapse = "; ")
+  )
+  if (ok) audit$detail <- .dnmb_pazy_fasta_audit_detail(audit)
+
+  if (base::isTRUE(ok) && !base::is.null(dest_fasta)) {
+    dest_fasta <- base::path.expand(base::as.character(dest_fasta)[1])
+    base::dir.create(base::dirname(dest_fasta), recursive = TRUE, showWarnings = FALSE)
+    output <- base::unlist(base::lapply(records, function(record) {
+      sequence_start <- base::seq.int(1L, base::nchar(record$sequence), by = 80L)
+      sequence_lines <- base::substring(record$sequence, sequence_start, sequence_start + 79L)
+      base::c(base::paste0(">", record$id, " ", record$label), sequence_lines)
+    }), use.names = FALSE)
+    base::writeLines(output, dest_fasta, useBytes = TRUE)
+  }
+  audit
+}
+
+.dnmb_pazy_rewrite_fasta_with_ids <- function(source_fasta, dest_fasta, metadata_flat) {
+  audit <- .dnmb_pazy_sanitize_fasta(source_fasta, dest_fasta, metadata_flat = metadata_flat)
+  if (!base::isTRUE(audit$ok)) {
+    base::stop("Unsafe PAZy FASTA: ", audit$detail, call. = FALSE)
+  }
+  base::invisible(dest_fasta)
+}
+
+.dnmb_pazy_blast_db_ready <- function(db_prefix) {
+  base::all(base::vapply(
+    base::paste0(db_prefix, c(".phr", ".pin", ".psq")),
+    .dnmb_nonempty_file,
+    logical(1)
+  ))
 }
 
 .dnmb_pazy_prepare_blast_db <- function(fasta_path, db_prefix, trace_log = NULL) {
+  fasta_audit <- .dnmb_pazy_sanitize_fasta(fasta_path)
+  if (!base::isTRUE(fasta_audit$ok) || !base::isTRUE(fasta_audit$clean)) {
+    return(list(
+      ok = FALSE,
+      status = "failed",
+      detail = base::paste0("Unsafe PAZy FASTA: ", fasta_audit$detail %||% fasta_path)
+    ))
+  }
   output_files <- base::paste0(db_prefix, c(".phr", ".pin", ".psq"))
-  if (base::all(base::file.exists(output_files))) {
+  if (.dnmb_pazy_blast_db_ready(db_prefix)) {
     return(list(ok = TRUE, status = "cached", detail = db_prefix))
   }
   stage_dir <- tempfile("dnmb-pazy-makeblastdb-")
@@ -215,9 +601,14 @@
   if (!base::is.null(trace_log) && base::nzchar(trace_log)) {
     .dnmb_pazy_trace(trace_log, base::sprintf("[%s] makeblastdb %s", base::Sys.time(), .dnmb_format_command("makeblastdb", args)))
   }
-  run <- dnmb_run_external("makeblastdb", args = args, required = FALSE)
+  run <- dnmb_run_external(
+    "makeblastdb",
+    args = args,
+    required = FALSE,
+    timeout = .dnmb_pazy_makedb_timeout()
+  )
   staged_files <- base::paste0(staged_db, c(".phr", ".pin", ".psq"))
-  ok <- base::isTRUE(run$ok) && base::all(base::file.exists(staged_files))
+  ok <- base::isTRUE(run$ok) && base::all(base::vapply(staged_files, .dnmb_nonempty_file, logical(1)))
   if (ok) {
     # Copy all BLAST DB files including v5 LMDB files (.pdb, .pot, .ptf, .pto)
     all_staged <- base::list.files(stage_dir, pattern = base::paste0("^", base::basename(staged_db), "\\."),
@@ -228,7 +619,7 @@
       base::isTRUE(base::file.copy(sf, dest_name, overwrite = TRUE))
     }, logical(1))
     ok <- base::length(copied) > 0L && base::all(copied) &&
-      base::all(base::file.exists(base::paste0(db_prefix, c(".phr", ".pin", ".psq"))))
+      .dnmb_pazy_blast_db_ready(db_prefix)
   }
   list(
     ok = ok,
@@ -263,16 +654,71 @@ dnmb_pazy_install_module <- function(version = .dnmb_pazy_default_version(),
   )
   remote_refresh_needed <- .dnmb_pazy_remote_update_needed(manifest, remote_state)
 
-  if (base::all(base::file.exists(c(layout$reference_fasta, layout$metadata_tsv, layout$metadata_json, layout$blast_db_files))) &&
-      !base::isTRUE(force) && !base::isTRUE(remote_refresh_needed)) {
-    if (!base::is.null(manifest) && base::isTRUE(manifest$install_ok)) {
-      return(list(
-        ok = TRUE,
-        status = .dnmb_pazy_status_row("pazy_install", "cached", module_dir),
-        files = c(list(reference_fasta = layout$reference_fasta, metadata_tsv = layout$metadata_tsv), stats::setNames(as.list(layout$blast_db_files), base::basename(layout$blast_db_files))),
-        manifest = manifest
-      ))
-    }
+  local_reference_available <- base::all(base::vapply(
+    c(layout$reference_fasta, layout$metadata_tsv),
+    .dnmb_nonempty_file,
+    logical(1)
+  ))
+  cache_assets_ready <- local_reference_available &&
+    .dnmb_nonempty_file(layout$metadata_json) &&
+    .dnmb_pazy_blast_db_ready(layout$blast_db_prefix)
+  cache_audit <- if (.dnmb_nonempty_file(layout$reference_fasta)) {
+    .dnmb_pazy_sanitize_fasta(layout$reference_fasta)
+  } else {
+    list(ok = FALSE, clean = FALSE, detail = "PAZy reference FASTA is missing or empty.")
+  }
+  contract_current <- !base::is.null(manifest) &&
+    base::identical(
+      base::suppressWarnings(base::as.integer(manifest$fasta_contract_version)[1]),
+      .dnmb_pazy_fasta_contract_version()
+    )
+  current_reference_md5 <- if (.dnmb_nonempty_file(layout$reference_fasta)) {
+    base::unname(tools::md5sum(layout$reference_fasta)[[1]])
+  } else {
+    NA_character_
+  }
+  manifest_reference_md5 <- if (!base::is.null(manifest$reference_md5)) {
+    base::as.character(manifest$reference_md5)[1]
+  } else {
+    NA_character_
+  }
+  reference_signature_current <- !base::is.na(current_reference_md5) &&
+    !base::is.na(manifest_reference_md5) &&
+    base::identical(current_reference_md5, manifest_reference_md5)
+  cache_safe <- cache_assets_ready && !base::is.null(manifest) &&
+    base::isTRUE(manifest$install_ok) && contract_current &&
+    base::isTRUE(cache_audit$ok) && base::isTRUE(cache_audit$clean) &&
+    reference_signature_current
+
+  if (cache_safe && !base::isTRUE(force) && !base::isTRUE(remote_refresh_needed)) {
+    return(list(
+      ok = TRUE,
+      status = .dnmb_pazy_status_row("pazy_install", "cached", module_dir),
+      files = c(
+        list(reference_fasta = layout$reference_fasta, metadata_tsv = layout$metadata_tsv),
+        stats::setNames(as.list(layout$blast_db_files), base::basename(layout$blast_db_files))
+      ),
+      manifest = manifest
+    ))
+  }
+
+  explicit_assets <- base::length(asset_urls) > 0L
+  local_cache_repair <- local_reference_available && !base::isTRUE(force) &&
+    !base::isTRUE(remote_refresh_needed) && !base::isTRUE(explicit_assets) &&
+    !base::isTRUE(cache_safe)
+  manifest_metadata_source <- metadata_source
+  manifest_fasta_source <- fasta_source
+  if (local_cache_repair) {
+    # Migrate old installations without network access. The original generation
+    # remains untouched unless sanitation and makeblastdb both pass.
+    metadata_source <- layout$metadata_tsv
+    fasta_source <- layout$reference_fasta
+    manifest_metadata_source <- manifest$metadata_url %||% manifest_metadata_source
+    manifest_fasta_source <- manifest$fasta_url %||% manifest_fasta_source
+    status <- dplyr::bind_rows(
+      status,
+      .dnmb_pazy_status_row("pazy_cache_audit", "repair", cache_audit$detail %||% module_dir)
+    )
   }
 
   if (!base::isTRUE(install) && !base::all(base::file.exists(c(layout$reference_fasta, layout$metadata_tsv)))) {
@@ -321,7 +767,12 @@ dnmb_pazy_install_module <- function(version = .dnmb_pazy_default_version(),
   } else if (base::file.exists(fasta_source)) {
     copied_fasta <- base::file.copy(fasta_source, raw_fasta, overwrite = TRUE)
   } else {
-    download <- .dnmb_download_asset(fasta_source, raw_fasta, insecure = FALSE)
+    download <- .dnmb_download_asset(
+      fasta_source,
+      raw_fasta,
+      insecure = FALSE,
+      timeout = .dnmb_pazy_network_timeout()
+    )
     copied_fasta <- base::isTRUE(download$ok)
     if (!base::isTRUE(copied_fasta) || !.dnmb_nonempty_file(raw_fasta)) {
       return(list(
@@ -340,8 +791,34 @@ dnmb_pazy_install_module <- function(version = .dnmb_pazy_default_version(),
       manifest = manifest
     ))
   }
-  .dnmb_pazy_rewrite_fasta_with_ids(raw_fasta, stage_layout$reference_fasta, metadata_flat)
-  status <- dplyr::bind_rows(status, .dnmb_pazy_status_row("pazy_fasta", "ok", layout$reference_fasta))
+  fasta_audit <- .dnmb_pazy_sanitize_fasta(
+    raw_fasta,
+    stage_layout$reference_fasta,
+    metadata_flat = metadata_flat
+  )
+  if (!base::isTRUE(fasta_audit$ok) || !.dnmb_nonempty_file(stage_layout$reference_fasta)) {
+    return(list(
+      ok = FALSE,
+      status = dplyr::bind_rows(
+        status,
+        .dnmb_pazy_status_row(
+          "pazy_fasta",
+          "failed",
+          base::paste0("Unsafe PAZy FASTA: ", fasta_audit$detail %||% fasta_source)
+        )
+      ),
+      files = list(),
+      manifest = manifest
+    ))
+  }
+  status <- dplyr::bind_rows(
+    status,
+    .dnmb_pazy_status_row(
+      "pazy_fasta",
+      if (local_cache_repair || !base::isTRUE(fasta_audit$clean)) "repaired" else "ok",
+      .dnmb_pazy_fasta_audit_detail(fasta_audit)
+    )
+  )
 
   blast_prepare <- .dnmb_pazy_prepare_blast_db(
     stage_layout$reference_fasta,
@@ -350,7 +827,11 @@ dnmb_pazy_install_module <- function(version = .dnmb_pazy_default_version(),
   )
   status <- dplyr::bind_rows(
     status,
-    .dnmb_pazy_status_row("pazy_prepare", blast_prepare$status, layout$blast_db_prefix)
+    .dnmb_pazy_status_row(
+      "pazy_prepare",
+      blast_prepare$status,
+      blast_prepare$detail %||% layout$blast_db_prefix
+    )
   )
   if (!base::isTRUE(blast_prepare$ok)) {
     return(list(ok = FALSE, status = status, files = list(), manifest = manifest))
@@ -389,14 +870,17 @@ dnmb_pazy_install_module <- function(version = .dnmb_pazy_default_version(),
     module = module,
     version = version,
     module_dir = module_dir,
-    metadata_url = metadata_source,
-    fasta_url = fasta_source,
+    metadata_url = manifest_metadata_source,
+    fasta_url = manifest_fasta_source,
     reference_fasta = layout$reference_fasta,
     metadata_tsv = layout$metadata_tsv,
     blast_db_prefix = layout$blast_db_prefix,
     metadata_count = base::nrow(metadata_flat),
+    reference_count = fasta_audit$n_output_records,
     reference_md5 = base::unname(tools::md5sum(layout$reference_fasta)[[1]]),
-    remote_asset_state = remote_state
+    fasta_contract_version = .dnmb_pazy_fasta_contract_version(),
+    fasta_audit = .dnmb_pazy_fasta_audit_summary(fasta_audit),
+    remote_asset_state = remote_state %||% manifest$remote_asset_state
   )
   dnmb_db_write_manifest(module, version, manifest = manifest, cache_root = cache_root, overwrite = TRUE)
   .dnmb_db_autoprune_default_versions(
@@ -422,7 +906,30 @@ dnmb_pazy_get_module <- function(version = .dnmb_pazy_default_version(),
                                  required = FALSE) {
   manifest <- dnmb_db_read_manifest(.dnmb_pazy_module_name(), version, cache_root = cache_root, required = FALSE)
   layout <- .dnmb_pazy_asset_layout(.dnmb_db_module_dir(.dnmb_pazy_module_name(), version, cache_root = cache_root, create = FALSE))
-  ok <- !base::is.null(manifest) && base::isTRUE(manifest$install_ok) && base::all(base::file.exists(c(layout$reference_fasta, layout$metadata_tsv, layout$blast_db_files)))
+  fasta_audit <- if (.dnmb_nonempty_file(layout$reference_fasta)) {
+    .dnmb_pazy_sanitize_fasta(layout$reference_fasta)
+  } else {
+    list(ok = FALSE, clean = FALSE)
+  }
+  reference_md5 <- if (.dnmb_nonempty_file(layout$reference_fasta)) {
+    base::unname(tools::md5sum(layout$reference_fasta)[[1]])
+  } else {
+    NA_character_
+  }
+  manifest_md5 <- if (!base::is.null(manifest$reference_md5)) {
+    base::as.character(manifest$reference_md5)[1]
+  } else {
+    NA_character_
+  }
+  ok <- !base::is.null(manifest) && base::isTRUE(manifest$install_ok) &&
+    base::identical(
+      base::suppressWarnings(base::as.integer(manifest$fasta_contract_version)[1]),
+      .dnmb_pazy_fasta_contract_version()
+    ) &&
+    base::isTRUE(fasta_audit$ok) && base::isTRUE(fasta_audit$clean) &&
+    !base::is.na(reference_md5) && base::identical(reference_md5, manifest_md5) &&
+    .dnmb_nonempty_file(layout$metadata_tsv) &&
+    .dnmb_pazy_blast_db_ready(layout$blast_db_prefix)
   if (required && !ok) {
     base::stop("PAZy module is not installed for version `", version, "`.", call. = FALSE)
   }
@@ -584,6 +1091,85 @@ dnmb_pazy_normalize_hits <- function(hits) {
   out[, c(base_cols, pazy_cols), drop = FALSE]
 }
 
+.dnmb_pazy_reference_state <- function(reference_fasta) {
+  if (!.dnmb_nonempty_file(reference_fasta)) return(NULL)
+  audit <- .dnmb_pazy_sanitize_fasta(reference_fasta)
+  if (!base::isTRUE(audit$ok) || !base::isTRUE(audit$clean)) return(NULL)
+  list(
+    fasta_contract_version = .dnmb_pazy_fasta_contract_version(),
+    reference_md5 = base::unname(tools::md5sum(reference_fasta)[[1]]),
+    reference_size = base::unname(base::as.numeric(base::file.info(reference_fasta)$size))
+  )
+}
+
+.dnmb_pazy_dmnd_state_path <- function(dmnd_db) {
+  base::paste0(dmnd_db, ".state.rds")
+}
+
+.dnmb_pazy_dmnd_is_current <- function(dmnd_db, reference_fasta) {
+  state_path <- .dnmb_pazy_dmnd_state_path(dmnd_db)
+  expected <- .dnmb_pazy_reference_state(reference_fasta)
+  if (!.dnmb_nonempty_file(dmnd_db) || base::is.null(expected) ||
+      !.dnmb_nonempty_file(state_path)) {
+    return(FALSE)
+  }
+  stored <- base::tryCatch(base::readRDS(state_path), error = function(e) NULL)
+  base::is.list(stored) &&
+    base::identical(stored$fasta_contract_version, expected$fasta_contract_version) &&
+    base::identical(stored$reference_md5, expected$reference_md5) &&
+    base::identical(stored$reference_size, expected$reference_size)
+}
+
+.dnmb_pazy_prepare_diamond_db <- function(reference_fasta, dmnd_db, trace_log = NULL) {
+  expected_state <- .dnmb_pazy_reference_state(reference_fasta)
+  if (base::is.null(expected_state)) {
+    return(list(ok = FALSE, status = "failed", detail = "PAZy reference FASTA is missing or empty."))
+  }
+  if (.dnmb_pazy_dmnd_is_current(dmnd_db, reference_fasta)) {
+    return(list(ok = TRUE, status = "cached", detail = dmnd_db, command = NULL))
+  }
+
+  stage_prefix <- base::tempfile(".pazy-reference-", tmpdir = base::dirname(dmnd_db))
+  stage_candidates <- c(stage_prefix, base::paste0(stage_prefix, ".dmnd"))
+  stage_state <- base::paste0(stage_prefix, ".state.rds")
+  base::on.exit(base::unlink(c(stage_candidates, stage_state), force = TRUE), add = TRUE)
+  args <- c("makedb", "--in", reference_fasta, "-d", stage_prefix)
+  if (!base::is.null(trace_log) && base::nzchar(trace_log)) {
+    .dnmb_pazy_trace(
+      trace_log,
+      base::sprintf("[%s] diamond %s", base::Sys.time(), .dnmb_format_command("diamond", args))
+    )
+  }
+  run <- dnmb_run_external(
+    "diamond",
+    args = args,
+    required = FALSE,
+    timeout = .dnmb_pazy_makedb_timeout()
+  )
+  generated <- stage_candidates[base::vapply(stage_candidates, .dnmb_nonempty_file, logical(1))]
+  if (!base::isTRUE(run$ok) || base::length(generated) != 1L) {
+    return(list(
+      ok = FALSE,
+      status = if (!base::nzchar(run$resolved_command)) "missing" else "failed",
+      detail = run$error %||% "DIAMOND did not create a complete PAZy database.",
+      command = run
+    ))
+  }
+
+  base::saveRDS(expected_state, stage_state)
+  commit <- .dnmb_transactional_replace(
+    staged_paths = c(generated[[1]], stage_state),
+    destination_paths = c(dmnd_db, .dnmb_pazy_dmnd_state_path(dmnd_db))
+  )
+  ok <- base::isTRUE(commit$ok) && .dnmb_pazy_dmnd_is_current(dmnd_db, reference_fasta)
+  list(
+    ok = ok,
+    status = if (ok) "ok" else "failed",
+    detail = if (ok) dmnd_db else commit$detail,
+    command = run
+  )
+}
+
 dnmb_run_pazy_module <- function(genes,
                                  output_dir,
                                  version = .dnmb_pazy_default_version(),
@@ -635,18 +1221,21 @@ dnmb_run_pazy_module <- function(genes,
     diamond_check <- dnmb_run_external("diamond", args = "version", required = FALSE)
     if (base::nzchar(diamond_check$resolved_command)) {
       dmnd_db <- base::file.path(output_dir, "pazy_reference.dmnd")
-      # An interrupted makedb leaves a zero-byte .dmnd behind; testing existence
-      # alone would skip the rebuild and then search against an empty database.
-      if (!.dnmb_nonempty_file(dmnd_db)) {
-        base::unlink(dmnd_db, force = TRUE)
-        makedb_run <- dnmb_run_external("diamond", args = c("makedb", "--in", module$files$reference_fasta, "-d", dmnd_db),
-                                        required = FALSE, timeout = .dnmb_makedb_timeout())
-        if (!base::isTRUE(makedb_run$ok)) {
-          .dnmb_pazy_trace(trace_log, base::sprintf("[%s] diamond makedb %s, falling back to blastp", base::Sys.time(),
-                                                    if (base::isTRUE(makedb_run$timed_out)) "timed out" else "failed"))
-          base::unlink(dmnd_db, force = TRUE)
-          search_backend <- "blastp"
-        }
+      diamond_db <- .dnmb_pazy_prepare_diamond_db(
+        reference_fasta = module$files$reference_fasta,
+        dmnd_db = dmnd_db,
+        trace_log = trace_log
+      )
+      if (!base::isTRUE(diamond_db$ok)) {
+        .dnmb_pazy_trace(
+          trace_log,
+          base::sprintf(
+            "[%s] diamond makedb %s, falling back to blastp",
+            base::Sys.time(),
+            if (base::isTRUE(diamond_db$command$timed_out)) "timed out" else "failed"
+          )
+        )
+        search_backend <- "blastp"
       }
       if (base::identical(search_backend, "diamond")) {
         stage_out <- base::file.path(output_dir, "pazy_blastp.tsv")
@@ -658,7 +1247,12 @@ dnmb_run_pazy_module <- function(genes,
           "--sensitive", "-o", stage_out
         )
         .dnmb_pazy_trace(trace_log, base::sprintf("[%s] diamond blastp --sensitive threads=%s", base::Sys.time(), cpu))
-        command <- dnmb_run_external("diamond", args = d_args, required = FALSE)
+        command <- dnmb_run_external(
+          "diamond",
+          args = d_args,
+          required = FALSE,
+          timeout = .dnmb_pazy_search_timeout()
+        )
       }
     } else {
       .dnmb_pazy_trace(trace_log, base::sprintf("[%s] diamond not found, falling back to blastp", base::Sys.time()))
@@ -690,7 +1284,12 @@ dnmb_run_pazy_module <- function(genes,
       "-out", stage_out
     )
     .dnmb_pazy_trace(trace_log, base::sprintf("[%s] blastp %s", base::Sys.time(), .dnmb_format_command("blastp", args)))
-    command <- dnmb_run_external("blastp", args = args, required = FALSE)
+    command <- dnmb_run_external(
+      "blastp",
+      args = args,
+      required = FALSE,
+      timeout = .dnmb_pazy_search_timeout()
+    )
     if (base::isTRUE(command$ok) && base::file.exists(stage_out)) {
       base::file.copy(stage_out, blast_out, overwrite = TRUE)
     }

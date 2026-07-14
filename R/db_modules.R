@@ -951,7 +951,9 @@ dnmb_detect_binary <- function(binary, required = FALSE) {
   if (is.na(timeout) || !is.finite(timeout) || timeout <= 0) {
     return(0L)
   }
-  as.integer(min(timeout, .Machine$integer.max))
+  # system() accepts whole seconds. Round positive fractions up so a request
+  # such as 0.5 seconds does not truncate to zero and silently disable the cap.
+  as.integer(min(base::ceiling(timeout), .Machine$integer.max))
 }
 
 .dnmb_makedb_timeout <- function() {
@@ -1261,12 +1263,16 @@ dnmb_run_external <- function(command,
   )
 }
 
-.dnmb_download_asset <- function(url, dest, insecure = FALSE) {
+.dnmb_download_asset <- function(url,
+                                 dest,
+                                 insecure = FALSE,
+                                 timeout = getOption("dnmb.external_timeout", 0)) {
   if (!is.character(url) || !length(url) || is.na(url[[1]]) || !nzchar(trimws(url[[1]]))) {
     return(list(ok = FALSE, method = "invalid", error = "Asset URL must be a non-empty string."))
   }
 
   url <- trimws(url[[1]])
+  timeout <- .dnmb_external_timeout_seconds(timeout)
   if (file.exists(url)) {
     return(.dnmb_copy_local_asset(url, dest))
   }
@@ -1279,7 +1285,7 @@ dnmb_run_external <- function(command,
   curl_detection <- dnmb_detect_binary("curl", required = FALSE)
   if (isTRUE(curl_detection$found)) {
     curl_args <- c(if (isTRUE(insecure)) "-k", "-L", "-o", dest, url)
-    curl_run <- dnmb_run_external("curl", curl_args, required = FALSE)
+    curl_run <- dnmb_run_external("curl", curl_args, required = FALSE, timeout = timeout)
     if (isTRUE(curl_run$ok) && .dnmb_nonempty_file(dest)) {
       return(list(ok = TRUE, method = "curl", error = NULL, command = curl_run))
     }
@@ -1288,12 +1294,17 @@ dnmb_run_external <- function(command,
   wget_detection <- dnmb_detect_binary("wget", required = FALSE)
   if (isTRUE(wget_detection$found)) {
     wget_args <- c(if (isTRUE(insecure)) "--no-check-certificate", "-O", dest, url)
-    wget_run <- dnmb_run_external("wget", wget_args, required = FALSE)
+    wget_run <- dnmb_run_external("wget", wget_args, required = FALSE, timeout = timeout)
     if (isTRUE(wget_run$ok) && .dnmb_nonempty_file(dest)) {
       return(list(ok = TRUE, method = "wget", error = NULL, command = wget_run))
     }
   }
 
+  old_download_timeout <- getOption("timeout")
+  if (timeout > 0L) {
+    options(timeout = timeout)
+    on.exit(options(timeout = old_download_timeout), add = TRUE)
+  }
   utils_ok <- tryCatch({
     utils::download.file(url = url, destfile = dest, quiet = TRUE, mode = "wb")
     .dnmb_nonempty_file(dest)
@@ -1330,8 +1341,11 @@ dnmb_run_external <- function(command,
   stats::setNames(values, keys)
 }
 
-.dnmb_remote_asset_metadata <- function(url, insecure = FALSE) {
+.dnmb_remote_asset_metadata <- function(url,
+                                        insecure = FALSE,
+                                        timeout = getOption("dnmb.external_timeout", 0)) {
   url <- trimws(as.character(url)[1])
+  timeout <- .dnmb_external_timeout_seconds(timeout)
   result <- list(
     url = url,
     ok = FALSE,
@@ -1362,7 +1376,7 @@ dnmb_run_external <- function(command,
 
   if (isTRUE(curl_detection$found)) {
     curl_args <- c(if (isTRUE(insecure)) "-k", "-I", "-L", "-sS", url)
-    run <- dnmb_run_external("curl", curl_args, required = FALSE)
+    run <- dnmb_run_external("curl", curl_args, required = FALSE, timeout = timeout)
     headers <- .dnmb_parse_http_headers(c(run$stdout, run$stderr))
   }
 
@@ -1375,7 +1389,7 @@ dnmb_run_external <- function(command,
         "--spider",
         url
       )
-      run <- dnmb_run_external("wget", wget_args, required = FALSE)
+      run <- dnmb_run_external("wget", wget_args, required = FALSE, timeout = timeout)
       headers <- .dnmb_parse_http_headers(c(run$stdout, run$stderr))
     }
   }

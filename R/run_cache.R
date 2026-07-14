@@ -263,6 +263,10 @@
   }
   if ("PAZy" %in% module_aliases) {
     signatures$PAZy <- .dnmb_db_manifest_identity("pazy", current_version, cache_root = module_cache_root)
+    # This code-level contract changes even when an old on-disk manifest does
+    # not. It forces a previously completed module stage to re-enter PAZy once
+    # after upgrade so the installer can audit and repair legacy FASTA caches.
+    signatures$PAZy$pipeline_contract_version <- .dnmb_pazy_fasta_contract_version()
   }
   if ("PhiSpy" %in% module_aliases) {
     signatures$PhiSpy <- .dnmb_db_manifest_identity("prophage", "phispy", cache_root = module_cache_root)

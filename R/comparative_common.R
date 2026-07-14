@@ -368,7 +368,7 @@
                       legend_block_mm + side_pad_mm) / 25.4
 
   pdf_path <- file.path(output_dir, output_file)
-  grDevices::pdf(pdf_path, width = pdf_width_in, height = pdf_height_in)
+  .dnmb_plot_pdf_device(pdf_path, width = pdf_width_in, height = pdf_height_in)
 
   dot_hm <- ComplexHeatmap::Heatmap(
     mat,

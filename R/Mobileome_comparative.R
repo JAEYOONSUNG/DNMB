@@ -704,7 +704,13 @@ plot_DNMB_mobileome_comparative <- function(comparative, output_dir, top_n = 6) 
       )
     files$overview_pdf <- file.path(plot_dir, "comparative_hotspot_matrix.pdf")
     files$overview_png <- file.path(plot_dir, "comparative_hotspot_matrix.png")
-    ggplot2::ggsave(files$overview_pdf, p_overview, width = 12, height = 5)
+    ggplot2::ggsave(
+      files$overview_pdf,
+      p_overview,
+      width = 12,
+      height = 5,
+      device = .dnmb_plot_pdf_device
+    )
     ggplot2::ggsave(files$overview_png, p_overview, width = 12, height = 5, dpi = 300)
   }
 
@@ -749,7 +755,13 @@ plot_DNMB_mobileome_comparative <- function(comparative, output_dir, top_n = 6) 
         legend.position = "none"
       )
     files[[paste0("locus_", locus$locus_id[[1]], "_pdf")]] <- file.path(plot_dir, paste0("comparative_", locus$locus_id[[1]], ".pdf"))
-    ggplot2::ggsave(files[[paste0("locus_", locus$locus_id[[1]], "_pdf")]], p, width = 12, height = 4)
+    ggplot2::ggsave(
+      files[[paste0("locus_", locus$locus_id[[1]], "_pdf")]],
+      p,
+      width = 12,
+      height = 4,
+      device = .dnmb_plot_pdf_device
+    )
   }
   invisible(files)
 }

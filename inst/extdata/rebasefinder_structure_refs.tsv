@@ -3,6 +3,7 @@ EcoP15I_ModRes_4ZCF	4ZCF	Type III	M/R	A:M,B:M,C:R	Type III Mod2-Res1 complex	Typ
 EcoRI_TypeIIP_1ERI	1ERI	Type II	R	A:R,B:exclude	Type IIP restriction endonuclease-DNA complex	Canonical restriction endonuclease-like fold and DNA recognition	EcoRI endonuclease-DNA recognition complex
 FokI_TypeIIS_1FOK	1FOK	Type IIS	R	A:R,B:exclude,C:exclude	Type IIS bipartite restriction endonuclease-DNA complex	DNA-binding plus nuclease architecture	FokI restriction endonuclease bound to DNA
 HhaI_C5MTase_2HMY	2HMY	Type II	M	B:M	Type II C5 cytosine methyltransferase	SAM-dependent C5 cytosine MTase fold	HhaI methyltransferase with AdoMet
+Dam_N6AMTase_2G1P	2G1P	Type II	M	A:M,B:M	Type II N6 adenine methyltransferase	Amino-DNA-MTase SAM-I / catalytic-IV fold	E. coli DNA adenine methyltransferase crystal structure
 LlaBIII_TypeISP_4XQK	4XQK	Type ISP	R/M	A:R/M,B:R/M	Type ISP single-polypeptide RM enzyme	SF2 helicase-like ATPase plus nuclease and MTase architecture	Type ISP LlaBIII-DNA complex
 BpuSI_TypeIIG_3S1S	3S1S	Type IIG	R/M	A:R/M	Type IIG fused restriction-modification enzyme	PD-x(15)-ExK REase plus N6-adenine MTase domain	BpuSI crystal structure
 MmeI_TypeIIL_5HR4	5HR4	Type IIL	R/M	A:R/M,C:R/M,J:R/M	Type IIL fused restriction-modification enzyme	PD-(D/E)XK REase plus gamma-class N6-adenine MTase and TRD	MmeI-DNA-sinefungin crystal structure

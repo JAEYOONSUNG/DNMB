@@ -184,7 +184,13 @@
       label <- ifelse(base::is.na(label) | !base::nzchar(label), current_id, label)
       out <- base::c(out, base::paste0(">", current_id, " ", label))
     } else {
-      out <- base::c(out, line)
+      # Upstream PAZy records can carry stray whitespace inside the residue run
+      # (e.g. PAZY_490). diamond makedb deadlocks on such a character instead of
+      # erroring, which hangs the whole pipeline, so strip it here.
+      residues <- base::gsub("[[:space:]]", "", line)
+      if (base::nzchar(residues)) {
+        out <- base::c(out, residues)
+      }
     }
   }
   base::writeLines(out, dest_fasta)
@@ -629,10 +635,16 @@ dnmb_run_pazy_module <- function(genes,
     diamond_check <- dnmb_run_external("diamond", args = "version", required = FALSE)
     if (base::nzchar(diamond_check$resolved_command)) {
       dmnd_db <- base::file.path(output_dir, "pazy_reference.dmnd")
-      if (!base::file.exists(dmnd_db)) {
-        makedb_run <- dnmb_run_external("diamond", args = c("makedb", "--in", module$files$reference_fasta, "-d", dmnd_db), required = FALSE)
+      # An interrupted makedb leaves a zero-byte .dmnd behind; testing existence
+      # alone would skip the rebuild and then search against an empty database.
+      if (!.dnmb_nonempty_file(dmnd_db)) {
+        base::unlink(dmnd_db, force = TRUE)
+        makedb_run <- dnmb_run_external("diamond", args = c("makedb", "--in", module$files$reference_fasta, "-d", dmnd_db),
+                                        required = FALSE, timeout = .dnmb_makedb_timeout())
         if (!base::isTRUE(makedb_run$ok)) {
-          .dnmb_pazy_trace(trace_log, base::sprintf("[%s] diamond makedb failed, falling back to blastp", base::Sys.time()))
+          .dnmb_pazy_trace(trace_log, base::sprintf("[%s] diamond makedb %s, falling back to blastp", base::Sys.time(),
+                                                    if (base::isTRUE(makedb_run$timed_out)) "timed out" else "failed"))
+          base::unlink(dmnd_db, force = TRUE)
           search_backend <- "blastp"
         }
       }

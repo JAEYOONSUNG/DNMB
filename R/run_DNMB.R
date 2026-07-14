@@ -43,6 +43,19 @@
 #' @param module_cpu Integer thread count for module external tools.
 #' @param module_results Optional precomputed module runs, such as the output
 #'   from `run_module_set()`.
+#' @param rebasefinder_structure_tsv Optional Foldseek/structure validation TSV
+#'   passed through to the REBASEfinder module.
+#' @param rebasefinder_structure_max_evalue Maximum accepted Foldseek e-value.
+#' @param rebasefinder_structure_min_probability Minimum accepted Foldseek
+#'   probability when present in the structure TSV.
+#' @param rebasefinder_structure_min_tmscore Minimum accepted alignment TM-score
+#'   when present in the structure TSV.
+#' @param rebasefinder_homology_modeling Logical; build eligible local ProMod3
+#'   homology models during REBASEfinder analysis.
+#' @param rebasefinder_homology_max_candidates Maximum number of ranked
+#'   REBASEfinder candidates screened for homology modeling.
+#' @param rebasefinder_typeiii_context_genes Number of upstream/downstream genes
+#'   inspected around Type III candidates.
 #' @param interproscan_applications Character vector of InterProScan analyses
 #'   (e.g., \code{c("Pfam", "TIGRFAM")}). \code{NULL} runs all.
 #' @param interproscan_path Path to \code{interproscan.sh}. \code{NULL}
@@ -196,6 +209,13 @@ run_DNMB <- function(
     module_asset_urls = NULL,
     module_cpu = .dnmb_default_cpu(),
     module_results = NULL,
+    rebasefinder_structure_tsv = NULL,
+    rebasefinder_structure_max_evalue = 1e-3,
+    rebasefinder_structure_min_probability = 0.50,
+    rebasefinder_structure_min_tmscore = 0.45,
+    rebasefinder_homology_modeling = TRUE,
+    rebasefinder_homology_max_candidates = 24L,
+    rebasefinder_typeiii_context_genes = 3L,
     iselement_analysis_depth = "full",
     iselement_related_genbanks = NULL,
     iselement_related_metadata = NULL,
@@ -306,6 +326,13 @@ run_DNMB <- function(
     mrnacal_require_rnafold = mrnacal_require_rnafold,
     mrnacal_sd_seed = mrnacal_sd_seed,
     mrnacal_top_folds = mrnacal_top_folds,
+    rebasefinder_structure_tsv = rebasefinder_structure_tsv,
+    rebasefinder_structure_max_evalue = rebasefinder_structure_max_evalue,
+    rebasefinder_structure_min_probability = rebasefinder_structure_min_probability,
+    rebasefinder_structure_min_tmscore = rebasefinder_structure_min_tmscore,
+    rebasefinder_homology_modeling = rebasefinder_homology_modeling,
+    rebasefinder_homology_max_candidates = rebasefinder_homology_max_candidates,
+    rebasefinder_typeiii_context_genes = rebasefinder_typeiii_context_genes,
     iselement_analysis_depth = iselement_analysis_depth,
     iselement_related_genbanks = iselement_related_genbanks,
     iselement_related_metadata = iselement_related_metadata,
@@ -497,6 +524,13 @@ run_DNMB <- function(
     mrnacal_require_rnafold = mrnacal_require_rnafold,
     mrnacal_sd_seed = mrnacal_sd_seed,
     mrnacal_top_folds = mrnacal_top_folds,
+    rebasefinder_structure_tsv = rebasefinder_structure_tsv,
+    rebasefinder_structure_max_evalue = rebasefinder_structure_max_evalue,
+    rebasefinder_structure_min_probability = rebasefinder_structure_min_probability,
+    rebasefinder_structure_min_tmscore = rebasefinder_structure_min_tmscore,
+    rebasefinder_homology_modeling = rebasefinder_homology_modeling,
+    rebasefinder_homology_max_candidates = rebasefinder_homology_max_candidates,
+    rebasefinder_typeiii_context_genes = rebasefinder_typeiii_context_genes,
     iselement_analysis_depth = iselement_analysis_depth,
     iselement_related_genbanks = iselement_related_genbanks,
     iselement_related_metadata = iselement_related_metadata,
@@ -573,6 +607,13 @@ run_DNMB <- function(
               mrnacal_require_rnafold = mrnacal_require_rnafold,
               mrnacal_sd_seed = mrnacal_sd_seed,
               mrnacal_top_folds = mrnacal_top_folds,
+              rebasefinder_structure_tsv = rebasefinder_structure_tsv,
+              rebasefinder_structure_max_evalue = rebasefinder_structure_max_evalue,
+              rebasefinder_structure_min_probability = rebasefinder_structure_min_probability,
+              rebasefinder_structure_min_tmscore = rebasefinder_structure_min_tmscore,
+              rebasefinder_homology_modeling = rebasefinder_homology_modeling,
+              rebasefinder_homology_max_candidates = rebasefinder_homology_max_candidates,
+              rebasefinder_typeiii_context_genes = rebasefinder_typeiii_context_genes,
               iselement_analysis_depth = iselement_analysis_depth,
               iselement_related_genbanks = iselement_related_genbanks,
               iselement_related_metadata = iselement_related_metadata,
@@ -764,6 +805,13 @@ dnmb_resolve_module_results <- function(module_aliases,
                                         mrnacal_require_rnafold = TRUE,
                                         mrnacal_sd_seed = NULL,
                                         mrnacal_top_folds = 12L,
+                                        rebasefinder_structure_tsv = NULL,
+                                        rebasefinder_structure_max_evalue = 1e-3,
+                                        rebasefinder_structure_min_probability = 0.50,
+                                        rebasefinder_structure_min_tmscore = 0.45,
+                                        rebasefinder_homology_modeling = TRUE,
+                                        rebasefinder_homology_max_candidates = 24L,
+                                        rebasefinder_typeiii_context_genes = 3L,
                                         iselement_analysis_depth = "full",
                                         iselement_related_genbanks = NULL,
                                         iselement_related_metadata = NULL,
@@ -836,6 +884,13 @@ dnmb_resolve_module_results <- function(module_aliases,
   module_flags$mrnacal_require_rnafold <- mrnacal_require_rnafold
   module_flags$mrnacal_sd_seed <- mrnacal_sd_seed
   module_flags$mrnacal_top_folds <- mrnacal_top_folds
+  module_flags$rebasefinder_structure_tsv <- rebasefinder_structure_tsv
+  module_flags$rebasefinder_structure_max_evalue <- rebasefinder_structure_max_evalue
+  module_flags$rebasefinder_structure_min_probability <- rebasefinder_structure_min_probability
+  module_flags$rebasefinder_structure_min_tmscore <- rebasefinder_structure_min_tmscore
+  module_flags$rebasefinder_homology_modeling <- rebasefinder_homology_modeling
+  module_flags$rebasefinder_homology_max_candidates <- rebasefinder_homology_max_candidates
+  module_flags$rebasefinder_typeiii_context_genes <- rebasefinder_typeiii_context_genes
   module_flags$iselement_analysis_depth <- iselement_analysis_depth
   module_flags$iselement_related_genbanks <- iselement_related_genbanks
   module_flags$iselement_related_metadata <- iselement_related_metadata

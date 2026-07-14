@@ -524,7 +524,7 @@
     ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = c(0, 0.15)))
 
   # Compose single-page PDF: circlize (Panel A, top 72%) + cowplot (B+C, bottom 28%)
-  grDevices::pdf(pdf_path, width = 14, height = 18, bg = "white")
+  .dnmb_plot_pdf_device(pdf_path, width = 14, height = 18, bg = "white")
   on.exit(grDevices::dev.off(), add = TRUE)
 
   # --- Panel A: circlize via par(fig) — top portion ---

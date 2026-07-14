@@ -3,7 +3,7 @@ suppressPackageStartupMessages({
   suppressPackageStartupMessages(library(cowplot)); suppressPackageStartupMessages(library(circlize)); suppressPackageStartupMessages(library(ComplexHeatmap))
 })
 pkg_dir <- "/Users/JaeYoon/Dropbox/0.Personal folder/5. Bioinformatics/DNMB"
-for (f in c("R/db_modules.R","R/module_api.R","R/Mobileome_pipeline.R",
+for (f in c("R/plot_style.R","R/db_modules.R","R/module_api.R","R/Mobileome_pipeline.R",
             "R/Mobileome_sequence_engine.R","R/Mobileome_variant_engine.R",
             "R/Mobileome_comparative.R","R/Mobileome_landing_pads.R",
             "R/Mobileome_auto_comparative.R","R/db_module_iselement.R"))
@@ -30,7 +30,7 @@ fam_cols <- c(IS110="#7E57C2",IS982="#26A69A",IS701="#EF5350",IS630="#42A5F5",
 # ======================================================================
 # Page 1: Circlize genome map with IS links (publication quality)
 # ======================================================================
-pdf(file.path(plot_dir, "ISelement_overview.pdf"), width=14, height=14)
+.dnmb_plot_pdf_device(file.path(plot_dir, "ISelement_overview.pdf"), width=14, height=14)
 
 par(mar=c(1,1,2,1))
 circos.clear()
@@ -176,7 +176,7 @@ for (i in seq_along(legend_fams)) {
   y <- y_start - (i-1) * 0.042
   rect(-0.38, y-0.014, -0.32, y+0.014, col=fam_cols[legend_fams[i]], border="grey50", lwd=0.3)
   text(-0.30, y, paste0(legend_fams[i], " (", fam_counts[legend_fams[i]], ")"),
-       cex=0.5, adj=c(0, 0.5), family="sans")
+       cex=0.5, adj=c(0, 0.5), family=.dnmb_plot_font_family())
 }
 
 # Track legend

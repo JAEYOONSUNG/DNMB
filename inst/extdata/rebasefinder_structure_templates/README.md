@@ -1,10 +1,12 @@
 # REBASEfinder structural templates
 
 This directory contains compact, chain-only experimental structures for local
-REBASEfinder homology and Foldseek validation. The files cover the 11 curated
-entries in `../rebasefinder_structure_refs.tsv`, add a Type I HsdR reference
-that was missing from that set, and add generic helicase and DNA-repair nuclease
-decoys for negative-control ranking.
+REBASEfinder homology and Foldseek validation. The files cover the curated
+entries in `../rebasefinder_structure_refs.tsv`, add a Type I HsdR reference,
+and add generic helicase and DNA-repair nuclease decoys for negative-control
+ranking. Type II methylases include separate C5-cytosine and amino-DNA
+(N6A/N4C) fold representatives so those subclasses are not forced onto one
+template.
 
 ## Contents
 
@@ -23,7 +25,7 @@ removed. Protein selenomethionine (`MSE`) residues are normalized to standard
 methionine `ATOM` records so the coordinate PDB and FASTA remain aligned.
 
 The source PDB files were retrieved from the RCSB PDB download service on
-2026-07-10:
+2026-07-10; the Dam 2G1P template was added on 2026-07-14:
 
 `https://files.rcsb.org/download/<PDB_ID>.pdb.gz`
 

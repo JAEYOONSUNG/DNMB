@@ -317,10 +317,14 @@
     locus_tag = cds$locus_tag,
     feature_interval_length = abs(as.integer(cds$end) - as.integer(cds$start)) + 1L,
     product_length = nchar(cds$translation),
+    # DefensePredictor currently drops any row whose free-text `attributes`
+    # contains the substring "pseudo". Keeping the product name here therefore
+    # removes valid proteins such as pseudouridine synthases. The dedicated
+    # `name` column already carries the product annotation, so attributes are
+    # restricted to stable identifiers.
     attributes = paste0(
       "protein_id=", cds$query_id,
-      ";locus_tag=", cds$locus_tag,
-      ";product=", cds$product
+      ";locus_tag=", cds$locus_tag
     ),
     check.names = FALSE,
     stringsAsFactors = FALSE

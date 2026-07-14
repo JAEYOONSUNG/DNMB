@@ -204,9 +204,23 @@ plot_DNMB_mobileome_distribution <- function(
   )
 
   ggplot2::ggsave(files$overview_png, overview_plot, width = width, height = height, dpi = 300, bg = "white")
-  ggplot2::ggsave(files$overview_pdf, overview_plot, width = width, height = height, bg = "white")
+  ggplot2::ggsave(
+    files$overview_pdf,
+    overview_plot,
+    width = width,
+    height = height,
+    bg = "white",
+    device = .dnmb_plot_pdf_device
+  )
   ggplot2::ggsave(files$counts_png, count_plot, width = width * 0.8, height = height * 0.8, dpi = 300, bg = "white")
-  ggplot2::ggsave(files$counts_pdf, count_plot, width = width * 0.8, height = height * 0.8, bg = "white")
+  ggplot2::ggsave(
+    files$counts_pdf,
+    count_plot,
+    width = width * 0.8,
+    height = height * 0.8,
+    bg = "white",
+    device = .dnmb_plot_pdf_device
+  )
 
   invisible(list(
     overview_plot = overview_plot,
@@ -1260,7 +1274,11 @@ plot_DNMB_mobileome_distribution <- function(
     label = motif,
     x = 0.5,
     hjust = 0.5,
-    gp = grid::gpar(fontsize = 7, col = "#475569", fontfamily = "Courier")
+    gp = grid::gpar(
+      fontsize = 7,
+      col = "#475569",
+      fontfamily = .dnmb_plot_font_family()
+    )
   )
 }
 
@@ -1475,7 +1493,11 @@ plot_DNMB_mobileome_distribution <- function(
           label = .dnmb_compact_recognition_label(label),
           x = 0.5,
           hjust = 0.5,
-          gp = grid::gpar(fontsize = 7, col = color, fontfamily = "Courier")
+          gp = grid::gpar(
+            fontsize = 7,
+            col = color,
+            fontfamily = .dnmb_plot_font_family()
+          )
         ),
         slot_count = slot_count,
         motif_len = motif_len,

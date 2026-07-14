@@ -35,6 +35,74 @@
   max(x, na.rm = TRUE)
 }
 
+.dnmb_integrated_defense_grob_height_in <- function(grob, fallback = 0) {
+  if (is.null(grob)) {
+    return(0)
+  }
+
+  opened_null_device <- identical(unname(grDevices::dev.cur()), 1L)
+  if (opened_null_device) {
+    measurement_path <- tempfile("dnmb-legend-metrics-", fileext = ".pdf")
+    .dnmb_plot_pdf_device(measurement_path, width = 10.5, height = 15.3)
+    measurement_device <- grDevices::dev.cur()
+    on.exit({
+      open_devices <- grDevices::dev.list()
+      if (!is.null(open_devices) && measurement_device %in% open_devices) {
+        grDevices::dev.off(which = measurement_device)
+      }
+      unlink(measurement_path)
+    }, add = TRUE)
+  }
+
+  height_unit <- if (!is.null(grob$heights)) {
+    sum(grob$heights)
+  } else {
+    grid::grobHeight(grob)
+  }
+  height_in <- suppressWarnings(tryCatch(
+    grid::convertHeight(height_unit, "in", valueOnly = TRUE),
+    error = function(e) NA_real_
+  ))
+  if (!is.finite(height_in) || height_in <= 0) {
+    return(as.numeric(fallback)[1])
+  }
+  height_in
+}
+
+.dnmb_integrated_defense_legend_layout <- function(meta_height_in,
+                                                    fill_height_in,
+                                                    main_rel_heights = c(2.05, 4.00, 1.50),
+                                                    main_height_in = 14.85,
+                                                    inter_legend_gap_in = 0.08,
+                                                    outer_padding_in = 0.06) {
+  meta_height_in <- max(0, as.numeric(meta_height_in)[1])
+  fill_height_in <- max(0, as.numeric(fill_height_in)[1])
+  main_rel_heights <- as.numeric(main_rel_heights)
+  main_height_in <- as.numeric(main_height_in)[1]
+  inter_legend_gap_in <- if (meta_height_in > 0 && fill_height_in > 0) {
+    max(0, as.numeric(inter_legend_gap_in)[1])
+  } else {
+    0
+  }
+  outer_padding_in <- max(0, as.numeric(outer_padding_in)[1])
+
+  legend_height_in <- meta_height_in + fill_height_in +
+    inter_legend_gap_in + 2 * outer_padding_in
+  main_unit_in <- main_height_in / sum(main_rel_heights)
+  legend_rel_height <- legend_height_in / main_unit_in
+
+  list(
+    main_rel_heights = main_rel_heights,
+    legend_rel_height = legend_rel_height,
+    legend_height_in = legend_height_in,
+    output_height_in = main_height_in + legend_height_in,
+    meta_height_in = meta_height_in,
+    fill_height_in = fill_height_in,
+    inter_legend_gap_in = inter_legend_gap_in,
+    outer_padding_in = outer_padding_in
+  )
+}
+
 .dnmb_integrated_defense_clean_text <- function(x) {
   x <- as.character(x)
   x[is.na(x)] <- ""
@@ -62,6 +130,45 @@
   }
   x[src == "DefensePredictor"] <- "DP candidate"
   .dnmb_integrated_defense_short_label(x, max_len = max_len)
+}
+
+.dnmb_integrated_defense_legend_labels <- function(palette,
+                                                    members = NULL,
+                                                    wrap_width = 26L) {
+  breaks <- names(palette)
+  if (is.null(breaks) || !length(breaks)) {
+    return(character())
+  }
+
+  labels <- breaks
+  if (is.data.frame(members) &&
+      all(c("display_name", "display_name_full") %in% names(members))) {
+    member_idx <- match(breaks, as.character(members$display_name))
+    full_labels <- as.character(members$display_name_full[member_idx])
+    use_full <- !is.na(full_labels) & nzchar(full_labels)
+    labels[use_full] <- full_labels[use_full]
+  }
+
+  wrap_width <- max(8L, as.integer(wrap_width)[1])
+  labels <- vapply(labels, function(label) {
+    characters <- strsplit(label, "", fixed = TRUE)[[1]]
+    wrapped <- character()
+    while (length(characters) > wrap_width) {
+      candidate_width <- min(wrap_width, length(characters))
+      break_candidates <- which(
+        characters[seq_len(candidate_width)] %in% c(" ", "_", ":", "/", "-")
+      )
+      useful_breaks <- break_candidates[
+        break_candidates >= floor(wrap_width * 0.45)
+      ]
+      break_at <- if (length(useful_breaks)) max(useful_breaks) else candidate_width
+      wrapped <- c(wrapped, paste0(characters[seq_len(break_at)], collapse = ""))
+      characters <- characters[-seq_len(break_at)]
+    }
+    paste(c(wrapped, paste0(characters, collapse = "")), collapse = "\n")
+  }, character(1), USE.NAMES = FALSE)
+
+  stats::setNames(labels, breaks)
 }
 
 .dnmb_integrated_defense_gene_name <- function(hit_rows) {
@@ -349,7 +456,9 @@
 .dnmb_plot_integrated_defense_context <- function(genbank_table,
                                                   output_dir,
                                                   defense_palette,
-                                                  legend_position = "none") {
+                                                  legend_position = "none",
+                                                  legend_labels = NULL,
+                                                  legend_rows = NULL) {
   tbl <- .dnmb_contig_ordered_table(genbank_table)
   if (!nrow(tbl)) {
     return(NULL)
@@ -396,7 +505,21 @@
   max_lane <- max(defense_windows$label_lane, na.rm = TRUE)
   type_breaks <- names(defense_palette)
   n_type <- length(type_breaks)
-  fill_rows <- max(1L, ceiling(n_type / 10L))
+  fill_rows <- if (is.null(legend_rows)) {
+    max(1L, ceiling(n_type / 10L))
+  } else {
+    max(1L, as.integer(legend_rows)[1])
+  }
+  type_labels <- type_breaks
+  if (!is.null(legend_labels)) {
+    candidate_labels <- if (!is.null(names(legend_labels))) {
+      as.character(legend_labels[type_breaks])
+    } else {
+      rep(as.character(legend_labels), length.out = n_type)
+    }
+    use_candidate <- !is.na(candidate_labels) & nzchar(candidate_labels)
+    type_labels[use_candidate] <- candidate_labels[use_candidate]
+  }
 
   contig_map <- contig_lengths$length_bp[match(defense_windows$contig, contig_lengths$contig)]
   offset_bp <- pmax(1200, contig_map * 0.0100)
@@ -462,7 +585,12 @@
       inherit.aes = FALSE
     ) +
     ggplot2::facet_wrap(~contig, scales = "free_x", ncol = 1) +
-    ggplot2::scale_fill_manual(values = defense_palette, name = "Defense subtype") +
+    ggplot2::scale_fill_manual(
+      values = defense_palette,
+      breaks = type_breaks,
+      labels = type_labels,
+      name = "Defense subtype"
+    ) +
     ggplot2::scale_color_manual(values = c("P cov" = "#2563EB", "S cov" = "#D97706"), name = "Coverage") +
     ggplot2::scale_shape_manual(values = c(Chromosome = 21, Plasmid = 24), name = "Replicon") +
     ggplot2::scale_size_continuous(range = c(4.0, 8.0), breaks = sort(unique(defense_windows$score)), name = "Score") +
@@ -1112,7 +1240,14 @@
     values = c(system_summary$display_name, plot_members$DefenseFinder_system_subtype),
     sources = c(system_summary$system_group_source, plot_members$system_group_source)
   )
-  fill_rows <- max(1L, ceiling(length(palette) / 10L))
+  legend_labels <- .dnmb_integrated_defense_legend_labels(
+    palette = palette,
+    members = plot_members,
+    wrap_width = 26L
+  )
+  # Full subtype names use at most four columns. The extracted legend is then
+  # measured at its natural height, so no name or legend row is clipped.
+  fill_rows <- max(1L, ceiling(length(palette) / 4L))
 
   overview_windows <- system_summary |>
     dplyr::transmute(
@@ -1135,14 +1270,18 @@
     plot_members,
     output_dir = output_dir,
     defense_palette = palette,
-    legend_position = "none"
+    legend_position = "none",
+    legend_labels = legend_labels,
+    legend_rows = fill_rows
   ) + ggplot2::labs(title = NULL) + ggplot2::theme(plot.margin = ggplot2::margin(6, 8, 18, 2))
 
   p_context_legend <- .dnmb_plot_integrated_defense_context(
     plot_members,
     output_dir = output_dir,
     defense_palette = palette,
-    legend_position = "bottom"
+    legend_position = "bottom",
+    legend_labels = legend_labels,
+    legend_rows = fill_rows
   ) + ggplot2::labs(title = NULL) + ggplot2::theme(plot.margin = ggplot2::margin(6, 8, 18, 2))
 
   p_context_meta_legend <- p_context_legend +
@@ -1165,8 +1304,33 @@
       color = "none"
     )
 
+  # Build and measure both guide boxes on the same Arial/Cairo device used for
+  # final output. Otherwise an idle R session can resolve text on its implicit
+  # Helvetica PDF device before the height helper has a chance to intervene.
+  legend_measurement_path <- tempfile("dnmb-defense-legend-", fileext = ".pdf")
+  .dnmb_plot_pdf_device(legend_measurement_path, width = 10.5, height = 15.3)
+  legend_measurement_device <- grDevices::dev.cur()
+  on.exit({
+    open_devices <- grDevices::dev.list()
+    if (!is.null(open_devices) && legend_measurement_device %in% open_devices) {
+      grDevices::dev.off(which = legend_measurement_device)
+    }
+    unlink(legend_measurement_path)
+  }, add = TRUE)
   legend_context_meta <- cowplot::get_legend(p_context_meta_legend)
   legend_context_fill <- cowplot::get_legend(p_context_fill_legend)
+  legend_meta_height_in <- .dnmb_integrated_defense_grob_height_in(
+    legend_context_meta,
+    fallback = 0.36
+  )
+  legend_fill_height_in <- .dnmb_integrated_defense_grob_height_in(
+    legend_context_fill,
+    fallback = 0.18 + 0.18 * fill_rows
+  )
+  legend_layout <- .dnmb_integrated_defense_legend_layout(
+    meta_height_in = legend_meta_height_in,
+    fill_height_in = legend_fill_height_in
+  )
 
   top_systems <- system_summary |>
     dplyr::transmute(
@@ -1220,21 +1384,27 @@
     cowplot::draw_plot(p_detail, x = 0.005, y = 0.05, width = 0.99, height = 0.92)
   d_context_wrapped <- cowplot::ggdraw() +
     cowplot::draw_plot(d_context_panel, x = 0.01, y = 0.00, width = 0.98, height = 0.98)
-  common_legend <- cowplot::ggdraw() +
-    cowplot::draw_plot(
-      cowplot::plot_grid(
-        cowplot::ggdraw() +
-          cowplot::draw_grob(legend_context_meta, x = 0.5, y = 0.80, width = 0.86, height = 0.22, hjust = 0.5, vjust = 0.5),
-        cowplot::ggdraw() +
-          cowplot::draw_grob(legend_context_fill, x = 0.5, y = 0.42, width = 0.995, height = 0.26, hjust = 0.5, vjust = 0.5),
-        ncol = 1,
-        rel_heights = c(0.40, 0.60)
-      ),
-      x = 0,
-      y = 0,
-      width = 1,
-      height = 1
-    )
+  legend_plots <- list(NULL)
+  legend_heights <- legend_layout$outer_padding_in
+  if (!is.null(legend_context_meta)) {
+    legend_plots[[length(legend_plots) + 1L]] <- legend_context_meta
+    legend_heights <- c(legend_heights, legend_layout$meta_height_in)
+  }
+  if (!is.null(legend_context_meta) && !is.null(legend_context_fill)) {
+    legend_plots[length(legend_plots) + 1L] <- list(NULL)
+    legend_heights <- c(legend_heights, legend_layout$inter_legend_gap_in)
+  }
+  if (!is.null(legend_context_fill)) {
+    legend_plots[[length(legend_plots) + 1L]] <- legend_context_fill
+    legend_heights <- c(legend_heights, legend_layout$fill_height_in)
+  }
+  legend_plots[length(legend_plots) + 1L] <- list(NULL)
+  legend_heights <- c(legend_heights, legend_layout$outer_padding_in)
+  common_legend <- cowplot::plot_grid(
+    plotlist = legend_plots,
+    ncol = 1,
+    rel_heights = legend_heights
+  )
 
   composite <- cowplot::plot_grid(
     top_row,
@@ -1254,12 +1424,22 @@
     ),
     common_legend,
     ncol = 1,
-    rel_heights = c(2.05, 4.00, 1.50, 0.22),
+    rel_heights = c(
+      legend_layout$main_rel_heights,
+      legend_layout$legend_rel_height
+    ),
     align = "v"
   )
+  grDevices::dev.off(which = legend_measurement_device)
+  unlink(legend_measurement_path, force = TRUE)
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, paste0(plot_slug, "_overview.pdf"))
-  .dnmb_module_plot_save(composite, pdf_path, width = 10.5, height = 15.3)
+  .dnmb_module_plot_save(
+    composite,
+    pdf_path,
+    width = 10.5,
+    height = legend_layout$output_height_in
+  )
   list(pdf = pdf_path)
 }

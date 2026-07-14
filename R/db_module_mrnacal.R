@@ -2364,6 +2364,74 @@ dnmb_run_mrnacal_module <- function(genes,
   p
 }
 
+.dnmb_mrnacal_component_specs <- function() {
+  list(
+    RBS = c(mRNAcal_rbs_score = 1),
+    AntiSD = c(mRNAcal_duplex_score = 1),
+    Accessibility = c(mRNAcal_accessibility_score = 1),
+    UpstreamAU = c(mRNAcal_upstream_au_score = 1),
+    Start = c(mRNAcal_start_codon_score = 1),
+    EarlyK = c(mRNAcal_early_k_score = 1),
+    TIRcore = c(mRNAcal_tir_core_score = 1),
+    NCSfold = c(mRNAcal_ncs_fold_score = 1),
+    CAI = c(mRNAcal_cai_score = 1, mRNAcal_cai = 100),
+    tAI = c(mRNAcal_tai_score = 1, mRNAcal_tai = 100),
+    MFE = c(mRNAcal_fold_score = 1),
+    TIR = c(mRNAcal_tir_score = 1),
+    CodonEff = c(mRNAcal_codon_efficiency_score = 1)
+  )
+}
+
+.dnmb_mrnacal_component_table <- function(tbl, top_n = 12L) {
+  tbl <- as.data.frame(tbl, stringsAsFactors = FALSE)
+  if (!nrow(tbl) || !"mRNAcal_tir_score" %in% names(tbl)) {
+    return(data.frame(
+      locus_tag = factor(), component = factor(), score = numeric(),
+      stringsAsFactors = FALSE
+    ))
+  }
+  if (!"locus_tag" %in% names(tbl)) {
+    tbl$locus_tag <- rownames(tbl)
+  }
+  tir_score <- suppressWarnings(as.numeric(tbl$mRNAcal_tir_score))
+  top_component <- tbl[order(-tir_score, na.last = TRUE), , drop = FALSE]
+  top_component <- utils::head(top_component, min(as.integer(top_n), nrow(top_component)))
+  specs <- .dnmb_mrnacal_component_specs()
+  comp_rows <- list()
+
+  for (component_name in names(specs)) {
+    candidates <- specs[[component_name]]
+    available <- names(candidates)[names(candidates) %in% names(top_component)]
+    if (!length(available)) {
+      next
+    }
+    column_name <- available[[1]]
+    multiplier <- unname(candidates[[column_name]])
+    values <- suppressWarnings(as.numeric(top_component[[column_name]])) * multiplier
+    values <- pmin(100, pmax(0, values))
+    comp_rows[[length(comp_rows) + 1L]] <- data.frame(
+      locus_tag = as.character(top_component$locus_tag),
+      component = component_name,
+      score = values,
+      stringsAsFactors = FALSE
+    )
+  }
+
+  if (!length(comp_rows)) {
+    return(data.frame(
+      locus_tag = factor(), component = factor(), score = numeric(),
+      stringsAsFactors = FALSE
+    ))
+  }
+  comp_tbl <- dplyr::bind_rows(comp_rows)
+  comp_tbl$locus_tag <- factor(
+    comp_tbl$locus_tag,
+    levels = rev(unique(as.character(top_component$locus_tag)))
+  )
+  comp_tbl$component <- factor(comp_tbl$component, levels = names(specs))
+  comp_tbl
+}
+
 .dnmb_plot_mrnacal_module <- function(genbank_table, output_dir = getwd(), top_n = 12L) {
   if (!is.data.frame(genbank_table) || !"mRNAcal_tir_score" %in% names(genbank_table)) {
     return(NULL)
@@ -2422,36 +2490,7 @@ dnmb_run_mrnacal_module <- function(genes,
     ggplot2::theme_bw(base_size = 10) +
     ggplot2::theme(panel.grid.minor = ggplot2::element_blank(), plot.title = ggplot2::element_text(face = "bold"))
 
-  component_cols <- c(
-    RBS = "mRNAcal_rbs_score",
-    AntiSD = "mRNAcal_duplex_score",
-    Accessibility = "mRNAcal_accessibility_score",
-    UpstreamAU = "mRNAcal_upstream_au_score",
-    Start = "mRNAcal_start_codon_score",
-    EarlyK = "mRNAcal_early_k_score",
-    TIRcore = "mRNAcal_tir_core_score",
-    NCSfold = "mRNAcal_ncs_fold_score",
-    CAI = "mRNAcal_cai_score",
-    tAI = "mRNAcal_tai_score",
-    MFE = "mRNAcal_fold_score"
-  )
-  top_component <- tbl[order(-tbl$tir_score), , drop = FALSE]
-  top_component <- utils::head(top_component, min(12L, nrow(top_component)))
-  comp_rows <- list()
-  for (nm in names(component_cols)) {
-    col <- component_cols[[nm]]
-    if (col %in% names(top_component)) {
-      comp_rows[[length(comp_rows) + 1L]] <- data.frame(
-        locus_tag = top_component$locus_tag,
-        component = nm,
-        score = suppressWarnings(as.numeric(top_component[[col]])),
-        stringsAsFactors = FALSE
-      )
-    }
-  }
-  comp_tbl <- if (length(comp_rows)) dplyr::bind_rows(comp_rows) else data.frame()
-  comp_tbl$locus_tag <- factor(comp_tbl$locus_tag, levels = rev(unique(top_component$locus_tag)))
-  comp_tbl$component <- factor(comp_tbl$component, levels = names(component_cols))
+  comp_tbl <- .dnmb_mrnacal_component_table(tbl, top_n = 12L)
   p_comp <- ggplot2::ggplot(comp_tbl, ggplot2::aes(x = .data$component, y = .data$locus_tag, fill = .data$score)) +
     ggplot2::geom_tile(color = "white", linewidth = 0.4, na.rm = TRUE) +
     ggplot2::geom_text(
@@ -2471,7 +2510,10 @@ dnmb_run_mrnacal_module <- function(genes,
     ggplot2::theme_minimal(base_size = 9) +
     ggplot2::theme(
       axis.text.x = ggplot2::element_text(angle = 35, hjust = 1, size = 8),
-      axis.text.y = ggplot2::element_text(family = "mono", size = 8),
+      axis.text.y = ggplot2::element_text(
+        family = .dnmb_plot_font_family(),
+        size = 8
+      ),
       panel.grid = ggplot2::element_blank(),
       plot.title = ggplot2::element_text(face = "bold", size = 11),
       plot.subtitle = ggplot2::element_text(size = 8, color = "#475569")
@@ -2489,7 +2531,14 @@ dnmb_run_mrnacal_module <- function(genes,
     top_row, p_scatter, p_comp,
     ncol = 1, rel_heights = c(0.85, 0.95, 1.2)
   )
-  ggplot2::ggsave(summary_pdf, summary_plot, width = 11, height = 14, bg = "white")
+  ggplot2::ggsave(
+    summary_pdf,
+    summary_plot,
+    width = 11,
+    height = 14,
+    bg = "white",
+    device = .dnmb_plot_pdf_device
+  )
 
   fold_pdf <- NULL
   if (all(c("mRNAcal_fold_structure", "mRNAcal_fold_sequence") %in% names(tbl))) {
@@ -2538,7 +2587,14 @@ dnmb_run_mrnacal_module <- function(genes,
         # directory rather than visualizations/ to avoid clutter.
         fold_pdf <- file.path(module_dir_for_diag, "mrnacal_top_folds.pdf")
         fold_grid <- cowplot::plot_grid(plotlist = fold_plots, ncol = 1)
-        ggplot2::ggsave(fold_pdf, fold_grid, width = 12, height = max(6, min(32, length(fold_plots) * 1.15)), bg = "white")
+        ggplot2::ggsave(
+          fold_pdf,
+          fold_grid,
+          width = 12,
+          height = max(6, min(32, length(fold_plots) * 1.15)),
+          bg = "white",
+          device = .dnmb_plot_pdf_device
+        )
       }
     }
   }

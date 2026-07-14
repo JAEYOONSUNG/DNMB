@@ -37,12 +37,13 @@
   Sys.chmod(path, mode = "0755")
 }
 
-test_that("bundled R-M homology templates include HsdR and explicit noise decoys", {
+test_that("bundled R-M homology templates include methylase subclasses, HsdR, and decoys", {
   templates <- DNMB:::.dnmb_rebasefinder_read_homology_templates()
 
-  expect_equal(nrow(templates), 16L)
-  expect_equal(sum(templates$template_class == "positive"), 13L)
+  expect_equal(nrow(templates), 17L)
+  expect_equal(sum(templates$template_class == "positive"), 14L)
   expect_equal(sum(templates$template_class == "decoy"), 3L)
+  expect_true("Dam_MTase_2G1P_B" %in% templates$template_id)
   expect_true("EcoR124I_HsdR_6H2J_B" %in% templates$template_id)
   expect_true(any(grepl("rRNA", templates$family_description[templates$template_class == "decoy"], ignore.case = TRUE)))
   expect_true(any(grepl("helicase", templates$family_description[templates$template_class == "decoy"], ignore.case = TRUE)))
@@ -85,6 +86,32 @@ test_that("Type II subtypes are canonicalized before homology motif-pair matchin
     expect_true(mapping$complete, info = cases$template_id[[i]])
     expect_match(mapping$pairs, cases$expected_pair[[i]], fixed = TRUE)
   }
+})
+
+test_that("Type II methylase templates are matched by catalytic subclass", {
+  pair_for <- function(template_id) {
+    sequence <- .homology_template_sequence(template_id)
+    motifs <- DNMB:::.dnmb_rebasefinder_homology_motif_hits(
+      template_id, sequence, "Type II", "M"
+    )
+    mapping <- DNMB:::.dnmb_rebasefinder_homology_motif_mapping(
+      motifs,
+      DNMB:::.dnmb_rebasefinder_template_alignment(sequence, sequence)
+    )
+    mapping$pairs
+  }
+
+  c5_pair <- pair_for("HhaI_MTase_2HMY_B")
+  amino_pair <- pair_for("Dam_MTase_2G1P_B")
+
+  expect_identical(c5_pair, "c5_mtase_PCQ-ENV")
+  expect_identical(amino_pair, "amino_mtase_SAM-IV")
+  expect_false(DNMB:::.dnmb_rebasefinder_motif_subfamily_compatible(
+    c5_pair, amino_pair
+  ))
+  expect_true(DNMB:::.dnmb_rebasefinder_motif_subfamily_compatible(
+    amino_pair, amino_pair
+  ))
 })
 
 test_that("Type I HsdR maps to the positive template and fails softly without pm", {
@@ -175,6 +202,132 @@ test_that("managed ProMod3 install falls back from a broken mamba to conda", {
   layout <- DNMB:::.dnmb_rebasefinder_promod3_layout(cache_root = cache, create = FALSE)
   expect_true(file.exists(layout$ready))
   expect_true(DNMB:::.dnmb_rebasefinder_promod3_ready(layout))
+})
+
+test_that("managed ProMod3 runtime environments are platform-qualified but models are shared", {
+  cache <- tempfile("promod3-platform-cache-")
+  on.exit(unlink(cache, recursive = TRUE, force = TRUE), add = TRUE)
+
+  mac_key <- DNMB:::.dnmb_rebasefinder_promod3_runtime_key(
+    sysname = "Darwin", machine = "arm64",
+    r_platform = "aarch64-apple-darwin20"
+  )
+  linux_key <- DNMB:::.dnmb_rebasefinder_promod3_runtime_key(
+    sysname = "Linux", machine = "x86_64",
+    r_platform = "x86_64-pc-linux-gnu"
+  )
+  mac <- DNMB:::.dnmb_rebasefinder_promod3_layout(
+    cache_root = cache, create = FALSE, runtime_key = mac_key
+  )
+  linux <- DNMB:::.dnmb_rebasefinder_promod3_layout(
+    cache_root = cache, create = FALSE, runtime_key = linux_key
+  )
+
+  expect_identical(mac_key, "darwin-arm64-aarch64-apple-darwin20")
+  expect_identical(linux_key, "linux-x86_64-x86_64-pc-linux-gnu")
+  expect_false(identical(mac$env, linux$env))
+  expect_false(identical(mac$ready, linux$ready))
+  expect_false(identical(mac$packages, linux$packages))
+  expect_identical(mac$models, linux$models)
+  expect_match(mac$env, file.path("runtime", mac_key, "env"), fixed = TRUE)
+  expect_match(linux$env, file.path("runtime", linux_key, "env"), fixed = TRUE)
+})
+
+test_that("an executable but unusable completed ProMod3 environment is rejected and cleaned", {
+  skip_on_os("windows")
+  base <- tempfile("promod3-unusable-ready-")
+  empty_bin <- file.path(base, "empty-bin")
+  cache <- file.path(base, "cache")
+  dir.create(empty_bin, recursive = TRUE)
+  on.exit(unlink(base, recursive = TRUE, force = TRUE), add = TRUE)
+
+  old_path <- Sys.getenv("PATH")
+  Sys.setenv(PATH = empty_bin)
+  on.exit(Sys.setenv(PATH = old_path), add = TRUE)
+
+  layout <- DNMB:::.dnmb_rebasefinder_promod3_layout(cache, create = TRUE)
+  dir.create(dirname(layout$cli), recursive = TRUE)
+  writeLines(c("#!/bin/sh", "echo broken-runtime >&2", "exit 127"), layout$cli)
+  Sys.chmod(layout$cli, mode = "0755")
+  expect_true(DNMB:::.dnmb_rebasefinder_mark_promod3_ready(layout))
+  expect_true(file.exists(layout$ready))
+  expect_false(DNMB:::.dnmb_rebasefinder_promod3_ready(layout))
+
+  result <- DNMB:::.dnmb_rebasefinder_promod3_cli(
+    cache_root = cache, install = FALSE, verbose = FALSE
+  )
+
+  expect_identical(result$status, "backend_unavailable")
+  expect_false(file.exists(layout$ready))
+  expect_false(dir.exists(layout$env))
+  expect_true(identical(
+    layout$models,
+    DNMB:::.dnmb_rebasefinder_promod3_layout(cache, create = FALSE)$models
+  ))
+})
+
+test_that("a usable shared-layout ProMod3 environment is migrated without reinstalling", {
+  skip_on_os("windows")
+  base <- tempfile("promod3-legacy-migration-")
+  empty_bin <- file.path(base, "empty-bin")
+  cache <- file.path(base, "cache")
+  dir.create(empty_bin, recursive = TRUE)
+  on.exit(unlink(base, recursive = TRUE, force = TRUE), add = TRUE)
+
+  old_path <- Sys.getenv("PATH")
+  Sys.setenv(PATH = empty_bin)
+  on.exit(Sys.setenv(PATH = old_path), add = TRUE)
+
+  layout <- DNMB:::.dnmb_rebasefinder_promod3_layout(cache, create = TRUE)
+  legacy_env <- file.path(layout$root, "env")
+  legacy_cli <- file.path(legacy_env, "bin", "pm")
+  legacy_ready <- file.path(layout$root, ".install-complete")
+  dir.create(dirname(legacy_cli), recursive = TRUE)
+  writeLines(c("#!/bin/sh", "echo build-model", "exit 0"), legacy_cli)
+  Sys.chmod(legacy_cli, mode = "0755")
+  writeLines("promod3=3.6.0", legacy_ready)
+
+  result <- DNMB:::.dnmb_rebasefinder_promod3_cli(
+    cache_root = cache, install = FALSE, verbose = FALSE
+  )
+
+  expect_identical(result$status, "available")
+  expect_match(result$detail, "migrated legacy managed")
+  expect_identical(result$path, layout$cli)
+  expect_true(DNMB:::.dnmb_rebasefinder_promod3_ready(layout))
+  expect_true(dir.exists(layout$env))
+  expect_true(nzchar(Sys.readlink(legacy_env)))
+  expect_identical(normalizePath(legacy_env), normalizePath(layout$env))
+  expect_false(file.exists(legacy_ready))
+  expect_false(dir.exists(layout$lock))
+})
+
+test_that("an unusable shared-layout ProMod3 environment is left untouched", {
+  skip_on_os("windows")
+  base <- tempfile("promod3-legacy-preserve-")
+  empty_bin <- file.path(base, "empty-bin")
+  cache <- file.path(base, "cache")
+  dir.create(empty_bin, recursive = TRUE)
+  on.exit(unlink(base, recursive = TRUE, force = TRUE), add = TRUE)
+
+  old_path <- Sys.getenv("PATH")
+  Sys.setenv(PATH = empty_bin)
+  on.exit(Sys.setenv(PATH = old_path), add = TRUE)
+
+  layout <- DNMB:::.dnmb_rebasefinder_promod3_layout(cache, create = TRUE)
+  legacy_cli <- file.path(layout$root, "env", "bin", "pm")
+  dir.create(dirname(legacy_cli), recursive = TRUE)
+  writeLines(c("#!/bin/sh", "echo wrong-runtime >&2", "exit 127"), legacy_cli)
+  Sys.chmod(legacy_cli, mode = "0755")
+
+  result <- DNMB:::.dnmb_rebasefinder_promod3_cli(
+    cache_root = cache, install = FALSE, verbose = FALSE
+  )
+
+  expect_identical(result$status, "backend_unavailable")
+  expect_true(file.exists(legacy_cli))
+  expect_false(file.exists(layout$cli))
+  expect_false(file.exists(layout$ready))
 })
 
 test_that("managed ProMod3 requires a completion sentinel and promotes a valid legacy environment", {

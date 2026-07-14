@@ -356,7 +356,8 @@ dnmb_gapmind_carbohydrate_pathways <- function() {
   run <- dnmb_run_external(
     "diamond",
     args = c("makedb", "--in", layout$curated_faa, "-d", staged_prefix),
-    required = FALSE
+    required = FALSE,
+    timeout = .dnmb_makedb_timeout()
   )
   staged_dmnd <- base::paste0(staged_prefix, ".dmnd")
   if (base::isTRUE(run$ok) && base::file.exists(staged_dmnd)) {
@@ -1090,7 +1091,8 @@ dnmb_run_gapmind_module <- function(genes,
   diamond_make <- dnmb_run_external(
     "diamond",
     args = c("makedb", "--in", org_inputs$faa, "-d", sub("[.]dmnd$", "", org_dmnd)),
-    required = FALSE
+    required = FALSE,
+    timeout = .dnmb_makedb_timeout()
   )
   status <- dplyr::bind_rows(status, .dnmb_gapmind_status_row("gapmind_org_diamond", if (base::isTRUE(diamond_make$ok) && base::file.exists(org_dmnd)) "ok" else "failed", if (base::file.exists(org_dmnd)) org_dmnd else (diamond_make$error %||% org_inputs$faa)))
   if (!base::file.exists(org_dmnd)) {

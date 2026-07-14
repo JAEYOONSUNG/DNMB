@@ -801,7 +801,7 @@
   layout <- .dnmb_dbcan_one_page_layout(inputs)
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, "dbcan_cgc_overview.pdf")
-  grDevices::cairo_pdf(
+  .dnmb_plot_pdf_device(
     pdf_path,
     width = layout$width,
     height = layout$height,

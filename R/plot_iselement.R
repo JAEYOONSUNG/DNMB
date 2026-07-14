@@ -137,7 +137,7 @@
   }
 
   # Fallback: inline circlize (simplified)
-  grDevices::pdf(pdf_path, width = 14, height = 14)
+  .dnmb_plot_pdf_device(pdf_path, width = 14, height = 14)
 
   # ---- Page 1: Circlize genome map ----
   graphics::par(mar=c(2, 2, 3, 2))

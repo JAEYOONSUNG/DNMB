@@ -502,7 +502,8 @@ dnmb_acrfinder_get_module <- function(version = .dnmb_acrfinder_default_version(
   run <- dnmb_run_external(
     "diamond",
     args = c("makedb", "--in", fasta_path, "--db", db_prefix),
-    required = FALSE
+    required = FALSE,
+    timeout = .dnmb_makedb_timeout()
   )
   list(
     ok = base::isTRUE(run$ok),

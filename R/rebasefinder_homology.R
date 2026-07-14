@@ -242,6 +242,24 @@
   )
 }
 
+.dnmb_rebasefinder_motif_pair_ids <- function(x) {
+  x <- base::as.character(x)
+  x <- x[!base::is.na(x) & base::nzchar(base::trimws(x))]
+  if (!base::length(x)) return(character())
+  base::unique(base::trimws(base::unlist(base::strsplit(x, ",", fixed = TRUE))))
+}
+
+.dnmb_rebasefinder_motif_subfamily_compatible <- function(query_pairs, template_pairs) {
+  query_pairs <- .dnmb_rebasefinder_motif_pair_ids(query_pairs)
+  template_pairs <- .dnmb_rebasefinder_motif_pair_ids(template_pairs)
+  # An incomplete query motif architecture cannot safely choose a subclass,
+  # so retain the broader family/role comparison. Once a complete catalytic
+  # pair is present, however, require the positive template to carry the same
+  # pair. This prevents amino-DNA MTases from being forced onto a C5 template.
+  if (!base::length(query_pairs)) return(TRUE)
+  base::length(base::intersect(query_pairs, template_pairs)) > 0L
+}
+
 .dnmb_rebasefinder_homology_candidate_keep <- function(hits, max_candidates = 24L) {
   hits <- base::as.data.frame(hits, stringsAsFactors = FALSE)
   if (!base::nrow(hits)) return(logical())
@@ -303,20 +321,52 @@
   base::unname(tools::md5sum(path)[[1]])
 }
 
-.dnmb_rebasefinder_promod3_layout <- function(cache_root = NULL, create = TRUE) {
+.dnmb_rebasefinder_promod3_runtime_key <- function(
+    sysname = base::Sys.info()[["sysname"]],
+    machine = base::Sys.info()[["machine"]],
+    r_platform = R.version$platform) {
+  fallback <- c(
+    sysname = .Platform$OS.type,
+    machine = R.version$arch,
+    r_platform = "unknown-platform"
+  )
+  parts <- c(sysname = sysname, machine = machine, r_platform = r_platform)
+  parts <- base::as.character(parts)
+  missing <- base::is.na(parts) | !base::nzchar(base::trimws(parts))
+  parts[missing] <- fallback[missing]
+  key <- base::tolower(base::paste(parts, collapse = "-"))
+  key <- base::gsub("[^a-z0-9._-]+", "-", key)
+  key <- base::gsub("-+", "-", key)
+  key <- base::gsub("^[.-]+|[.-]+$", "", key)
+  if (!base::nzchar(key)) "unknown-runtime" else key
+}
+
+.dnmb_rebasefinder_promod3_layout <- function(cache_root = NULL,
+                                               create = TRUE,
+                                               runtime_key = .dnmb_rebasefinder_promod3_runtime_key()) {
   root <- base::file.path(
     .dnmb_db_cache_root(cache_root = cache_root, create = create),
     "rebasefinder", "promod3", "3.6.0"
   )
-  if (base::isTRUE(create)) base::dir.create(root, recursive = TRUE, showWarnings = FALSE)
+  runtime_key <- base::as.character(runtime_key)[[1]]
+  if (base::is.na(runtime_key) || !base::nzchar(runtime_key) ||
+      runtime_key %in% c(".", "..") || base::grepl("[/\\\\]", runtime_key)) {
+    base::stop("runtime_key must be a non-empty path component", call. = FALSE)
+  }
+  runtime_root <- base::file.path(root, "runtime", runtime_key)
+  if (base::isTRUE(create)) {
+    base::dir.create(runtime_root, recursive = TRUE, showWarnings = FALSE)
+  }
   list(
     root = root,
-    env = base::file.path(root, "env"),
-    cli = base::file.path(root, "env", "bin", "pm"),
-    ready = base::file.path(root, ".install-complete"),
-    lock = base::file.path(root, ".install-lock"),
+    runtime_key = runtime_key,
+    runtime_root = runtime_root,
+    env = base::file.path(runtime_root, "env"),
+    cli = base::file.path(runtime_root, "env", "bin", "pm"),
+    ready = base::file.path(runtime_root, ".install-complete"),
+    lock = base::file.path(runtime_root, ".install-lock"),
     models = base::file.path(root, "models"),
-    packages = base::file.path(root, "pkgs")
+    packages = base::file.path(runtime_root, "pkgs")
   )
 }
 
@@ -344,16 +394,23 @@
 
 .dnmb_rebasefinder_promod3_ready <- function(layout) {
   !base::is.null(layout) && base::file.exists(layout$ready) &&
-    base::file.exists(layout$cli) && base::file.access(layout$cli, mode = 1L) == 0L
+    base::file.exists(layout$cli) && base::file.access(layout$cli, mode = 1L) == 0L &&
+    .dnmb_rebasefinder_promod3_cli_usable(layout$cli)
 }
 
 .dnmb_rebasefinder_mark_promod3_ready <- function(layout) {
-  base::dir.create(layout$root, recursive = TRUE, showWarnings = FALSE)
-  marker <- base::tempfile(".install-complete-", tmpdir = layout$root)
+  marker_dir <- base::dirname(layout$ready)
+  base::dir.create(marker_dir, recursive = TRUE, showWarnings = FALSE)
+  marker <- base::tempfile(".install-complete-", tmpdir = marker_dir)
   on.exit(base::unlink(marker, force = TRUE), add = TRUE)
   base::writeLines(
     c(
       "promod3=3.6.0",
+      if (!base::is.null(layout$runtime_key)) {
+        base::paste0("runtime=", layout$runtime_key)
+      } else {
+        character()
+      },
       base::paste0("completed_at=", base::format(base::Sys.time(), tz = "UTC", usetz = TRUE))
     ),
     marker,
@@ -361,6 +418,39 @@
   )
   base::unlink(layout$ready, force = TRUE)
   base::isTRUE(base::file.rename(marker, layout$ready)) && base::file.exists(layout$ready)
+}
+
+.dnmb_rebasefinder_migrate_legacy_promod3 <- function(layout) {
+  legacy_env <- base::file.path(layout$root, "env")
+  legacy_cli <- base::file.path(legacy_env, "bin", "pm")
+  legacy_ready <- base::file.path(layout$root, ".install-complete")
+  if (base::file.exists(layout$env) || !base::file.exists(legacy_cli) ||
+      !.dnmb_rebasefinder_promod3_cli_usable(legacy_cli)) {
+    return(FALSE)
+  }
+  # A compatibility symlink from the old prefix is required for Conda
+  # launchers and shared libraries that embed that absolute prefix.
+  base::dir.create(layout$runtime_root, recursive = TRUE, showWarnings = FALSE)
+  moved <- base::isTRUE(base::file.rename(legacy_env, layout$env))
+  if (!moved) return(FALSE)
+  compatibility_target <- base::file.path("runtime", layout$runtime_key, "env")
+  compatibility_link <- base::isTRUE(base::file.symlink(compatibility_target, legacy_env))
+  usable <- .dnmb_rebasefinder_promod3_cli_usable(layout$cli)
+  marked <- usable && .dnmb_rebasefinder_mark_promod3_ready(layout)
+  ready <- marked && .dnmb_rebasefinder_promod3_ready(layout)
+  if (ready) {
+    base::unlink(legacy_ready, force = TRUE)
+    return(TRUE)
+  }
+  base::unlink(layout$ready, force = TRUE)
+  if (compatibility_link) {
+    base::unlink(legacy_env, recursive = FALSE, force = TRUE)
+  }
+  # The rename was within one cache filesystem, so rollback should be atomic.
+  # If an unexpected rollback failure occurs, retain the environment at the
+  # new path instead of deleting a previously usable installation.
+  base::file.rename(layout$env, legacy_env)
+  FALSE
 }
 
 .dnmb_rebasefinder_candidate_conda <- function() {
@@ -450,6 +540,23 @@
       ))
     }
     base::unlink(c(layout$env, layout$packages, layout$ready), recursive = TRUE, force = TRUE)
+  } else if (base::any(base::file.exists(c(layout$env, layout$packages, layout$ready)))) {
+    # The install lock is held here, so incomplete runtime artifacts cannot
+    # belong to a live installer. Models are portable and intentionally kept.
+    base::unlink(c(layout$env, layout$packages, layout$ready), recursive = TRUE, force = TRUE)
+  }
+  # This point is reached only while holding the runtime-specific install
+  # lock. A usable pre-runtime-layout environment may therefore be promoted
+  # without racing another installer. An unusable legacy environment is left
+  # untouched so a different OS/runtime can still inspect or reuse it.
+  if (.dnmb_rebasefinder_migrate_legacy_promod3(layout)) {
+    return(list(
+      path = layout$cli, status = "available",
+      detail = base::sprintf(
+        "migrated legacy managed ProMod3 environment for %s",
+        layout$runtime_key
+      )
+    ))
   }
   if (!base::isTRUE(install)) {
     return(list(path = "", status = "backend_unavailable", detail = "pm not installed and module_install=FALSE"))
@@ -636,7 +743,8 @@
                                                    cpu = 1L,
                                                    max_candidates = 24L,
                                                    min_identity = 0.30,
-                                                   min_template_coverage = 0.60,
+                                                   min_query_coverage = 0.60,
+                                                   min_template_coverage = 0.35,
                                                    min_aligned_length = 80L,
                                                    min_decoy_margin = 0.02,
                                                    min_decoy_relative_margin = 0.15,
@@ -711,6 +819,32 @@
         query, sequence, motif_family, role
       )
       motif_mapping <- .dnmb_rebasefinder_homology_motif_mapping(template_motif_hits, alignment)
+      positive_template_motifs <- if (template$template_class[[1]] == "positive") {
+        .dnmb_rebasefinder_homology_motif_hits(
+          template$template_id[[1]], template_sequences[[template_index]],
+          template$family[[1]],
+          .dnmb_rebasefinder_canonical_structure_role(template$enzyme_role[[1]])
+        )
+      } else {
+        base::data.frame()
+      }
+      template_motif_mapping <- if (base::nrow(positive_template_motifs)) {
+        template_self_alignment <- .dnmb_rebasefinder_template_alignment(
+          template_sequences[[template_index]], template_sequences[[template_index]]
+        )
+        .dnmb_rebasefinder_homology_motif_mapping(
+          positive_template_motifs, template_self_alignment
+        )
+      } else {
+        list(complete = FALSE, pairs = NA_character_, mapped_motifs = NA_character_)
+      }
+      motif_subfamily_compatible <- if (template$template_class[[1]] == "positive") {
+        .dnmb_rebasefinder_motif_subfamily_compatible(
+          motif_mapping$pairs, template_motif_mapping$pairs
+        )
+      } else {
+        TRUE
+      }
       rank_score <- alignment$identity * alignment$template_coverage * alignment$query_span_coverage
       one_rows[[base::length(one_rows) + 1L]] <- base::data.frame(
         query = query,
@@ -740,6 +874,9 @@
         mapped_motifs = motif_mapping$mapped_motifs,
         mapped_motif_pairs = motif_mapping$pairs,
         motif_mapping_complete = motif_mapping$complete,
+        template_mapped_motifs = template_motif_mapping$mapped_motifs,
+        template_motif_pairs = template_motif_mapping$pairs,
+        motif_subfamily_compatible = motif_subfamily_compatible,
         template_pdb_path = template$pdb_path[[1]],
         template_fasta_path = template$fasta_path[[1]],
         stringsAsFactors = FALSE
@@ -750,7 +887,8 @@
     if (!base::length(one_rows)) next
     one <- base::do.call(base::rbind, one_rows)
     positive <- one[
-      one$template_class == "positive" & one$family_compatible & one$role_compatible,
+      one$template_class == "positive" & one$family_compatible &
+        one$role_compatible & one$motif_subfamily_compatible,
       , drop = FALSE
     ]
     decoy <- one[one$template_class == "decoy", , drop = FALSE]
@@ -761,6 +899,7 @@
       best$selection_status <- "no_compatible_positive_template"
     } else {
       threshold_pass <- positive$alignment_identity >= min_identity &
+        positive$query_coverage >= min_query_coverage &
         positive$template_coverage >= min_template_coverage &
         positive$aligned_length >= min_aligned_length
       threshold_pass[base::is.na(threshold_pass)] <- FALSE
@@ -778,15 +917,23 @@
       } else {
         NA_real_
       }
+      motif_supported_mapping <- best$motif_mapping_complete %in% TRUE &
+        best$motif_subfamily_compatible %in% TRUE &
+        base::length(.dnmb_rebasefinder_motif_pair_ids(best$template_motif_pairs)) > 0L
+      decoy_not_beaten <- base::is.finite(best_decoy_score) &&
+        (best$decoy_margin < min_decoy_margin ||
+         best$decoy_relative_margin < min_decoy_relative_margin)
       best$selection_status <- if (best$alignment_identity < min_identity) {
         "below_identity_threshold"
+      } else if (best$query_coverage < min_query_coverage) {
+        "below_query_coverage_threshold"
       } else if (best$template_coverage < min_template_coverage) {
         "below_template_coverage_threshold"
       } else if (best$aligned_length < min_aligned_length) {
         "alignment_too_short"
-      } else if (base::is.finite(best_decoy_score) &&
-                 (best$decoy_margin < min_decoy_margin ||
-                  best$decoy_relative_margin < min_decoy_relative_margin)) {
+      } else if (decoy_not_beaten && motif_supported_mapping) {
+        "template_mapped_motif_supported"
+      } else if (decoy_not_beaten) {
         "decoy_not_beaten"
       } else {
         "template_mapped"
@@ -795,7 +942,9 @@
     for (column in c("best_decoy_id", "best_decoy_score", "decoy_margin", "decoy_relative_margin")) {
       if (!column %in% base::names(best)) best[[column]] <- if (column == "best_decoy_id") NA_character_ else NA_real_
     }
-    best$model_eligible <- best$selection_status == "template_mapped"
+    best$model_eligible <- best$selection_status %in% c(
+      "template_mapped", "template_mapped_motif_supported"
+    )
     best$model_status <- if (best$model_eligible) "pending" else "not_eligible"
     best$model_path <- NA_character_
     best$model_expected_path <- NA_character_
@@ -1043,7 +1192,9 @@
     NA_character_
   }
   hits <- .dnmb_rebasefinder_merge_homology(hits, audit)
-  n_mapped <- base::sum(audit$selection_status == "template_mapped", na.rm = TRUE)
+  n_mapped <- base::sum(audit$selection_status %in% c(
+    "template_mapped", "template_mapped_motif_supported"
+  ), na.rm = TRUE)
   n_built <- base::sum(audit$model_status == "template_model_built", na.rm = TRUE)
   n_supported <- base::sum(audit$model_supported %in% TRUE, na.rm = TRUE)
   list(

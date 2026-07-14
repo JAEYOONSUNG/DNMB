@@ -20,16 +20,59 @@
   }
   save_args <- list(
     filename = pdf_path, plot = plot,
-    width = width, height = height, bg = "white"
+    width = width, height = height, bg = "white",
+    device = .dnmb_plot_pdf_device
   )
-  if (!is.null(device)) save_args$device <- device
+  # `device` remains in the internal signature for compatibility. All module
+  # PDFs intentionally use the package device so no caller can bypass the
+  # embedded, editable Arial contract.
   do.call(ggplot2::ggsave, save_args)
 }
 
 .dnmb_module_plot_save_multi <- function(plots, pdf_path, labels = "AUTO", ncol = 1, rel_heights = NULL, width = 12, height = 8) {
   composite <- cowplot::plot_grid(plotlist = plots, labels = labels, ncol = ncol, rel_heights = rel_heights)
-  ggplot2::ggsave(pdf_path, composite, width = width, height = height, bg = "white")
+  ggplot2::ggsave(pdf_path, composite, width = width, height = height, bg = "white",
+                  device = .dnmb_plot_pdf_device)
   invisible(composite)
+}
+
+.dnmb_overview_title <- function(label, title) {
+  label <- trimws(as.character(label)[1])
+  title <- trimws(as.character(title)[1])
+  if (is.na(label) || !nzchar(label)) {
+    return(title)
+  }
+  if (is.na(title) || !nzchar(title)) {
+    return(label)
+  }
+  paste0(label, "   ", title)
+}
+
+.dnmb_overview_title_theme <- function(size = 11) {
+  ggplot2::theme(
+    text = ggplot2::element_text(family = .dnmb_plot_font_family()),
+    plot.title = ggplot2::element_text(
+      family = .dnmb_plot_font_family(),
+      face = "bold",
+      size = size,
+      hjust = 0,
+      vjust = 1,
+      margin = ggplot2::margin(t = 0, r = 0, b = 2, l = 2)
+    ),
+    plot.title.position = "panel"
+  )
+}
+
+.dnmb_overview_tag_plot <- function(plot, label, title = NULL, size = 11) {
+  if (is.null(plot)) {
+    return(NULL)
+  }
+  if (is.null(title)) {
+    title <- plot$labels$title %||% ""
+  }
+  plot +
+    ggplot2::labs(title = .dnmb_overview_title(label, title)) +
+    .dnmb_overview_title_theme(size = size)
 }
 
 .dnmb_inline_discrete_legend_plot <- function(title, colors, max_per_row = 5L) {
@@ -319,6 +362,148 @@
     character(1)
   )
   contigs
+}
+
+.dnmb_module_replicon_plot_data <- function(genbank_table, output_dir = getwd()) {
+  genes <- as.data.frame(genbank_table, stringsAsFactors = FALSE)
+  required <- c("start", "end", "locus_tag")
+  if (!nrow(genes) || !all(required %in% names(genes))) {
+    return(NULL)
+  }
+
+  genes$start <- suppressWarnings(as.numeric(genes$start))
+  genes$end <- suppressWarnings(as.numeric(genes$end))
+  genes$midpoint <- (genes$start + genes$end) / 2
+  if ("contig_number" %in% names(genes)) {
+    contig_number <- suppressWarnings(as.integer(genes$contig_number))
+  } else if ("contig" %in% names(genes)) {
+    contig_number <- as.integer(factor(as.character(genes$contig), levels = unique(as.character(genes$contig))))
+  } else {
+    contig_number <- rep.int(1L, nrow(genes))
+  }
+  if (anyNA(contig_number)) {
+    replacement <- as.integer(factor(
+      if ("contig" %in% names(genes)) as.character(genes$contig) else seq_len(nrow(genes)),
+      levels = unique(if ("contig" %in% names(genes)) as.character(genes$contig) else seq_len(nrow(genes)))
+    ))
+    contig_number[is.na(contig_number)] <- replacement[is.na(contig_number)]
+  }
+  genes$replicon_order <- contig_number
+  genes$replicon_id <- sprintf("DNMB_CONTIG_%03d", contig_number)
+
+  contig_cols <- intersect(c("replicon_id", "replicon_order", "contig"), names(genes))
+  contigs <- genes[!duplicated(genes$replicon_id), contig_cols, drop = FALSE]
+  contigs <- contigs[order(contigs$replicon_order, contigs$replicon_id), , drop = FALSE]
+  max_end <- tapply(genes$end, genes$replicon_id, max, na.rm = TRUE)
+
+  gbff_records <- .dnmb_parse_gbff_records(.dnmb_find_gbff_for_plot(output_dir))
+  if (nrow(gbff_records)) {
+    idx <- match(contigs$replicon_order, gbff_records$order)
+    contigs$length_bp <- suppressWarnings(as.numeric(gbff_records$length_bp[idx]))
+    contigs$accession <- as.character(gbff_records$accession[idx])
+    contigs$definition <- as.character(gbff_records$definition[idx])
+  } else {
+    contigs$length_bp <- NA_real_
+    contigs$accession <- NA_character_
+    contigs$definition <- NA_character_
+  }
+  missing_length <- !is.finite(contigs$length_bp) | contigs$length_bp <= 0
+  contigs$length_bp[missing_length] <- unname(max_end[contigs$replicon_id[missing_length]])
+
+  is_plasmid <- grepl("\\bplasmid\\b", contigs$definition, ignore.case = TRUE)
+  plasmid_name <- sub(
+    ".*\\bplasmid\\s+([^,.;]+).*$", "\\1", contigs$definition,
+    ignore.case = TRUE
+  )
+  contigs$replicon_short <- ifelse(
+    is_plasmid,
+    paste("Plasmid", plasmid_name),
+    ifelse(contigs$replicon_order == 1L, "Chromosome", paste("Replicon", contigs$replicon_order))
+  )
+  accession_label <- ifelse(
+    !is.na(contigs$accession) & nzchar(contigs$accession),
+    paste0(" | ", contigs$accession),
+    ""
+  )
+  contigs$sector_label <- paste0(contigs$replicon_short, accession_label)
+  contigs$facet_label <- paste0(
+    contigs$sector_label, " (", scales::label_comma()(contigs$length_bp), " bp)"
+  )
+  rownames(contigs) <- NULL
+  list(genes = genes, contigs = contigs)
+}
+
+.dnmb_module_feature_label <- function(gene, locus_tag) {
+  gene <- trimws(as.character(gene))
+  locus_tag <- as.character(locus_tag)
+  locus_suffix <- sub("^.*_", "", locus_tag)
+  ifelse(
+    !is.na(gene) & nzchar(gene),
+    paste0(gene, " (", locus_suffix, ")"),
+    locus_tag
+  )
+}
+
+.dnmb_module_pack_replicon_labels <- function(tbl, contigs,
+                                                label_col = "feature_label",
+                                                priority_col = NULL,
+                                                panel_width_in = 7.8,
+                                                font_size_pt = 6.2) {
+  tbl <- as.data.frame(tbl, stringsAsFactors = FALSE)
+  if (!nrow(tbl)) {
+    tbl$label_tier <- integer()
+    tbl$label_x <- numeric()
+    tbl$label_half_width <- numeric()
+    return(tbl)
+  }
+  if (!all(c("replicon_id", "midpoint", label_col) %in% names(tbl))) {
+    stop("Replicon label packing requires replicon_id, midpoint, and label text.", call. = FALSE)
+  }
+  priority <- if (!is.null(priority_col) && priority_col %in% names(tbl)) {
+    suppressWarnings(as.numeric(tbl[[priority_col]]))
+  } else {
+    rep.int(0, nrow(tbl))
+  }
+  priority[!is.finite(priority)] <- 0
+  tbl$label_tier <- 0L
+  tbl$label_x <- suppressWarnings(as.numeric(tbl$midpoint))
+  tbl$label_half_width <- 0
+
+  for (replicon_id in unique(as.character(tbl$replicon_id))) {
+    ii <- which(as.character(tbl$replicon_id) == replicon_id)
+    contig_len <- contigs$length_bp[match(replicon_id, contigs$replicon_id)]
+    if (!length(contig_len) || !is.finite(contig_len) || contig_len <= 0) {
+      contig_len <- max(tbl$end[ii], na.rm = TRUE)
+    }
+    label_chars <- vapply(
+      strsplit(as.character(tbl[[label_col]][ii]), "\n", fixed = TRUE),
+      function(x) max(nchar(x), 1L),
+      numeric(1)
+    )
+    width_fraction <- (
+      label_chars * font_size_pt * 0.52 / 72 / panel_width_in
+    ) + 0.012
+    half_width <- pmin(0.24, width_fraction / 2) * contig_len
+    label_x <- pmin(pmax(tbl$midpoint[ii], half_width), contig_len - half_width)
+    left <- label_x - half_width
+    right <- label_x + half_width
+    ord <- order(label_x, -priority[ii])
+    tier_ends <- numeric()
+    assigned <- integer(length(ii))
+    for (jj in ord) {
+      available <- which(left[jj] >= tier_ends)
+      tier <- if (length(available)) available[[1]] else length(tier_ends) + 1L
+      if (tier > length(tier_ends)) {
+        tier_ends <- c(tier_ends, -Inf)
+      }
+      assigned[jj] <- tier - 1L
+      tier_ends[tier] <- right[jj] + 0.006 * contig_len
+    }
+    tbl$label_tier[ii] <- assigned
+    tbl$label_x[ii] <- label_x
+    tbl$label_half_width[ii] <- half_width
+  }
+  tbl
 }
 
 .dnmb_contig_ordered_table <- function(genbank_table, required = c("contig", "start", "end")) {

@@ -45,7 +45,8 @@
       hjust = 0,
       vjust = 1,
       fontface = "bold",
-      size = size
+      size = size,
+      fontfamily = .dnmb_plot_font_family()
     )
 }
 
@@ -68,6 +69,7 @@
 .dnmb_antidefense_target_label <- function(x, max_len = 24L) {
   x <- .dnmb_integrated_defense_clean_text(x)
   x <- gsub("NAD\\+ reconstitution pathway \\(NARP\\)", "NARP", x, ignore.case = TRUE)
+  x <- gsub("^restriction[- ]modification \\(RM\\)$", "Restriction-modification", x, ignore.case = TRUE)
   x <- gsub("pyrimidine cyclase system for antiphage resistance \\(Pycsar\\)", "Pycsar", x, ignore.case = TRUE)
   x <- gsub("CRISPR[-–]Cas evasion by DNA repair", "CRISPR repair evasion", x, ignore.case = TRUE)
   .dnmb_integrated_defense_short_label(x, max_len = max_len)
@@ -288,10 +290,106 @@
   list(pdf = pdf_path)
 }
 
+.dnmb_dbapis_plot_data <- function(genbank_table, output_dir) {
+  replicons <- .dnmb_module_replicon_plot_data(genbank_table, output_dir = output_dir)
+  if (is.null(replicons)) {
+    return(NULL)
+  }
+  genes <- replicons$genes
+  raw_path <- file.path(output_dir, "dnmb_module_dbapis", "dbapis_hits.tsv")
+  raw <- if (file.exists(raw_path)) {
+    tryCatch(
+      utils::read.delim(raw_path, stringsAsFactors = FALSE, check.names = FALSE),
+      error = function(e) NULL
+    )
+  } else {
+    NULL
+  }
+
+  required_raw <- c(
+    "query", "family_id", "i_evalue", "score", "hmm_coverage",
+    "query_coverage"
+  )
+  hits <- NULL
+  if (!is.null(raw) && nrow(raw) && all(required_raw %in% names(raw))) {
+    gene_idx <- match(as.character(raw$query), as.character(genes$locus_tag))
+    hits <- data.frame(
+      replicon_id = as.character(genes$replicon_id[gene_idx]),
+      start = suppressWarnings(as.numeric(genes$start[gene_idx])),
+      end = suppressWarnings(as.numeric(genes$end[gene_idx])),
+      locus_tag = as.character(genes$locus_tag[gene_idx]),
+      gene = if ("gene" %in% names(genes)) as.character(genes$gene[gene_idx]) else NA_character_,
+      product = if ("product" %in% names(genes)) as.character(genes$product[gene_idx]) else NA_character_,
+      module_family_id = as.character(raw$family_id),
+      module_hit_label = if ("hit_label" %in% names(raw)) as.character(raw$hit_label) else NA_character_,
+      module_subtype = if ("defense_type" %in% names(raw)) as.character(raw$defense_type) else NA_character_,
+      module_clan_id = if ("clan_id" %in% names(raw)) as.character(raw$clan_id) else NA_character_,
+      module_clan = if ("clan_defense_type" %in% names(raw)) as.character(raw$clan_defense_type) else NA_character_,
+      module_description = if ("description" %in% names(raw)) as.character(raw$description) else NA_character_,
+      module_evalue = suppressWarnings(as.numeric(raw$i_evalue)),
+      module_hit_score = suppressWarnings(as.numeric(raw$score)),
+      module_hmm_coverage = suppressWarnings(as.numeric(raw$hmm_coverage)),
+      module_query_coverage = suppressWarnings(as.numeric(raw$query_coverage)),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  if (is.null(hits) || !nrow(hits)) {
+    hits <- .dnmb_antidefense_module_hit_table(genbank_table, "dbAPIS")
+    if (!nrow(hits)) {
+      return(NULL)
+    }
+    contig_number <- if ("contig_number" %in% names(hits)) {
+      suppressWarnings(as.integer(hits$contig_number))
+    } else {
+      as.integer(factor(as.character(hits$contig)))
+    }
+    hits$replicon_id <- sprintf("DNMB_CONTIG_%03d", contig_number)
+    hits$module_clan_id <- if ("dbAPIS_clan_id" %in% names(hits)) as.character(hits$dbAPIS_clan_id) else NA_character_
+    hits$module_description <- if ("dbAPIS_description" %in% names(hits)) as.character(hits$dbAPIS_description) else NA_character_
+  }
+
+  hits$start <- suppressWarnings(as.numeric(hits$start))
+  hits$end <- suppressWarnings(as.numeric(hits$end))
+  hits$module_evalue <- suppressWarnings(as.numeric(hits$module_evalue))
+  hits$module_hit_score <- suppressWarnings(as.numeric(hits$module_hit_score))
+  hits$module_hmm_coverage <- suppressWarnings(as.numeric(hits$module_hmm_coverage))
+  hits$module_query_coverage <- suppressWarnings(as.numeric(hits$module_query_coverage))
+  hits <- hits[
+    !is.na(hits$locus_tag) & nzchar(as.character(hits$locus_tag)) &
+      !is.na(hits$module_family_id) & nzchar(as.character(hits$module_family_id)) &
+      is.finite(hits$start) & is.finite(hits$end),
+    , drop = FALSE
+  ]
+  if (!nrow(hits)) {
+    return(NULL)
+  }
+  hits$midpoint <- (hits$start + hits$end) / 2
+  hits$gene[is.na(hits$gene)] <- ""
+  hits$product[is.na(hits$product) | !nzchar(hits$product)] <- "hypothetical protein"
+  clean_nonempty <- function(x) {
+    x <- trimws(as.character(x))
+    x[is.na(x) | !nzchar(x)] <- NA_character_
+    x
+  }
+  hit_label <- clean_nonempty(hits$module_hit_label)
+  clan <- clean_nonempty(hits$module_clan)
+  subtype <- clean_nonempty(hits$module_subtype)
+  hits$module_display <- ifelse(
+    !is.na(hit_label),
+    paste0(hits$module_family_id, " (", hit_label, ")"),
+    hits$module_family_id
+  )
+  hits$module_group <- dplyr::coalesce(
+    clan, subtype, rep("Unclassified anti-defense", nrow(hits))
+  )
+  list(hits = hits, contigs = replicons$contigs)
+}
+
 .dnmb_plot_dbapis_module <- function(genbank_table, output_dir) {
-  tbl <- .dnmb_antidefense_module_hit_table(genbank_table, "dbAPIS")
+  plot_data <- .dnmb_dbapis_plot_data(genbank_table, output_dir)
   has_outputs <- .dnmb_antidefense_module_has_outputs(output_dir, "dbAPIS")
-  if (!nrow(tbl)) {
+  if (is.null(plot_data)) {
     if (!has_outputs) {
       return(NULL)
     }
@@ -301,243 +399,314 @@
       status_text = "Module completed, but no anti-defense hits were detected for this genome."
     ))
   }
-
-  tbl <- tbl[!is.na(tbl$start) & !is.na(tbl$end), , drop = FALSE]
-  if (!nrow(tbl)) {
-    return(.dnmb_antidefense_status_plot(
-      module_name = "dbAPIS",
-      output_dir = output_dir,
-      status_text = "dbAPIS hits were detected, but no genomic coordinates were available for plotting."
-    ))
-  }
-
-  tbl$module_display <- as.character(tbl$module_display)
-  tbl$module_group <- as.character(tbl$module_group)
-  tbl$module_query_coverage <- suppressWarnings(as.numeric(tbl$module_query_coverage))
-  tbl$module_hmm_coverage <- suppressWarnings(as.numeric(tbl$module_hmm_coverage))
-  tbl$module_evalue <- suppressWarnings(as.numeric(tbl$module_evalue))
-  tbl$module_hit_score <- suppressWarnings(as.numeric(tbl$module_hit_score))
-  tbl$start <- suppressWarnings(as.numeric(tbl$start))
-  tbl$end <- suppressWarnings(as.numeric(tbl$end))
+  tbl <- plot_data$hits
+  contigs <- plot_data$contigs
 
   summary_tbl <- tbl |>
-    dplyr::group_by(.data$module_display, .data$module_group) |>
+    dplyr::group_by(.data$module_group) |>
     dplyr::summarise(
-      n_proteins = dplyr::n(),
-      n_contigs = dplyr::n_distinct(.data$contig),
-      best_query_cov = max(.data$module_query_coverage, na.rm = TRUE),
-      best_hmm_cov = max(.data$module_hmm_coverage, na.rm = TRUE),
+      n_profiles = dplyr::n(),
+      n_genes = dplyr::n_distinct(.data$locus_tag),
+      n_families = dplyr::n_distinct(.data$module_family_id),
+      best_evalue = min(.data$module_evalue, na.rm = TRUE),
       .groups = "drop"
     ) |>
-    dplyr::arrange(dplyr::desc(.data$n_proteins), dplyr::desc(.data$best_query_cov), .data$module_display)
-
-  summary_tbl$best_query_cov[!is.finite(summary_tbl$best_query_cov)] <- NA_real_
-  summary_tbl$best_hmm_cov[!is.finite(summary_tbl$best_hmm_cov)] <- NA_real_
-  summary_tbl$target_label <- .dnmb_antidefense_target_label(summary_tbl$module_group, max_len = 24L)
-  summary_tbl$module_display <- factor(summary_tbl$module_display, levels = rev(unique(summary_tbl$module_display)))
+    dplyr::arrange(dplyr::desc(.data$n_profiles), .data$module_group)
+  summary_tbl$best_evalue[!is.finite(summary_tbl$best_evalue)] <- NA_real_
+  summary_tbl$group_display <- .dnmb_antidefense_target_label(
+    summary_tbl$module_group, max_len = 34L
+  )
+  group_levels <- as.character(summary_tbl$module_group)
+  display_levels <- as.character(summary_tbl$group_display)
+  summary_tbl$group_display <- factor(
+    summary_tbl$group_display, levels = rev(display_levels)
+  )
   palette <- .dnmb_antidefense_display_palette(
-    levels(summary_tbl$module_display),
-    colors = c("#DDF6D2", "#BFEAAB", "#9CDB84", "#78CB60", "#52B846", "#2F9D31")
+    group_levels,
+    colors = c("#DDF6D2", "#BFEAAB", "#8FD477", "#59BB50", "#2F9D31")
   )
-  legend_labels <- stats::setNames(
-    paste0(as.character(summary_tbl$module_display), " | ", summary_tbl$target_label),
-    as.character(summary_tbl$module_display)
-  )
-
-  protein_label <- ifelse(summary_tbl$n_proteins == 1L, " protein", " proteins")
-  inventory_detail <- ifelse(
-    is.na(summary_tbl$best_query_cov),
-    paste0(summary_tbl$n_proteins, protein_label, " | target ", summary_tbl$target_label),
-    paste0(summary_tbl$n_proteins, protein_label, " | target ", summary_tbl$target_label, " | best cov ", sprintf("%.2f", summary_tbl$best_query_cov))
+  legend_labels <- stats::setNames(display_levels, group_levels)
+  inventory_detail <- paste0(
+    summary_tbl$n_profiles, " retained profiles / ",
+    summary_tbl$n_genes, " genes / ", summary_tbl$n_families, " families | best i-E ",
+    ifelse(
+      is.na(summary_tbl$best_evalue), "NA",
+      format(signif(summary_tbl$best_evalue, 2), scientific = TRUE)
+    )
   )
 
-  p_inventory <- ggplot2::ggplot(summary_tbl, ggplot2::aes(x = .data$n_proteins, y = .data$module_display)) +
-    ggplot2::geom_col(
-      ggplot2::aes(fill = .data$module_display),
-      width = 0.62,
-      color = "grey35",
-      linewidth = 0.25,
-      show.legend = FALSE
-    ) +
-    ggplot2::geom_text(
-      ggplot2::aes(x = 0.05, label = .data$module_display),
-      hjust = 0,
-      size = 3.0,
-      color = "white"
-    ) +
-    ggplot2::geom_text(
-      ggplot2::aes(x = .data$n_proteins + 0.08, label = inventory_detail),
-      hjust = 0,
-      size = 2.8,
-      color = "grey25"
-    ) +
-    ggplot2::scale_fill_manual(values = palette) +
-    ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0.02, 0.34))) +
-    ggplot2::labs(title = NULL, x = "Hits detected", y = NULL) +
-    ggplot2::theme_bw(base_size = 11) +
+  base_theme <- ggplot2::theme_bw(
+    base_size = 10.5, base_family = .dnmb_plot_font_family()
+  ) +
     ggplot2::theme(
       plot.title = ggplot2::element_blank(),
       panel.grid.minor = ggplot2::element_blank(),
+      text = ggplot2::element_text(family = .dnmb_plot_font_family())
+    )
+
+  p_inventory <- ggplot2::ggplot(
+    summary_tbl,
+    ggplot2::aes(x = .data$n_profiles, y = .data$group_display)
+  ) +
+    ggplot2::geom_col(
+      ggplot2::aes(fill = .data$module_group),
+      width = 0.62, color = "grey35", linewidth = 0.24,
+      show.legend = FALSE
+    ) +
+    ggplot2::geom_text(
+      ggplot2::aes(x = .data$n_profiles + 0.18, label = inventory_detail),
+      hjust = 0, size = 2.45, color = "grey25",
+      family = .dnmb_plot_font_family()
+    ) +
+    ggplot2::scale_fill_manual(values = palette) +
+    ggplot2::scale_x_continuous(
+      expand = ggplot2::expansion(mult = c(0.01, 0.65))
+    ) +
+    ggplot2::labs(x = "Retained family-profile matches", y = NULL) +
+    base_theme +
+    ggplot2::theme(
       panel.grid.major.y = ggplot2::element_blank(),
-      axis.text.y = ggplot2::element_blank(),
-      axis.ticks.y = ggplot2::element_blank(),
+      axis.text.y = ggplot2::element_text(size = 7.6),
       legend.position = "none"
     )
 
-  layout_tbl <- tbl |>
-    dplyr::arrange(.data$contig, .data$start, .data$end) |>
-    dplyr::group_by(.data$module_display) |>
-    dplyr::mutate(
-      display_rank = dplyr::row_number(),
-      display_n = dplyr::n(),
-      label = ifelse(.data$display_n > 1L, paste0(.data$module_display, " (", .data$display_rank, ")"), .data$module_display)
-    ) |>
-    dplyr::ungroup()
-
-  contigs <- .dnmb_contig_lengths_for_plot(tbl, output_dir = output_dir)
-  hit_contigs <- unique(as.character(layout_tbl$contig))
-  contigs <- contigs[contigs$contig %in% hit_contigs, , drop = FALSE]
-
-  contig_labels <- stats::setNames(
-    paste0(contigs$sector_label, " (", scales::label_comma()(contigs$length_bp), " bp)"),
-    contigs$contig
+  layout_genes <- tbl |>
+    dplyr::arrange(.data$replicon_id, .data$start, .data$module_evalue) |>
+    dplyr::group_by(.data$replicon_id, .data$locus_tag) |>
+    dplyr::summarise(
+      start = min(.data$start, na.rm = TRUE),
+      end = max(.data$end, na.rm = TRUE),
+      midpoint = (start + end) / 2,
+      gene = dplyr::first(.data$gene),
+      product = dplyr::first(.data$product),
+      module_group = dplyr::first(.data$module_group),
+      n_profiles = dplyr::n(),
+      priority = max(-log10(.data$module_evalue), na.rm = TRUE),
+      .groups = "drop"
+    )
+  layout_genes$priority[!is.finite(layout_genes$priority)] <- 0
+  layout_genes$feature_label <- .dnmb_module_feature_label(
+    layout_genes$gene, layout_genes$locus_tag
   )
-  layout_tbl$contig_facet <- factor(contig_labels[layout_tbl$contig], levels = unname(contig_labels))
-  contigs$contig_facet <- factor(contig_labels[contigs$contig], levels = unname(contig_labels))
-  layout_tbl$midpoint <- (layout_tbl$start + layout_tbl$end) / 2
+  layout_genes <- .dnmb_module_pack_replicon_labels(
+    layout_genes, contigs,
+    label_col = "feature_label", priority_col = "priority"
+  )
+  layout_genes$label_y <- 0.50 + 0.12 * layout_genes$label_tier
+  max_label_tier <- max(layout_genes$label_tier, na.rm = TRUE)
+  layout_ymax <- 0.50 + 0.12 * max_label_tier + 0.12
+  contigs$contig_facet <- factor(contigs$facet_label, levels = contigs$facet_label)
+  layout_genes$contig_facet <- factor(
+    contigs$facet_label[match(layout_genes$replicon_id, contigs$replicon_id)],
+    levels = contigs$facet_label
+  )
+  empty_contigs <- contigs[!contigs$replicon_id %in% layout_genes$replicon_id, , drop = FALSE]
+  empty_contigs$no_call_label <- rep("0 retained dbAPIS matches", nrow(empty_contigs))
 
   p_layout <- ggplot2::ggplot() +
     ggplot2::geom_segment(
       data = contigs,
-      ggplot2::aes(x = 0, xend = .data$length_bp, y = 0.5, yend = 0.5),
-      linewidth = 0.6,
-      color = "grey78"
+      ggplot2::aes(x = 0, xend = .data$length_bp, y = 0.18, yend = 0.18),
+      linewidth = 1.05, color = "grey80"
     ) +
     ggplot2::geom_rect(
-      data = layout_tbl,
+      data = layout_genes,
       ggplot2::aes(
         xmin = .data$start, xmax = .data$end,
-        ymin = 0.48, ymax = 0.52,
-        fill = .data$module_display
+        ymin = 0.145, ymax = 0.215, fill = .data$module_group
       ),
-      color = "grey35",
-      linewidth = 0.2,
-      alpha = 0.95
+      color = "grey25", linewidth = 0.20, alpha = 0.95
     ) +
-    ggrepel::geom_text_repel(
-      data = layout_tbl,
-      ggplot2::aes(x = .data$midpoint, y = 0.52, label = .data$label),
-      size = 1.9,
-      lineheight = 0.85,
-      direction = "y",
-      nudge_y = 0.03,
-      segment.size = 0.2,
-      segment.color = "grey55",
-      max.overlaps = Inf,
-      seed = 42,
-      min.segment.length = 0,
-      force = 1.5,
-      force_pull = 0.3,
-      box.padding = 0.12,
-      ylim = c(0.54, 0.72)
+    ggplot2::geom_segment(
+      data = layout_genes,
+      ggplot2::aes(
+        x = .data$midpoint, xend = .data$label_x,
+        y = 0.23, yend = .data$label_y - 0.04
+      ),
+      linewidth = 0.23, color = "grey58", alpha = 0.82
     ) +
-    ggplot2::facet_wrap(~contig_facet, ncol = 1, scales = "free_x", strip.position = "top") +
-    ggplot2::scale_fill_manual(values = palette, breaks = names(legend_labels), labels = unname(legend_labels[names(legend_labels)])) +
-    ggplot2::scale_x_continuous(labels = scales::label_comma()) +
-    ggplot2::scale_y_continuous(limits = c(0.44, 0.74), expand = c(0, 0)) +
-    ggplot2::labs(title = "dbAPIS genome layout", x = "Genome coordinate (bp)", y = NULL, fill = NULL) +
-    ggplot2::theme_bw(base_size = 11) +
+    ggplot2::geom_text(
+      data = layout_genes,
+      ggplot2::aes(x = .data$label_x, y = .data$label_y, label = .data$feature_label),
+      size = 2.15, lineheight = 0.88, color = "grey20",
+      family = .dnmb_plot_font_family()
+    ) +
+    ggplot2::geom_text(
+      data = empty_contigs,
+      ggplot2::aes(x = .data$length_bp / 2, y = 0.50, label = .data$no_call_label),
+      size = 2.55, color = "grey48", fontface = "italic",
+      family = .dnmb_plot_font_family()
+    ) +
+    ggplot2::facet_wrap(
+      ~contig_facet, ncol = 1, scales = "free_x", strip.position = "top"
+    ) +
+    ggplot2::scale_fill_manual(
+      values = palette, breaks = group_levels,
+      labels = unname(legend_labels[group_levels]), name = "Defense target"
+    ) +
+    ggplot2::scale_x_continuous(
+      labels = scales::label_comma(),
+      expand = ggplot2::expansion(mult = c(0.012, 0.032))
+    ) +
+    ggplot2::coord_cartesian(ylim = c(0.08, layout_ymax), clip = "on") +
+    ggplot2::labs(x = "Replicon coordinate (bp)", y = NULL) +
+    base_theme +
     ggplot2::theme(
-      plot.title = ggplot2::element_blank(),
-      legend.position = "none",
-      panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
       axis.text.y = ggplot2::element_blank(),
       axis.ticks.y = ggplot2::element_blank(),
-      strip.text = ggplot2::element_text(face = "bold", size = 8.7, margin = ggplot2::margin(t = 1, b = 1)),
-      strip.background = ggplot2::element_rect(fill = "grey97", colour = "grey85", linewidth = 0.3),
-      panel.spacing.y = grid::unit(0.10, "lines")
-    )
-
-  top_hits <- tbl |>
-    dplyr::mutate(
-      dbapis_label = paste0(.data$locus_tag, " | ", .data$product)
-    ) |>
-    dplyr::arrange(
-      dplyr::desc(.data$module_query_coverage),
-      dplyr::desc(.data$module_hmm_coverage),
-      .data$module_evalue,
-      .data$locus_tag
-    ) |>
-    dplyr::slice_head(n = 15L)
-  top_hits$dbapis_label <- factor(top_hits$dbapis_label, levels = rev(top_hits$dbapis_label))
-
-  right_label <- ifelse(
-    is.na(top_hits$module_hmm_coverage),
-    .dnmb_antidefense_target_label(top_hits$module_group, max_len = 24L),
-    paste0(.dnmb_antidefense_target_label(top_hits$module_group, max_len = 24L), " | hmm ", sprintf("%.2f", top_hits$module_hmm_coverage))
-  )
-
-  max_query_cov <- suppressWarnings(max(top_hits$module_query_coverage, na.rm = TRUE))
-  if (!is.finite(max_query_cov)) {
-    max_query_cov <- 1
-  }
-
-  p_hits <- ggplot2::ggplot(top_hits, ggplot2::aes(x = .data$module_query_coverage, y = .data$dbapis_label)) +
-    ggplot2::geom_col(
-      ggplot2::aes(fill = .data$module_display),
-      width = 0.62,
-      color = "grey35",
-      linewidth = 0.25
-    ) +
-    ggplot2::geom_text(
-      ggplot2::aes(x = .data$module_query_coverage + 0.02, label = right_label),
-      hjust = 0,
-      size = 2.7,
-      color = "grey25"
-    ) +
-    ggplot2::scale_fill_manual(values = palette) +
-    ggplot2::scale_x_continuous(limits = c(0, max(1.05, max_query_cov + 0.22))) +
-    ggplot2::labs(title = NULL, x = "Query coverage", y = NULL) +
-    ggplot2::theme_bw(base_size = 11) +
-    ggplot2::theme(
-      plot.title = ggplot2::element_blank(),
+      strip.text = ggplot2::element_text(
+        face = "bold", size = 8.5, margin = ggplot2::margin(t = 1, b = 1)
+      ),
+      strip.background = ggplot2::element_rect(
+        fill = "grey97", colour = "grey85", linewidth = 0.3
+      ),
+      panel.spacing.y = grid::unit(0.10, "lines"),
       legend.position = "none"
     )
 
-  legend_rows <- if (length(palette) > 8L) 2L else 1L
+  tbl$feature_id <- ifelse(
+    !is.na(tbl$gene) & nzchar(trimws(tbl$gene)),
+    paste0(trimws(tbl$gene), " | ", tbl$locus_tag),
+    tbl$locus_tag
+  )
+  tbl$replicon_short <- contigs$replicon_short[
+    match(tbl$replicon_id, contigs$replicon_id)
+  ]
+  replicon_prefix <- ifelse(
+    grepl("^Plasmid", tbl$replicon_short),
+    paste0("[", tbl$replicon_short, "] "),
+    ""
+  )
+  tbl$profile_label <- paste0(
+    replicon_prefix, tbl$feature_id, " · ", tbl$module_display
+  )
+  tbl <- tbl[
+    order(tbl$module_evalue, -tbl$module_hmm_coverage, tbl$locus_tag, tbl$module_family_id),
+    , drop = FALSE
+  ]
+  tbl$profile_label <- factor(tbl$profile_label, levels = rev(tbl$profile_label))
+  product_short <- ifelse(
+    nchar(tbl$product) > 35,
+    paste0(substr(tbl$product, 1, 32), "..."),
+    tbl$product
+  )
+  ie_label <- ifelse(
+    is.finite(tbl$module_evalue),
+    format(signif(tbl$module_evalue, 2), scientific = TRUE),
+    "NA"
+  )
+  group_short <- .dnmb_antidefense_target_label(tbl$module_group, max_len = 22L)
+  tbl$evidence_label <- paste0(
+    product_short, " | ", group_short,
+    " | query cov ", sprintf("%.2f", tbl$module_query_coverage),
+    " | i-E ", ie_label,
+    " | score ", sprintf("%.1f", tbl$module_hit_score)
+  )
+  annotation_x <- 1.05
+  table_xmax <- 2.72
+  p_hits <- ggplot2::ggplot(
+    tbl,
+    ggplot2::aes(x = .data$module_hmm_coverage, y = .data$profile_label)
+  ) +
+    ggplot2::geom_col(
+      ggplot2::aes(fill = .data$module_group),
+      width = 0.64, color = "grey35", linewidth = 0.22
+    ) +
+    ggplot2::geom_vline(
+      xintercept = 0.35, linetype = "dashed",
+      linewidth = 0.55, color = "#333333"
+    ) +
+    ggplot2::geom_vline(
+      xintercept = annotation_x - 0.025, linewidth = 0.35, color = "grey82"
+    ) +
+    ggplot2::geom_text(
+      ggplot2::aes(x = annotation_x, label = .data$evidence_label),
+      hjust = 0, size = 1.67, color = "grey27",
+      family = .dnmb_plot_font_family()
+    ) +
+    ggplot2::scale_fill_manual(values = palette, guide = "none") +
+    ggplot2::scale_x_continuous(
+      breaks = c(0, 0.35, 0.50, 0.75, 1.00),
+      limits = c(0, table_xmax),
+      expand = ggplot2::expansion(mult = c(0, 0.006))
+    ) +
+    ggplot2::labs(
+      x = "HMM coverage | retained threshold: HMM coverage ≥ 0.35 and i-E ≤ 1e-5",
+      y = NULL
+    ) +
+    base_theme +
+    ggplot2::theme(
+      legend.position = "none",
+      panel.grid.major.y = ggplot2::element_blank(),
+      axis.text.y = ggplot2::element_text(size = 5.7, color = "grey20"),
+      axis.text.x = ggplot2::element_text(size = 7),
+      axis.title.x = ggplot2::element_text(size = 8.2),
+      plot.margin = ggplot2::margin(5, 8, 4, 4)
+    )
+
   legend_plot <- p_layout +
     ggplot2::theme(
       legend.position = "bottom",
       legend.direction = "horizontal",
       legend.box = "horizontal",
-      legend.title = ggplot2::element_text(face = "bold", size = 10),
-      legend.text = ggplot2::element_text(size = 9.2),
-      legend.key.width = grid::unit(1.3, "lines"),
-      legend.key.height = grid::unit(0.9, "lines"),
+      legend.title = ggplot2::element_text(face = "bold", size = 8.8),
+      legend.text = ggplot2::element_text(size = 7.7),
+      legend.key.width = grid::unit(0.90, "lines"),
+      legend.key.height = grid::unit(0.76, "lines"),
       legend.margin = ggplot2::margin(0, 0, 0, 0),
       legend.box.margin = ggplot2::margin(0, 0, 0, 0)
     ) +
-    ggplot2::guides(fill = ggplot2::guide_legend(title = NULL, nrow = legend_rows, byrow = TRUE))
-  common_legend <- cowplot::get_legend(legend_plot)
-  legend_panel <- cowplot::ggdraw() +
-    cowplot::draw_grob(common_legend, x = 0.5, y = 0.5, width = 0.98, height = 0.95, hjust = 0.5, vjust = 0.5)
+    ggplot2::guides(fill = ggplot2::guide_legend(nrow = 1, byrow = TRUE))
+  common_legend <- .dnmb_with_plot_pdf_device(
+    cowplot::get_legend(legend_plot), width = 10, height = 1
+  )
+  legend_panel <- cowplot::ggdraw() + cowplot::draw_grob(
+    common_legend, x = 0.5, y = 0.5, width = 0.99, height = 0.96,
+    hjust = 0.5, vjust = 0.5
+  )
 
+  inventory_h <- max(1.45, 0.24 * nrow(summary_tbl) + 0.62)
+  layout_h <- max(
+    2.05,
+    0.58 * nrow(contigs) + 0.17 * (max_label_tier + 1) + 0.60
+  )
+  calls_h <- max(3.2, 0.125 * nrow(tbl) + 0.95)
+  legend_h <- 0.52
+  total_h <- inventory_h + layout_h + calls_h + legend_h
+  composite <- .dnmb_with_plot_pdf_device(
+    cowplot::plot_grid(
+      .dnmb_antidefense_panel_header(
+        p_inventory, "A", "dbAPIS retained-evidence inventory",
+        y = 0.975, plot_y = 0.04, plot_h = 0.88
+      ),
+      .dnmb_antidefense_panel_header(
+        p_layout, "B", "dbAPIS genes across chromosome and plasmids",
+        y = 0.975, plot_y = 0.03, plot_h = 0.90
+      ),
+      .dnmb_antidefense_panel_header(
+        p_hits, "C", "All retained dbAPIS family-profile matches",
+        y = 0.975, plot_y = 0.025, plot_h = 0.925
+      ),
+      legend_panel,
+      ncol = 1,
+      rel_heights = c(inventory_h, layout_h, calls_h, legend_h)
+    ),
+    width = 10, height = total_h
+  )
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, "dbAPIS_overview.pdf")
-  n_contigs <- nrow(contigs)
-  layout_height <- max(0.65, 0.40 * n_contigs + 0.25)
-  composite <- cowplot::plot_grid(
-    .dnmb_antidefense_panel_header(p_inventory, "A", "dbAPIS inventory", plot_y = 0.06, plot_h = 0.86),
-    .dnmb_antidefense_panel_header(p_layout, "B", "dbAPIS genome layout", plot_y = 0.035, plot_h = 0.90),
-    .dnmb_antidefense_panel_header(p_hits, "C", "Top dbAPIS protein calls", plot_y = 0.06, plot_h = 0.86),
-    legend_panel,
-    ncol = 1,
-    rel_heights = c(0.86, layout_height, 1.10, 0.30)
+  .dnmb_module_plot_save(
+    composite, pdf_path, width = 10,
+    height = total_h
   )
-  total_h <- max(10.2, 1.9 + layout_height * 2.15 + 3.1)
-  .dnmb_module_plot_save(composite, pdf_path, width = 10, height = total_h)
-  list(pdf = pdf_path)
+  list(
+    pdf = pdf_path,
+    retained_profiles = nrow(tbl),
+    retained_genes = dplyr::n_distinct(tbl$locus_tag),
+    retained_families = dplyr::n_distinct(tbl$module_family_id),
+    replicons_shown = nrow(contigs)
+  )
 }
 
 .dnmb_plot_acrfinder_module <- function(genbank_table, output_dir) {

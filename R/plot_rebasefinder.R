@@ -20,13 +20,182 @@
   base::invisible(existing)
 }
 
+.dnmb_rebasefinder_overview_widths <- function(n_motif_columns = 0L) {
+  n_motif_columns <- suppressWarnings(as.integer(n_motif_columns)[[1]])
+  if (!is.finite(n_motif_columns) || n_motif_columns < 0L) n_motif_columns <- 0L
+  widths <- c(
+    blast = 6.90,
+    domain = 2.35,
+    # Give the motif panel the small amount of width saved from BLAST so its
+    # shared-size title remains inside the page at the common 9-column layout.
+    motif = max(4.60, min(5.50, 0.48 * n_motif_columns + 0.55))
+  )
+  c(widths, total = sum(widths))
+}
+
+.dnmb_rebasefinder_read_augmented_hits <- function(output_dir) {
+  module_dir <- if (base::basename(output_dir) == "dnmb_module_rebasefinder") {
+    output_dir
+  } else {
+    base::file.path(output_dir, "dnmb_module_rebasefinder")
+  }
+  path <- base::file.path(module_dir, "DNMB_REBASEfinder_augmented_hits.tsv")
+  if (!base::file.exists(path)) return(NULL)
+  hits <- tryCatch(
+    utils::read.delim(path, stringsAsFactors = FALSE, check.names = FALSE),
+    error = function(e) NULL
+  )
+  if (base::is.null(hits) || !base::nrow(hits) || !"query" %in% base::names(hits)) {
+    return(NULL)
+  }
+  hits
+}
+
+.dnmb_rebasefinder_overlay_fields <- function(tbl, hits, fields) {
+  tbl <- base::as.data.frame(tbl, stringsAsFactors = FALSE)
+  if (!base::nrow(tbl) || !"locus_tag" %in% base::names(tbl) ||
+      base::is.null(hits) || !base::nrow(hits) || !"query" %in% base::names(hits)) {
+    return(tbl)
+  }
+  fields <- base::intersect(base::unique(fields), base::names(hits))
+  if (!base::length(fields)) return(tbl)
+  hit_index <- base::match(
+    .dnmb_module_clean_annotation_key(tbl$locus_tag),
+    .dnmb_module_clean_annotation_key(hits$query)
+  )
+  matched <- !base::is.na(hit_index)
+  if (!base::any(matched)) return(tbl)
+
+  for (field in fields) {
+    target <- base::paste0("REBASEfinder_", field)
+    values <- hits[[field]][hit_index[matched]]
+    target_has_type <- target %in% base::names(tbl) &&
+      base::any(!base::is.na(tbl[[target]]))
+    if (target_has_type) {
+      prototype <- tbl[[target]]
+      if (base::is.logical(prototype)) {
+        values <- suppressWarnings(base::as.logical(values))
+      } else if (base::is.numeric(prototype) || base::is.integer(prototype)) {
+        values <- suppressWarnings(base::as.numeric(values))
+      } else {
+        values <- base::as.character(values)
+      }
+    } else if (base::is.logical(hits[[field]])) {
+      tbl[[target]] <- base::rep(NA, base::nrow(tbl))
+    } else if (base::is.numeric(hits[[field]]) || base::is.integer(hits[[field]])) {
+      tbl[[target]] <- base::rep(NA_real_, base::nrow(tbl))
+    } else {
+      tbl[[target]] <- base::rep(NA_character_, base::nrow(tbl))
+    }
+    tbl[[target]][matched] <- values
+  }
+  tbl
+}
+
+.dnmb_rebasefinder_overlay_structural_results <- function(tbl, output_dir) {
+  hits <- .dnmb_rebasefinder_read_augmented_hits(output_dir)
+  structural_fields <- if (base::is.null(hits)) {
+    character()
+  } else {
+    base::grep("^(homology_|structure_|foldseek_)", base::names(hits), value = TRUE)
+  }
+  .dnmb_rebasefinder_overlay_fields(tbl, hits, structural_fields)
+}
+
+.dnmb_rebasefinder_overlay_augmented_results <- function(tbl, output_dir) {
+  tbl <- base::as.data.frame(tbl, stringsAsFactors = FALSE)
+  if (!base::nrow(tbl) || !"locus_tag" %in% base::names(tbl)) return(tbl)
+  hits <- .dnmb_rebasefinder_read_augmented_hits(output_dir)
+  if (base::is.null(hits)) return(tbl)
+
+  # The final curation is authoritative for plotting.  Preserve the raw/final
+  # columns as separate audit fields, but use final family and role in the
+  # canonical columns consumed by every overview panel.
+  prefer_nonblank <- function(primary, fallback) {
+    primary <- base::as.character(primary)
+    fallback <- base::as.character(fallback)
+    use_primary <- !base::is.na(primary) & base::nzchar(base::trimws(primary))
+    fallback[use_primary] <- primary[use_primary]
+    fallback
+  }
+  if (base::all(c("final_family", "family_id") %in% base::names(hits))) {
+    hits$family_id <- prefer_nonblank(hits$final_family, hits$family_id)
+  }
+  if (base::all(c("final_role", "enzyme_role") %in% base::names(hits))) {
+    hits$enzyme_role <- prefer_nonblank(hits$final_role, hits$enzyme_role)
+  }
+
+  plot_fields <- base::unique(c(
+    "family_id", "enzyme_role", "final_family", "final_role", "final_component",
+    "hit_label", "evidence_mode", "substrate_label", "support", "typing_eligible",
+    "blast_identity", "blast_bitscore", "blast_length", "rec_seq", "reference_rec_seq",
+    "recognition_match", "recognition_donor", "operon_id", "mtase_motif_verified",
+    "aa_len", "expected_min_aa", "partial_status", "partial_reason",
+    "rm_association_class", "typei_context_partners", "typeiii_context_partners",
+    "typeiii_context_status",
+    base::grep(
+      "^(curation_|exclusion_|homology_|structure_|foldseek_)",
+      base::names(hits), value = TRUE
+    )
+  ))
+  hit_index <- base::match(
+    .dnmb_module_clean_annotation_key(tbl$locus_tag),
+    .dnmb_module_clean_annotation_key(hits$query)
+  )
+  tbl$.dnmb_rebasefinder_augmented_present <- !base::is.na(hit_index)
+  .dnmb_rebasefinder_overlay_fields(tbl, hits, plot_fields)
+}
+
+.dnmb_rebasefinder_plot_candidate_rows <- function(tbl) {
+  tbl <- base::as.data.frame(tbl, stringsAsFactors = FALSE)
+  if (!base::nrow(tbl)) return(tbl)
+
+  if (".dnmb_rebasefinder_augmented_present" %in% base::names(tbl)) {
+    keep <- tbl$.dnmb_rebasefinder_augmented_present %in% TRUE
+    tbl <- tbl[keep, , drop = FALSE]
+  }
+  if (!base::nrow(tbl)) {
+    tbl$.dnmb_rebasefinder_augmented_present <- NULL
+    return(tbl)
+  }
+
+  normalized <- function(x) {
+    base::tolower(base::gsub("[ -]+", "_", base::trimws(base::as.character(x))))
+  }
+  tier <- if ("REBASEfinder_curation_tier" %in% base::names(tbl)) {
+    normalized(tbl$REBASEfinder_curation_tier)
+  } else {
+    base::rep(NA_character_, base::nrow(tbl))
+  }
+  final_family <- if ("REBASEfinder_final_family" %in% base::names(tbl)) {
+    normalized(tbl$REBASEfinder_final_family)
+  } else {
+    base::rep(NA_character_, base::nrow(tbl))
+  }
+  family <- if ("REBASEfinder_family_id" %in% base::names(tbl)) {
+    base::as.character(tbl$REBASEfinder_family_id)
+  } else {
+    base::rep(NA_character_, base::nrow(tbl))
+  }
+  excluded <- tier %in% c("excluded_noise", "other_defense") |
+    final_family %in% c("other_defense", "non_rm") |
+    normalized(family) %in% c("other_defense", "non_rm")
+  excluded[base::is.na(excluded)] <- FALSE
+  family_present <- !base::is.na(family) & base::nzchar(base::trimws(family))
+  tbl <- tbl[family_present & !excluded, , drop = FALSE]
+  tbl$.dnmb_rebasefinder_augmented_present <- NULL
+  tbl
+}
+
 .dnmb_plot_rebasefinder_overview <- function(genbank_table, output_dir, cache_root = NULL) {
   tbl <- .dnmb_contig_ordered_table(genbank_table)
+  # The module TSV is the authoritative current result.  The combined workbook
+  # remains the genomic backbone, while current curation and structure fields
+  # decide which loci enter the figure.
+  tbl <- .dnmb_rebasefinder_overlay_augmented_results(tbl, output_dir)
+  tbl <- .dnmb_rebasefinder_plot_candidate_rows(tbl)
   req <- "REBASEfinder_family_id"
   if (!nrow(tbl) || !all(req %in% names(tbl))) return(NULL)
-
-  tbl <- tbl[!is.na(tbl$REBASEfinder_family_id) & nzchar(tbl$REBASEfinder_family_id), , drop = FALSE]
-  if (!nrow(tbl)) return(NULL)
 
   # Stage cache may store numeric columns as character — cast upfront
   for (col in c("REBASEfinder_blast_identity", "REBASEfinder_blast_bitscore",
@@ -97,17 +266,15 @@
     n_orphan_mtase = inventory_scope$n_orphan_mtase,
     n_unassociated = inventory_scope$n_unassociated
   )
+  p_inventory <- .dnmb_overview_tag_plot(p_inventory, "A")
 
   p_context <- .dnmb_plot_rebasefinder_context(
     genbank_table, output_dir, rm_palette, legend_position = "none"
   )
+  p_context <- .dnmb_overview_tag_plot(p_context, "B")
   p_context_leg <- .dnmb_plot_rebasefinder_context(
     genbank_table, output_dir, rm_palette, legend_position = "bottom"
   )
-  legend_context <- cowplot::get_legend(p_context_leg)
-  legend_row <- cowplot::ggdraw() +
-    cowplot::draw_grob(legend_context, x = 0.5, y = 0.5,
-                       width = 0.92, height = 0.92, hjust = 0.5, vjust = 0.5)
 
   # Shared display labels with operon grouping
   display_info <- .dnmb_rebasefinder_display_labels(tbl)
@@ -115,9 +282,36 @@
   # Each subplot wrapped in tryCatch — if any fails, use a placeholder
   # so the composite never crashes entirely.
   empty_plot <- ggplot2::ggplot() + ggplot2::theme_void()
+  structure_validation_path <- tryCatch(
+    .dnmb_rebasefinder_structure_path(output_dir),
+    error = function(e) NULL
+  )
+  structure_validation_run <- !is.null(structure_validation_path) &&
+    length(structure_validation_path) && file.exists(structure_validation_path)
   p_blast <- tryCatch(
-    .dnmb_plot_rebasefinder_blast_quality(tbl, role_palette, display_info, rm_palette, cache_root = cache_root),
+    .dnmb_plot_rebasefinder_blast_quality(
+      tbl, role_palette, display_info, rm_palette,
+      cache_root = cache_root,
+      structure_validation_run = structure_validation_run
+    ),
     error = function(e) empty_plot
+  )
+  p_blast <- .dnmb_overview_tag_plot(p_blast, "C", "REBASE BLAST")
+  blast_heading <- p_blast$labels$title
+  # Reserve the native title row for panel alignment; the visible C heading is
+  # drawn across the bottom-row wrapper so it shares the A/B figure-left edge.
+  p_blast <- p_blast + ggplot2::labs(title = "\u00A0")
+  blast_subtitle <- p_blast$labels$subtitle %||% ""
+  blast_subtitle <- gsub("<br\\s*/?>", "\n", blast_subtitle, ignore.case = TRUE, perl = TRUE)
+  blast_subtitle_lines <- max(
+    1L,
+    length(strsplit(as.character(blast_subtitle)[1], "\n", fixed = TRUE)[[1]])
+  )
+  aligned_subtitle_theme <- p_blast$theme$plot.subtitle
+  aligned_subtitle_break <- if (inherits(aligned_subtitle_theme, "element_markdown")) "<br>" else "\n"
+  aligned_blank_subtitle <- paste(
+    rep("\u00A0", blast_subtitle_lines),
+    collapse = aligned_subtitle_break
   )
   uniprot_doms <- tryCatch(
     .dnmb_rebasefinder_uniprot_domains(tbl, output_dir),
@@ -127,6 +321,9 @@
     .dnmb_plot_rebasefinder_domain_map(tbl, display_info, uniprot_doms),
     error = function(e) empty_plot
   )
+  p_domain <- .dnmb_overview_tag_plot(p_domain, "D", "Protein domain map") +
+    ggplot2::labs(subtitle = aligned_blank_subtitle) +
+    ggplot2::theme(plot.subtitle = aligned_subtitle_theme)
 	  p_motif <- tryCatch(
 	    .dnmb_plot_rebasefinder_motif_verification(
 	      tbl,
@@ -138,6 +335,37 @@
 	    ),
 	    error = function(e) empty_plot
 	  )
+  p_motif <- .dnmb_overview_tag_plot(
+    p_motif,
+    "E",
+    "Functional evidence: motifs and catalytic-pair proximity"
+  ) +
+    ggplot2::labs(subtitle = aligned_blank_subtitle) +
+    ggplot2::theme(plot.subtitle = aligned_subtitle_theme)
+
+  n_motif_columns <- if (!is.null(p_motif$data) &&
+                         "motif_label" %in% names(p_motif$data)) {
+    motif_labels <- p_motif$data$motif_label
+    if (is.factor(motif_labels)) {
+      length(levels(motif_labels))
+    } else {
+      length(unique(as.character(stats::na.omit(motif_labels))))
+    }
+  } else {
+    0L
+  }
+  panel_widths <- .dnmb_rebasefinder_overview_widths(n_motif_columns)
+  overview_width <- unname(panel_widths[["total"]])
+  legend_context <- .dnmb_with_plot_pdf_device(
+    cowplot::get_legend(p_context_leg),
+    width = overview_width,
+    height = 3
+  )
+  legend_row <- cowplot::ggdraw() +
+    cowplot::draw_grob(
+      legend_context, x = 0.5, y = 0.5,
+      width = 0.92, height = 0.92, hjust = 0.5, vjust = 0.5
+    )
 
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, "REBASE_overview.pdf")
@@ -147,57 +375,73 @@
 
   n_rm_types <- length(unique(inventory_tbl$REBASEfinder_family_id))
   a_inch <- max(0.7, 0.45 * n_rm_types + 0.5)
+  total_height <- a_inch + 2.0 + 0.35 + cd_inch
+  overview_height <- min(22, max(10, total_height))
+  bottom_row_height_pt <- overview_height * 72 * cd_inch / total_height
+  title_top_inset_pdf_pt <- 4 * 72 / 72.27
 
-  # Build bottom row (C): BLAST, protein domain map, square motif heatmap.
-  bottom_row <- tryCatch(
-    cowplot::plot_grid(
-      p_blast, p_domain, p_motif,
-      ncol = 3, rel_widths = c(1.55, 0.50, 1.70),
-      align = "h", axis = "tb"
-    ),
-    error = function(e) NULL
-  )
-  if (is.null(bottom_row)) {
+  # Build every aligned gtable on an Arial/Cairo device. This keeps layout
+  # metrics identical to the final PDF and avoids PostScript font warnings.
+  composite <- .dnmb_with_plot_pdf_device({
     bottom_row <- tryCatch(
       cowplot::plot_grid(
-        p_blast, p_motif,
-        ncol = 2, rel_widths = c(1.62, 1.0),
+        p_blast, p_domain, p_motif,
+        ncol = 3,
+        rel_widths = unname(panel_widths[c("blast", "domain", "motif")]),
         align = "h", axis = "tb"
       ),
       error = function(e) NULL
     )
-  }
-  # Full composite: A + B + legend + C/D/E (or A+B if bottom fails)
-  composite <- tryCatch({
-    if (!is.null(bottom_row)) {
-      cowplot::plot_grid(
-        p_inventory, p_context, legend_row, bottom_row,
-        labels = c("A", "B", "", "C"),
-        label_size = 14, label_fontface = "bold",
-        label_x = 0, label_y = c(1.02, 1.02, 1, 1.02),
-        hjust = 0, ncol = 1,
-        rel_heights = c(a_inch, 2.0, 0.35, cd_inch)
-      )
-    } else {
-      cowplot::plot_grid(
-        p_inventory, p_context, legend_row,
-        labels = c("A", "B", ""),
-        label_size = 14, label_fontface = "bold",
-        label_x = 0, hjust = 0, ncol = 1,
-        rel_heights = c(a_inch, 2.0, 0.35)
+    if (is.null(bottom_row)) {
+      bottom_row <- tryCatch(
+        cowplot::plot_grid(
+          p_blast, p_motif,
+          ncol = 2,
+          rel_widths = unname(panel_widths[c("blast", "motif")]),
+          align = "h", axis = "tb"
+        ),
+        error = function(e) NULL
       )
     }
-  }, error = function(e) {
-    cowplot::plot_grid(
-      p_inventory, p_context, legend_row,
-      labels = c("A", "B", ""),
-      label_size = 14, label_fontface = "bold",
-      label_x = 0, hjust = 0, ncol = 1,
-      rel_heights = c(a_inch, 2.0, 0.35)
-    )
-  })
-  total_height <- a_inch + 2.0 + 0.35 + cd_inch
-  .dnmb_module_plot_save(composite, pdf_path, width = 18, height = min(22, max(10, total_height)))
+    if (!is.null(bottom_row)) {
+      bottom_row <- cowplot::ggdraw(bottom_row) +
+        cowplot::draw_label(
+          blast_heading,
+          x = 19.925781 / (overview_width * 72),
+          y = 1 - title_top_inset_pdf_pt / bottom_row_height_pt,
+          hjust = 0, vjust = 1,
+          size = 11,
+          fontfamily = .dnmb_plot_font_family(),
+          fontface = "bold"
+        )
+    }
+    # Full composite: A + B + legend + C/D/E (or A+B if bottom fails).
+    # Tags are part of each title, so their size and baseline cannot diverge.
+    tryCatch({
+      if (!is.null(bottom_row)) {
+        cowplot::plot_grid(
+          p_inventory, p_context, legend_row, bottom_row,
+          ncol = 1,
+          rel_heights = c(a_inch, 2.0, 0.35, cd_inch)
+        )
+      } else {
+        cowplot::plot_grid(
+          p_inventory, p_context, legend_row,
+          ncol = 1,
+          rel_heights = c(a_inch, 2.0, 0.35)
+        )
+      }
+    }, error = function(e) {
+      cowplot::plot_grid(
+        p_inventory, p_context, legend_row,
+        ncol = 1,
+        rel_heights = c(a_inch, 2.0, 0.35)
+      )
+    })
+  }, width = overview_width, height = overview_height)
+  .dnmb_module_plot_save(
+    composite, pdf_path, width = overview_width, height = overview_height
+  )
   if (base::file.exists(pdf_path) && base::file.info(pdf_path)$size > 500) {
     .dnmb_rebasefinder_cleanup_native_pdfs(output_dir)
   }
@@ -222,9 +466,26 @@
   roles <- unique(as.character(stats::na.omit(tbl$REBASEfinder_enzyme_role)))
   roles <- roles[nzchar(roles)]
   if (!length(roles)) return(c(Other = "grey50"))
-  pal <- grDevices::hcl.colors(max(length(roles), 3), palette = "Dark 3")
-  out <- stats::setNames(pal[seq_along(roles)], roles)
-  c(out, Other = "grey60")
+  # Role fill colors must not recycle the Dark 3 hues used for R-M types in
+  # panels A/B and for point outlines in C. Muted purple/golden-orange role
+  # colors provide a publication-grade, colorblind-readable separation.
+  role_colors <- c(
+    M = "#6A51A3",
+    R = "#E69F00",
+    S = "#4DBBD5",
+    RM = "#8C564B",
+    Other = "#737373"
+  )
+  out <- stats::setNames(base::rep(NA_character_, base::length(roles)), roles)
+  known <- base::intersect(roles, base::names(role_colors))
+  out[known] <- role_colors[known]
+  unknown <- roles[base::is.na(out)]
+  if (base::length(unknown)) {
+    fallback <- c("#8C564B", "#17BECF", "#BCBD22", "#9467BD")
+    out[unknown] <- base::rep(fallback, length.out = base::length(unknown))
+  }
+  if (!"Other" %in% base::names(out)) out <- c(out, Other = role_colors[["Other"]])
+  out
 }
 
 # Use full contig name (no truncation)
@@ -797,6 +1058,7 @@
                                             rm_palette, legend_position = "none") {
   tbl <- .dnmb_contig_ordered_table(genbank_table)
   if (!nrow(tbl)) return(ggplot2::ggplot() + ggplot2::theme_void())
+  tbl <- .dnmb_rebasefinder_overlay_augmented_results(tbl, output_dir)
   for (col in c("REBASEfinder_blast_identity", "REBASEfinder_blast_bitscore",
                 "REBASEfinder_blast_length", "start", "end")) {
     if (col %in% names(tbl)) tbl[[col]] <- suppressWarnings(as.numeric(tbl[[col]]))
@@ -804,7 +1066,7 @@
   if ("REBASEfinder_typing_eligible" %in% names(tbl)) {
     tbl$REBASEfinder_typing_eligible <- as.logical(tbl$REBASEfinder_typing_eligible)
   }
-  rm_tbl <- tbl[!is.na(tbl$REBASEfinder_family_id) & nzchar(tbl$REBASEfinder_family_id), , drop = FALSE]
+  rm_tbl <- .dnmb_rebasefinder_plot_candidate_rows(tbl)
   if (!nrow(rm_tbl)) return(ggplot2::ggplot() + ggplot2::theme_void())
 
   contig_lengths <- .dnmb_contig_lengths_for_plot(tbl, output_dir = output_dir)
@@ -966,7 +1228,10 @@
 # ====================================================================
 # Panel C: BLAST Match Quality — legend horizontal at bottom
 # ====================================================================
-.dnmb_plot_rebasefinder_blast_quality <- function(tbl, role_palette, display_info, rm_palette = NULL, cache_root = NULL) {
+.dnmb_plot_rebasefinder_blast_quality <- function(tbl, role_palette, display_info,
+                                                   rm_palette = NULL,
+                                                   cache_root = NULL,
+                                                   structure_validation_run = NA) {
   has_identity <- "REBASEfinder_blast_identity" %in% names(tbl)
   has_bitscore <- "REBASEfinder_blast_bitscore" %in% names(tbl)
 
@@ -981,6 +1246,7 @@
 	    structure_file_exists = if ("REBASEfinder_structure_file_exists" %in% names(tbl)) as.logical(tbl$REBASEfinder_structure_file_exists) else NA,
 	    foldseek_hit_present = if ("REBASEfinder_foldseek_hit_present" %in% names(tbl)) as.logical(tbl$REBASEfinder_foldseek_hit_present) else NA,
 	    structure_coverage_status = if ("REBASEfinder_structure_coverage_status" %in% names(tbl)) as.character(tbl$REBASEfinder_structure_coverage_status) else NA_character_,
+	    homology_geometry_status = if ("REBASEfinder_homology_geometry_status" %in% names(tbl)) as.character(tbl$REBASEfinder_homology_geometry_status) else NA_character_,
 	    typeiii_context_status = if ("REBASEfinder_typeiii_context_status" %in% names(tbl)) as.character(tbl$REBASEfinder_typeiii_context_status) else NA_character_,
 	    stringsAsFactors = FALSE
 	  ), by = "locus_tag", sort = FALSE)
@@ -1172,8 +1438,32 @@
 	    n_files <- sum(plot_tbl$structure_file_exists %in% TRUE, na.rm = TRUE)
 	    n_foldseek <- sum(plot_tbl$foldseek_hit_present %in% TRUE, na.rm = TRUE)
 	    n_supported <- sum(plot_tbl$foldseek_supported %in% TRUE, na.rm = TRUE)
-	    paste0("Foldseek: ", n_foldseek, "/", nrow(plot_tbl),
-	           " checked, ", n_supported, " supported")
+	    n_homology_supported <- sum(
+	      plot_tbl$homology_geometry_status %in% c(
+	        "homology_model_supported", "3d_geometry_supported"
+	      ),
+	      na.rm = TRUE
+	    )
+	    inferred_not_run <- n_files == 0L && n_foldseek == 0L &&
+	      all(is.na(plot_tbl$structure_coverage_status) |
+	            plot_tbl$structure_coverage_status %in% c("", "structure_missing"))
+	    status_break <- if (has_ggtext) "<br>" else "\n"
+	    if (identical(structure_validation_run, FALSE) ||
+	        (is.na(structure_validation_run) && inferred_not_run)) {
+	      paste0(
+	        "Foldseek: not run (no validation TSV)", status_break,
+	        "ProMod3: ",
+	        n_homology_supported, " geometry-supported; 3D structures: ",
+	        n_files, "/", nrow(plot_tbl), " available"
+	      )
+	    } else {
+	      paste0(
+	        "Foldseek: ", n_foldseek, " hit(s), ", n_supported,
+	        " supported", status_break,
+	        "ProMod3: ", n_homology_supported,
+	        " geometry-supported; 3D structures: ", n_files, "/", nrow(plot_tbl)
+	      )
+	    }
 	  } else if (nrow(struct_tbl)) {
 	    "star = Foldseek-supported"
 	  } else {
@@ -1193,8 +1483,8 @@
                       size = 2.3, color = "#BF360C", fontface = "italic") +
     ggplot2::annotate("text", x = 51, y = Inf, label = "high confidence", hjust = 0, vjust = 1.5,
                       size = 2.3, color = "#2E7D32", fontface = "italic") +
-    ggplot2::scale_fill_manual(values = role_palette, name = "Enzyme Role") +
-    ggplot2::scale_color_manual(values = rm_palette, name = "R-M Type") +
+    ggplot2::scale_fill_manual(values = role_palette, name = "Enzyme Role (fill)") +
+    ggplot2::scale_color_manual(values = rm_palette, name = "R-M Type (outline)") +
     ggplot2::scale_x_continuous(limits = c(x_left_limit, 100),
                                 breaks = seq(0, 100, by = 10)) +
     ggplot2::scale_y_discrete(limits = new_lvls, drop = FALSE) +
@@ -1220,8 +1510,11 @@
       plot.subtitle = if (has_ggtext) ggtext::element_markdown(size = 8) else ggplot2::element_text(size = 8),
       axis.text.y = if (has_ggtext) ggtext::element_markdown(size = 8.3) else ggplot2::element_text(size = 8.3),
       legend.position = "bottom",
+      legend.location = "plot",
       legend.justification = "left",
-      legend.box = "vertical",
+      # Keep Confidence immediately beside Bitscore; the horizontal guide box
+      # also makes the C-panel legend substantially more compact.
+      legend.box = "horizontal",
       legend.box.just = "left",
       legend.key.size = ggplot2::unit(0.3, "cm"),
       legend.text = ggplot2::element_text(size = 6.5),
@@ -2137,6 +2430,7 @@
     if (base::is.na(idx)) character() else base::as.character(tbl[[homology_col[[1]]]][[idx]])
   }
   supported <- c("homology_model_supported", "3d_fold_supported", "3d_geometry_supported")
+  moderate_supported <- "3d_fold_supported_moderate"
   neutral <- c("", "no_structure", "not_applicable", "unavailable", "structure_missing")
   candidates$pair_state <- base::vapply(base::seq_len(base::nrow(candidates)), function(i) {
     locus <- candidates$locus_tag[[i]]
@@ -2145,17 +2439,25 @@
     locus_geometry <- summary_status(locus)
     homology <- homology_status(locus)
     contacts <- contact_status(locus, pair_key)
-    explicit_negative <- base::any(!base::is.na(c(locus_geometry, pair_geometry, homology)) &
-      !c(locus_geometry, pair_geometry, homology) %in% c(neutral, supported))
-    if (!explicit_negative &&
-        base::any(c(locus_geometry, pair_geometry) %in% supported)) {
+    geometry_evidence <- c(locus_geometry, pair_geometry)
+    if (base::any(geometry_evidence %in% supported)) {
       return("verified")
     }
+    if (base::any(geometry_evidence %in% moderate_supported)) {
+      return("moderate")
+    }
+    if (!base::length(stats::na.omit(geometry_evidence)) &&
+        base::any(homology %in% supported)) {
+      return("verified")
+    }
+    evidence <- c(geometry_evidence, homology)
+    explicit_negative <- base::any(!base::is.na(evidence) &
+      !evidence %in% c(neutral, supported, moderate_supported))
     if (explicit_negative) return("not_verified")
     if (base::any(contacts %in% c("contact_strong", "contact_supportive"))) {
       return("contact_supported")
     }
-    "not_verified"
+    "unassessed"
   }, character(1))
 
   x_a <- base::match(candidates$motif_a, motif_levels)
@@ -2163,43 +2465,28 @@
   motif_keep <- !base::is.na(x_a) & !base::is.na(x_b)
   if (!base::any(motif_keep)) return(empty)
   candidates <- candidates[motif_keep, , drop = FALSE]
-  candidates <- base::do.call(base::rbind, base::lapply(
-    base::split(base::seq_len(base::nrow(candidates)), candidates$locus_tag),
-    function(idx) {
-      rows <- candidates[idx, , drop = FALSE]
-      states <- base::as.character(rows$pair_state)
-      state <- if (base::any(states == "not_verified")) {
-        "not_verified"
-      } else if (base::any(states == "verified")) {
-        "verified"
-      } else {
-        "contact_supported"
-      }
-      base::data.frame(
-        locus_tag = rows$locus_tag[[1]],
-        pair_group = base::paste(base::unique(rows$pair_group), collapse = ","),
-        motif_a = base::paste(base::unique(rows$motif_a), collapse = ","),
-        motif_b = base::paste(base::unique(rows$motif_b), collapse = ","),
-        pair_key = base::paste(base::unique(rows$pair_key), collapse = ","),
-        pair_state = state,
-        stringsAsFactors = FALSE
-      )
-    }
-  ))
+  x_a <- x_a[motif_keep]
+  x_b <- x_b[motif_keep]
   display_idx <- base::match(candidates$locus_tag, .dnmb_module_clean_annotation_key(display_info$locus_tag))
   display <- base::as.character(display_info$display[display_idx])
   y <- base::match(display, display_lvls)
   keep <- !base::is.na(y)
   if (!base::any(keep)) return(empty)
   candidates <- candidates[keep, , drop = FALSE]
+  x_a <- x_a[keep]
+  x_b <- x_b[keep]
   y <- y[keep]
-  candidates$xmin <- 0.53
-  candidates$xmax <- base::length(motif_levels) + 0.47
-  candidates$ymin <- y - 0.45
-  candidates$ymax <- y + 0.45
+  # Outline only the two motif cells belonging to this catalytic pair. A
+  # whole-row box falsely implied that every motif in the row was 3D-tested.
+  # Align the left/right outline exactly with the tile edges so no white strip
+  # appears inside the box. Keep a small vertical offset for legibility.
+  candidates$xmin <- base::pmin(x_a, x_b) - 0.50
+  candidates$xmax <- base::pmax(x_a, x_b) + 0.50
+  candidates$ymin <- y - 0.48
+  candidates$ymax <- y + 0.48
   candidates$pair_state <- base::factor(
     candidates$pair_state,
-    levels = c("verified", "contact_supported", "not_verified")
+    levels = c("verified", "moderate", "contact_supported", "unassessed", "not_verified")
   )
   candidates[, base::names(empty), drop = FALSE]
 }
@@ -2395,7 +2682,7 @@
 	        color = .data$pair_state, linetype = .data$pair_state
 	      ),
 	      fill = NA,
-	      linewidth = 0.525,
+	      linewidth = 0.65,
 	      inherit.aes = FALSE,
 	      show.legend = TRUE
 	    )
@@ -2429,31 +2716,42 @@
 	    ggplot2::scale_color_manual(
 	      values = c(
 	        verified = "#2166AC",
+	        moderate = "#4393C3",
 	        contact_supported = "#67A9CF",
+	        unassessed = "#7F8C8D",
 	        not_verified = "#B2182B"
 	      ),
-	      name = "Catalytic pair",
-	      breaks = c("verified", "contact_supported", "not_verified"),
+	      name = "3D catalytic pair",
+	      breaks = c("verified", "moderate", "contact_supported", "unassessed", "not_verified"),
 	      labels = c(
-	        verified = "3D verified",
+	        verified = "Geometry supported",
+	        moderate = "Foldseek + geometry (modQ)",
 	        contact_supported = "Contact-supported",
-	        not_verified = "Not 3D-verified"
+	        unassessed = "No structure/model",
+	        not_verified = "Geometry failed"
 	      )
 	    ) +
 	    ggplot2::scale_linetype_manual(
-	      values = c(verified = "solid", contact_supported = "dashed", not_verified = "solid"),
-	      name = "Catalytic pair",
-	      breaks = c("verified", "contact_supported", "not_verified"),
+	      values = c(
+	        # Short, even dashes keep the moderate tier distinct from solid
+	        # geometry without leaving large blank gaps around two-cell boxes.
+	        verified = "solid", moderate = "11", contact_supported = "dashed",
+	        unassessed = "dotted", not_verified = "solid"
+	      ),
+	      name = "3D catalytic pair",
+	      breaks = c("verified", "moderate", "contact_supported", "unassessed", "not_verified"),
 	      labels = c(
-	        verified = "3D verified",
+	        verified = "Geometry supported",
+	        moderate = "Foldseek + geometry (modQ)",
 	        contact_supported = "Contact-supported",
-	        not_verified = "Not 3D-verified"
+	        unassessed = "No structure/model",
+	        not_verified = "Geometry failed"
 	      )
 	    ) +
 	    ggplot2::scale_y_discrete(limits = display_lvls, drop = FALSE) +
 	    ggplot2::coord_fixed(ratio = 1, clip = "off") +
 	    ggplot2::guides(
-	      fill = ggplot2::guide_legend(nrow = 2, byrow = TRUE, order = 2),
+	      fill = ggplot2::guide_legend(nrow = 1, byrow = TRUE, order = 2),
 	      color = ggplot2::guide_legend(nrow = 1, byrow = TRUE, order = 1),
 	      linetype = ggplot2::guide_legend(nrow = 1, byrow = TRUE, order = 1)
 	    ) +

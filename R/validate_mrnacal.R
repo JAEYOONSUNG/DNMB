@@ -417,7 +417,7 @@ dnmb_validate_mrnacal <- function(results,
   if (!base::length(panel_features)) {
     return(FALSE)
   }
-  grDevices::pdf(path, width = 10, height = 8)
+  .dnmb_plot_pdf_device(path, width = 10, height = 8)
   on.exit(grDevices::dev.off(), add = TRUE)
   graphics::par(mfrow = c(2, 3), mar = c(4, 4, 2.5, 1))
   for (f in panel_features) {

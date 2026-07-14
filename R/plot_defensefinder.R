@@ -9,6 +9,47 @@
   "DefenseFinder"
 }
 
+.dnmb_defensefinder_tag_plot <- function(plot,
+                                         label,
+                                         title,
+                                         size = 11,
+                                         x = 0.03,
+                                         body_scale = 1,
+                                         body_halign = 0.5,
+                                         body_valign = 0.5) {
+  if (is.null(plot)) {
+    return(NULL)
+  }
+
+  # Keep the title inside a full-width panel wrapper. In particular, the
+  # radial detail plot has a fixed aspect ratio; an ordinary ggplot title is
+  # centered together with that narrower plot and no longer shares the same
+  # left edge as the Cartesian panels above it.
+  body <- plot +
+    ggplot2::labs(title = " ") +
+    .dnmb_overview_title_theme(size = size)
+
+  .dnmb_with_plot_pdf_device({
+    cowplot::ggdraw() +
+      cowplot::draw_plot(
+        body,
+        scale = body_scale,
+        halign = body_halign,
+        valign = body_valign
+      ) +
+      cowplot::draw_label(
+        .dnmb_overview_title(label, title),
+        x = x,
+        y = 1,
+        hjust = 0,
+        vjust = 1,
+        size = size,
+        fontfamily = .dnmb_plot_font_family(),
+        fontface = "bold"
+      )
+  }, width = 9.5, height = 6)
+}
+
 .dnmb_defensefinder_plot_table <- function(genbank_table, activity = NULL) {
   tbl <- .dnmb_contig_ordered_table(genbank_table)
   req <- c("DefenseFinder_system_id", "DefenseFinder_system_subtype")
@@ -62,16 +103,24 @@
     overview_windows,
     defense_palette,
     legend_position = "none"
-  ) +
-    ggplot2::labs(title = paste0("A   ", activity_label, " inventory"))
+  )
+  p_inventory <- .dnmb_defensefinder_tag_plot(
+    p_inventory,
+    "A",
+    paste0(activity_label, " inventory")
+  )
   p_context <- .dnmb_plot_defensefinder_context(
     genbank_table,
     output_dir = output_dir,
     defense_palette = defense_palette,
     system_ids = unique(tbl$DefenseFinder_system_id),
     legend_position = "none"
-  ) +
-    ggplot2::labs(title = paste0("B   ", activity_label, " genome layout"))
+  )
+  p_context <- .dnmb_defensefinder_tag_plot(
+    p_context,
+    "B",
+    paste0(activity_label, " genome layout")
+  )
   p_context_legend <- .dnmb_plot_defensefinder_context(
     genbank_table,
     output_dir = output_dir,
@@ -79,9 +128,6 @@
     system_ids = unique(tbl$DefenseFinder_system_id),
     legend_position = "bottom"
   )
-  legend_context <- cowplot::get_legend(p_context_legend)
-  legend_row <- cowplot::ggdraw() +
-    cowplot::draw_grob(legend_context, x = 0.5, y = 0.5, width = 0.92, height = 0.92, hjust = 0.5, vjust = 0.5)
 
   top_systems <- tbl |>
     dplyr::group_by(.data$DefenseFinder_system_id, .data$DefenseFinder_system_subtype, .data$contig) |>
@@ -100,23 +146,35 @@
     sector_layout = sector_layout,
     palette = defense_palette
   )
+  p_detail <- .dnmb_defensefinder_tag_plot(
+    p_detail,
+    "C",
+    paste0(activity_label, " system detail"),
+    body_scale = 1.15,
+    body_halign = 0.72,
+    body_valign = 0.45
+  )
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, paste0(activity_label, "_overview.pdf"))
-  composite <- cowplot::plot_grid(
-    p_inventory,
-    p_context,
-    legend_row,
-    p_detail,
-    labels = c("", "", "", "C"),
-    label_size = 14,
-    label_fontface = "bold",
-    label_x = 0,
-    label_y = c(1, 1, 1, 1),
-    hjust = 0,
-    ncol = 1,
-    align = "v",
-    rel_heights = c(0.8, 1.35, 0.25, 4.0)
-  )
+  composite <- .dnmb_with_plot_pdf_device({
+    legend_context <- cowplot::get_legend(p_context_legend)
+    legend_row <- cowplot::ggdraw() +
+      cowplot::draw_grob(
+        legend_context,
+        x = 0.5, y = 0.5,
+        width = 0.92, height = 0.92,
+        hjust = 0.5, vjust = 0.5
+      )
+    cowplot::plot_grid(
+      p_inventory,
+      p_context,
+      legend_row,
+      p_detail,
+      ncol = 1,
+      rel_heights = c(0.8, 1.35, 0.25, 4.0)
+    ) +
+      ggplot2::theme(plot.margin = ggplot2::margin(4, 0, 0, 0))
+  }, width = 9.5, height = 13)
   .dnmb_module_plot_save(composite, pdf_path, width = 9.5, height = 13)
   list(pdf = pdf_path)
 }
@@ -153,6 +211,138 @@
   }
   pal <- grDevices::hcl.colors(length(values), palette = "Dark 3")
   stats::setNames(pal, values)
+}
+
+.dnmb_defensefinder_legend_occupancy_points <- function(data,
+                                                        weight = 1,
+                                                        radius = 0.004) {
+  if (is.null(data) || !is.data.frame(data) || !nrow(data) ||
+      !all(c("x", "y") %in% names(data))) {
+    return(data.frame(
+      x = numeric(), y = numeric(), weight = numeric(), radius = numeric()
+    ))
+  }
+
+  n <- nrow(data)
+  weight <- rep(as.numeric(weight), length.out = n)
+  radius <- rep(as.numeric(radius), length.out = n)
+  point_tbl <- data.frame(
+    x = suppressWarnings(as.numeric(data$x)),
+    y = suppressWarnings(as.numeric(data$y)),
+    weight = weight,
+    radius = radius
+  )
+
+  if (all(c("xend", "yend") %in% names(data))) {
+    xend <- suppressWarnings(as.numeric(data$xend))
+    yend <- suppressWarnings(as.numeric(data$yend))
+    point_tbl <- rbind(
+      point_tbl,
+      data.frame(x = xend, y = yend, weight = weight, radius = radius),
+      data.frame(
+        x = (point_tbl$x[seq_len(n)] + xend) / 2,
+        y = (point_tbl$y[seq_len(n)] + yend) / 2,
+        weight = weight,
+        radius = radius
+      )
+    )
+  }
+
+  keep <- is.finite(point_tbl$x) & is.finite(point_tbl$y) &
+    is.finite(point_tbl$weight) & point_tbl$weight > 0 &
+    is.finite(point_tbl$radius) & point_tbl$radius >= 0
+  point_tbl[keep, , drop = FALSE]
+}
+
+.dnmb_defensefinder_auto_legend_corner <- function(occupancy,
+                                                    xlim,
+                                                    ylim,
+                                                    legend_labels,
+                                                    corner_padding = 0.02,
+                                                    proximity_band = 0.04) {
+  xlim <- range(suppressWarnings(as.numeric(xlim)), finite = TRUE)
+  ylim <- range(suppressWarnings(as.numeric(ylim)), finite = TRUE)
+  if (length(xlim) != 2L || length(ylim) != 2L ||
+      diff(xlim) <= 0 || diff(ylim) <= 0) {
+    stop("`xlim` and `ylim` must each define a finite, non-zero range.", call. = FALSE)
+  }
+
+  labels <- as.character(legend_labels)
+  labels <- labels[!is.na(labels) & nzchar(labels)]
+  max_label_chars <- if (length(labels)) max(nchar(labels)) else 1L
+  legend_width <- min(0.38, max(0.18, 0.075 + 0.0062 * max_label_chars))
+  legend_height <- min(0.78, max(0.13, 0.065 + 0.026 * max(1L, length(labels))))
+  corner_padding <- min(0.18, max(0, as.numeric(corner_padding)[1]))
+  proximity_band <- max(0.005, as.numeric(proximity_band)[1])
+
+  candidates <- data.frame(
+    corner = c("bottom-right", "bottom-left", "top-right", "top-left"),
+    position_x = c(1 - corner_padding, corner_padding, 1 - corner_padding, corner_padding),
+    position_y = c(corner_padding, corner_padding, 1 - corner_padding, 1 - corner_padding),
+    justify_x = c(1, 0, 1, 0),
+    justify_y = c(0, 0, 1, 1),
+    stringsAsFactors = FALSE
+  )
+  candidates$xmin <- candidates$position_x - candidates$justify_x * legend_width
+  candidates$xmax <- candidates$xmin + legend_width
+  candidates$ymin <- candidates$position_y - candidates$justify_y * legend_height
+  candidates$ymax <- candidates$ymin + legend_height
+
+  if (is.null(occupancy) || !is.data.frame(occupancy) || !nrow(occupancy)) {
+    occupancy <- data.frame(
+      x = numeric(), y = numeric(), weight = numeric(), radius = numeric()
+    )
+  }
+  if (!all(c("x", "y") %in% names(occupancy))) {
+    stop("`occupancy` must contain `x` and `y` columns.", call. = FALSE)
+  }
+  if (!"weight" %in% names(occupancy)) occupancy$weight <- 1
+  if (!"radius" %in% names(occupancy)) occupancy$radius <- 0
+  occupancy$x <- (suppressWarnings(as.numeric(occupancy$x)) - xlim[[1]]) / diff(xlim)
+  occupancy$y <- (suppressWarnings(as.numeric(occupancy$y)) - ylim[[1]]) / diff(ylim)
+  occupancy$weight <- suppressWarnings(as.numeric(occupancy$weight))
+  occupancy$radius <- suppressWarnings(as.numeric(occupancy$radius))
+  keep <- is.finite(occupancy$x) & is.finite(occupancy$y) &
+    is.finite(occupancy$weight) & occupancy$weight > 0 &
+    is.finite(occupancy$radius) & occupancy$radius >= 0
+  occupancy <- occupancy[keep, , drop = FALSE]
+
+  candidates$overlap_score <- 0
+  candidates$proximity_score <- 0
+  if (nrow(occupancy)) {
+    for (i in seq_len(nrow(candidates))) {
+      dx <- pmax(
+        candidates$xmin[[i]] - occupancy$x,
+        0,
+        occupancy$x - candidates$xmax[[i]]
+      )
+      dy <- pmax(
+        candidates$ymin[[i]] - occupancy$y,
+        0,
+        occupancy$y - candidates$ymax[[i]]
+      )
+      distance <- sqrt(dx^2 + dy^2)
+      clearance <- pmax(0, distance - occupancy$radius)
+      overlaps <- distance <= occupancy$radius
+      candidates$overlap_score[[i]] <- sum(occupancy$weight[overlaps])
+      candidates$proximity_score[[i]] <- sum(
+        occupancy$weight * exp(-((clearance / proximity_band)^2))
+      )
+    }
+  }
+  # A direct collision dominates the softer distance penalty. Candidate order
+  # keeps the historical bottom-right location as the deterministic tie-break.
+  candidates$score <- 1000 * candidates$overlap_score + candidates$proximity_score
+  selected <- candidates[which.min(candidates$score), , drop = FALSE]
+
+  list(
+    corner = selected$corner[[1]],
+    position = c(selected$position_x[[1]], selected$position_y[[1]]),
+    justification = c(selected$justify_x[[1]], selected$justify_y[[1]]),
+    legend_width = legend_width,
+    legend_height = legend_height,
+    candidates = candidates
+  )
 }
 
 .dnmb_defensefinder_category <- function(subtype) {
@@ -807,6 +997,48 @@
 
   legend_breaks <- names(palette)
   fill_values <- c("neighbor" = "grey96", palette)
+  plot_xlim <- c(-(max_ring + 2.4), max_ring + 2.6)
+  plot_ylim <- c(-(max_ring + 2.0), max_ring + 0.2)
+
+  title_radius <- if (nrow(title_tbl)) {
+    0.014 + pmin(0.075, nchar(as.character(title_tbl$label)) * 0.0018)
+  } else {
+    numeric()
+  }
+  endpoint_radius <- if (nrow(endpoint_tbl)) {
+    0.010 + pmin(0.050, nchar(as.character(endpoint_tbl$label)) * 0.0013)
+  } else {
+    numeric()
+  }
+  gene_label_radius <- if (nrow(gene_label_tbl)) {
+    0.012 + pmin(0.065, nchar(as.character(gene_label_tbl$label)) * 0.0015)
+  } else {
+    numeric()
+  }
+  scale_occupancy <- data.frame(
+    x = c(scale_bar$x, mean(scale_bar$x), scale_label_xy$x),
+    y = c(scale_bar$y, mean(scale_bar$y), scale_label_xy$y),
+    stringsAsFactors = FALSE
+  )
+  legend_occupancy <- dplyr::bind_rows(
+    .dnmb_defensefinder_legend_occupancy_points(backbone_bg, weight = 0.5, radius = 0.003),
+    .dnmb_defensefinder_legend_occupancy_points(highlight_arcs, weight = 1.2, radius = 0.005),
+    .dnmb_defensefinder_legend_occupancy_points(stem_tbl, weight = 1.5, radius = 0.006),
+    .dnmb_defensefinder_legend_occupancy_points(panel_bg_tbl, weight = 3.0, radius = 0.007),
+    .dnmb_defensefinder_legend_occupancy_points(cap_tbl, weight = 2.0, radius = 0.006),
+    .dnmb_defensefinder_legend_occupancy_points(panel_gene_tbl, weight = 4.0, radius = 0.007),
+    .dnmb_defensefinder_legend_occupancy_points(title_tbl, weight = 10.0, radius = title_radius),
+    .dnmb_defensefinder_legend_occupancy_points(endpoint_tbl, weight = 4.0, radius = endpoint_radius),
+    .dnmb_defensefinder_legend_occupancy_points(gene_label_tbl, weight = 8.0, radius = gene_label_radius),
+    .dnmb_defensefinder_legend_occupancy_points(scale_occupancy, weight = 80.0, radius = 0.030)
+  )
+  legend_corner <- .dnmb_defensefinder_auto_legend_corner(
+    occupancy = legend_occupancy,
+    xlim = plot_xlim,
+    ylim = plot_ylim,
+    legend_labels = legend_breaks,
+    corner_padding = 0.10
+  )
 
   ggplot2::ggplot() +
     ggplot2::geom_polygon(data = backbone_bg, ggplot2::aes(x = .data$x, y = .data$y), fill = "grey97", color = "grey78", linewidth = 0.25) +
@@ -840,16 +1072,16 @@
     ggplot2::geom_segment(ggplot2::aes(x = scale_bar$x[1], xend = scale_bar$x[2], y = scale_bar$y[1], yend = scale_bar$y[2]), linewidth = 1.15, color = "grey25", lineend = "round", inherit.aes = FALSE) +
     ggplot2::geom_text(ggplot2::aes(x = scale_label_xy$x, y = scale_label_xy$y, label = scale_label), size = 2.8, color = "grey20", inherit.aes = FALSE) +
     ggplot2::coord_equal(
-      xlim = c(-(max_ring + 2.4), max_ring + 2.6),
-      ylim = c(-(max_ring + 2.0), max_ring + 0.2),
+      xlim = plot_xlim,
+      ylim = plot_ylim,
       clip = "off",
       expand = FALSE
     ) +
     ggplot2::theme_void(base_size = 11) +
     ggplot2::theme(
-      plot.margin = ggplot2::margin(0, 0, 0, 18),
-      legend.position = c(0.88, 0.03),
-      legend.justification = c(1, 0),
+      plot.margin = ggplot2::margin(0, 0, 0, 0),
+      legend.position = legend_corner$position,
+      legend.justification = legend_corner$justification,
       legend.background = ggplot2::element_rect(fill = grDevices::adjustcolor("white", alpha.f = 0.70), color = NA),
       legend.key.height = grid::unit(0.32, "cm"),
       legend.key.width = grid::unit(0.42, "cm"),

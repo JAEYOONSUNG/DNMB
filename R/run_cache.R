@@ -306,6 +306,13 @@
                                          mrnacal_require_rnafold = TRUE,
                                          mrnacal_sd_seed = NULL,
                                          mrnacal_top_folds = 12L,
+                                         rebasefinder_structure_tsv = NULL,
+                                         rebasefinder_structure_max_evalue = 1e-3,
+                                         rebasefinder_structure_min_probability = 0.50,
+                                         rebasefinder_structure_min_tmscore = 0.45,
+                                         rebasefinder_homology_modeling = TRUE,
+                                         rebasefinder_homology_max_candidates = 24L,
+                                         rebasefinder_typeiii_context_genes = 3L,
                                          iselement_analysis_depth = "full",
                                          iselement_related_genbanks = NULL,
                                          iselement_related_metadata = NULL,
@@ -325,9 +332,30 @@
       promotech_asset_predictions <- unlist(promotech_asset_urls[prediction_names], use.names = FALSE)
     }
   }
+  auto_rebasefinder_structure_tsv <- character()
+  if ("REBASEfinder" %in% aliases &&
+      (is.null(rebasefinder_structure_tsv) ||
+       !base::length(rebasefinder_structure_tsv) ||
+       base::all(base::is.na(rebasefinder_structure_tsv) |
+                 !base::nzchar(base::as.character(rebasefinder_structure_tsv))))) {
+    auto_candidates <- base::file.path(
+      base::getwd(),
+      c(
+        "foldseek_results.tsv",
+        "foldseek_validation.tsv",
+        "structure_validation.tsv",
+        base::file.path("dnmb_module_rebasefinder", "foldseek_results.tsv"),
+        base::file.path("dnmb_module_rebasefinder", "structure_validation.tsv")
+      )
+    )
+    auto_rebasefinder_structure_tsv <- auto_candidates[base::file.exists(auto_candidates)]
+    if (base::length(auto_rebasefinder_structure_tsv)) {
+      auto_rebasefinder_structure_tsv <- auto_rebasefinder_structure_tsv[[1]]
+    }
+  }
 
   list(
-    signature_version = 2L,
+    signature_version = 4L,
     genbank_signature = genbank_signature,
     module_aliases = aliases,
     requested = list(
@@ -351,13 +379,23 @@
       mrnacal_sd_seed = if (is.null(mrnacal_sd_seed)) NULL else as.character(mrnacal_sd_seed)[1],
       mrnacal_top_folds = as.integer(mrnacal_top_folds)[1],
       mrnacal_algorithm = if ("mRNAcal" %in% aliases) "rnaplfold_local_tir_ncs30_tircore_ncsdG_band_seed9_dup15_zband_v11" else NULL,
-      rebasefinder_homology_backend = if ("REBASEfinder" %in% aliases) "promod3-3.6.0-bundled-templates-v2" else NULL,
+      rebasefinder_homology_backend = if ("REBASEfinder" %in% aliases) "promod3-3.6.0-bundled-subclass-templates-v3" else NULL,
+      rebasefinder_structure_max_evalue = as.numeric(rebasefinder_structure_max_evalue)[1],
+      rebasefinder_structure_min_probability = as.numeric(rebasefinder_structure_min_probability)[1],
+      rebasefinder_structure_min_tmscore = as.numeric(rebasefinder_structure_min_tmscore)[1],
+      rebasefinder_homology_modeling = isTRUE(rebasefinder_homology_modeling),
+      rebasefinder_homology_max_candidates = as.integer(rebasefinder_homology_max_candidates)[1],
+      rebasefinder_typeiii_context_genes = as.integer(rebasefinder_typeiii_context_genes)[1],
       iselement_analysis_depth = as.character(iselement_analysis_depth)[1],
       iselement_auto_discover_related = isTRUE(iselement_auto_discover_related),
       iselement_max_related = as.integer(iselement_max_related)[1]
     ),
     related_inputs = list(
       promotech_predictions = .dnmb_file_signature(c(promotech_predictions, promotech_asset_predictions)),
+      rebasefinder_structure_tsv = .dnmb_file_signature(c(
+        rebasefinder_structure_tsv,
+        auto_rebasefinder_structure_tsv
+      )),
       iselement_related_genbanks = .dnmb_file_signature(iselement_related_genbanks),
       iselement_related_metadata = .dnmb_file_signature(iselement_related_metadata)
     ),
@@ -537,20 +575,83 @@
   invisible(path)
 }
 
+.dnmb_rebasefinder_stage_model_path_exists <- function(path, wd = getwd()) {
+  path <- as.character(path)[1]
+  if (is.na(path) || !nzchar(trimws(path))) {
+    return(FALSE)
+  }
+
+  normalized <- gsub("\\\\", "/", path)
+  marker <- "dnmb_module_rebasefinder/"
+  marker_pos <- regexpr(marker, normalized, fixed = TRUE)[1]
+  candidates <- c(path.expand(path))
+  if (marker_pos > 0L) {
+    candidates <- c(candidates, file.path(wd, substring(normalized, marker_pos)))
+  }
+  candidates <- c(
+    candidates,
+    file.path(wd, path),
+    file.path(wd, "dnmb_module_rebasefinder", "promod3_query_structures", basename(normalized))
+  )
+  candidates <- unique(candidates[!is.na(candidates) & nzchar(candidates)])
+  any(file.exists(candidates) & !dir.exists(candidates))
+}
+
+.dnmb_rebasefinder_stage_homology_incomplete <- function(wd = getwd(), signature = NULL) {
+  if (identical(signature$requested$rebasefinder_homology_modeling, FALSE)) {
+    return(FALSE)
+  }
+
+  audit_path <- file.path(
+    wd,
+    "dnmb_module_rebasefinder",
+    "DNMB_REBASEfinder_homology_templates.tsv"
+  )
+  if (!file.exists(audit_path)) {
+    return(FALSE)
+  }
+  audit <- tryCatch(
+    utils::read.delim(audit_path, stringsAsFactors = FALSE, check.names = FALSE),
+    error = function(e) data.frame()
+  )
+  required <- c("model_eligible", "model_status")
+  if (!nrow(audit) || !all(required %in% names(audit))) {
+    return(FALSE)
+  }
+
+  eligible <- audit$model_eligible %in% TRUE
+  status <- trimws(as.character(audit$model_status))
+  status[is.na(status)] <- ""
+  retry_backend <- isTRUE(signature$requested$module_install) &
+    grepl("^backend_unavailable", status)
+  retry_failure <- grepl("^model_failed(?::|$)", status) |
+    status %in% c("model_missing", "pending")
+
+  built <- status == "template_model_built"
+  artifact_exists <- rep(FALSE, nrow(audit))
+  built_rows <- which(eligible & built)
+  for (i in built_rows) {
+    row_paths <- character()
+    if ("model_path" %in% names(audit)) row_paths <- c(row_paths, audit$model_path[[i]])
+    if ("model_expected_path" %in% names(audit)) {
+      row_paths <- c(row_paths, audit$model_expected_path[[i]])
+    }
+    artifact_exists[[i]] <- any(vapply(
+      row_paths,
+      .dnmb_rebasefinder_stage_model_path_exists,
+      logical(1),
+      wd = wd
+    ))
+  }
+  missing_built_artifact <- built & !artifact_exists
+
+  any(eligible & (retry_backend | retry_failure | missing_built_artifact))
+}
+
 .dnmb_module_stage_artifacts_exist <- function(alias, wd = getwd(), signature = NULL) {
   if (identical(as.character(alias)[1], "REBASEfinder") &&
-      base::isTRUE(signature$requested$module_install)) {
-    audit_path <- base::file.path(wd, "dnmb_module_rebasefinder", "DNMB_REBASEfinder_homology_templates.tsv")
-    if (base::file.exists(audit_path)) {
-      audit <- tryCatch(
-        utils::read.delim(audit_path, stringsAsFactors = FALSE, check.names = FALSE),
-        error = function(e) base::data.frame()
-      )
-      retry <- base::nrow(audit) && base::all(c("model_eligible", "model_status") %in% base::names(audit)) &&
-        base::any(audit$model_eligible %in% TRUE &
-          base::grepl("^backend_unavailable", audit$model_status))
-      if (base::isTRUE(retry)) return(FALSE)
-    }
+      .dnmb_rebasefinder_stage_homology_incomplete(wd = wd, signature = signature)) {
+    return(FALSE)
   }
   # Completion sentinel is sufficient — written at the end of every
   # successful module run regardless of hit count.

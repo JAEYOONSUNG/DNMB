@@ -1311,7 +1311,7 @@
 }
 
 .dnmb_plot_prophage_reference_panel <- function(sub_tbl, region_id, output_dir, top_n = 5L, cache_root = NULL, embedded = FALSE, show_panel_legend = FALSE) {
-  text_family <- "sans"
+  text_family <- .dnmb_plot_font_family()
   sub_tbl <- .dnmb_prophage_apply_detected_bounds(sub_tbl, output_dir = output_dir, region_id = region_id)
   gbff_path <- .dnmb_find_gbff_for_plot(output_dir)
   if (is.null(gbff_path) || !file.exists(gbff_path)) {
@@ -1958,4 +1958,3 @@
   if (isTRUE(o$partial)) parts <- base::paste0(parts, " (partial)")
   parts
 }
-

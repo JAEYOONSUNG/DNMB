@@ -258,7 +258,8 @@
                                                      min_mapping_coverage = 0.3,
                                                      min_mapping_identity = 0.7,
                                                      min_motif_coverage = 0.8,
-                                                     min_plddt = 70) {
+                                                     min_plddt = 70,
+                                                     min_foldseek_plddt = 60) {
   motif_hits <- base::as.data.frame(motif_hits, stringsAsFactors = FALSE)
   protein_table <- base::as.data.frame(protein_table, stringsAsFactors = FALSE)
   if (!base::nrow(motif_hits) || !base::nrow(protein_table) ||
@@ -338,6 +339,12 @@
         }
         confidence_ok <- structure_method == "promod3_homology" || !predicted ||
           (base::all(base::is.finite(confidence_values)) && base::min(confidence_values) >= min_plddt)
+        foldseek_confidence_ok <- predicted && foldseek_state == "supported" &&
+          base::all(base::is.finite(confidence_values)) &&
+          base::min(confidence_values) >= min_foldseek_plddt
+        geometry_within <- !base::is.na(geometry$min_ca) && !base::is.na(geometry$centroid) &&
+          geometry$min_ca <= rule$max_min_ca[[1]] &&
+          geometry$centroid <= rule$max_centroid_ca[[1]]
         geometry_status <- if (base::is.na(structure_path) || !base::file.exists(structure_path)) {
           "no_structure"
         } else if (!base::grepl("[.]pdb$", structure_path, ignore.case = TRUE)) {
@@ -346,12 +353,16 @@
           "mapping_failed"
         } else if (!coverage_ok) {
           "partial_motif_coverage"
+        } else if (geometry_within && confidence_ok) {
+          "geometry_compatible"
+        } else if (geometry_within && foldseek_confidence_ok) {
+          # Foldseek supplies independent fold evidence. Keep the stricter
+          # pLDDT>=70 tier as fully verified, but retain 60-69 catalytic loops
+          # as moderate support instead of mislabelling good geometry as a
+          # failure. This is important for short C5 PCQ loops.
+          "geometry_compatible_moderate_confidence"
         } else if (!confidence_ok) {
           "low_local_confidence"
-        } else if (!base::is.na(geometry$min_ca) && !base::is.na(geometry$centroid) &&
-                   geometry$min_ca <= rule$max_min_ca[[1]] &&
-                   geometry$centroid <= rule$max_centroid_ca[[1]]) {
-          "geometry_compatible"
         } else {
           "geometry_far"
         }
@@ -363,6 +374,9 @@
           "3d_fold_conflict"
         } else if (geometry_status == "geometry_compatible") {
           "3d_geometry_supported"
+        } else if (geometry_status == "geometry_compatible_moderate_confidence" &&
+                   foldseek_state == "supported") {
+          "3d_fold_supported_moderate"
         } else {
           geometry_status
         }
@@ -392,7 +406,8 @@
       }
       candidate_tbl <- base::do.call(base::rbind, candidate_rows)
       rank <- base::match(candidate_tbl$combined_status, c(
-        "homology_model_supported", "3d_fold_supported", "3d_geometry_supported", "3d_fold_conflict",
+        "homology_model_supported", "3d_fold_supported", "3d_geometry_supported",
+        "3d_fold_supported_moderate", "3d_fold_conflict",
         "low_local_confidence", "partial_motif_coverage", "geometry_far",
         "mapping_failed", "unsupported_structure_format", "no_structure"
       ))
@@ -409,7 +424,8 @@
   if (!base::nrow(pairs)) return(list(pairs = pairs, summary = base::data.frame()))
   summary_rows <- base::lapply(base::split(pairs, pairs$locus_tag), function(x) {
     compatible <- x$combined_status %in% c(
-      "homology_model_supported", "3d_fold_supported", "3d_geometry_supported"
+      "homology_model_supported", "3d_fold_supported", "3d_geometry_supported",
+      "3d_fold_supported_moderate"
     )
     n_compatible <- base::sum(compatible)
     homology_model <- base::any(x$structure_method == "promod3_homology")
@@ -419,6 +435,8 @@
       "homology_model_partial"
     } else if (base::all(x$combined_status == "3d_fold_supported")) {
       "3d_fold_supported"
+    } else if (base::all(x$combined_status == "3d_fold_supported_moderate")) {
+      "3d_fold_supported_moderate"
     } else if (base::all(compatible)) {
       "3d_geometry_supported"
     } else if (base::any(compatible)) {
@@ -442,7 +460,8 @@
     nuclease_motor_pair <- base::any(x$pair_id %in%
       c("hsdr_nuclease_motor_PD-WA", "resiii_nuclease_motor_PD-WA"))
     if (restriction_motor && !nuclease_motor_pair && status %in%
-        c("homology_model_supported", "homology_model_partial", "3d_fold_supported", "3d_geometry_supported", "3d_partial")) {
+        c("homology_model_supported", "homology_model_partial", "3d_fold_supported",
+          "3d_fold_supported_moderate", "3d_geometry_supported", "3d_partial")) {
       status <- if (homology_model) "homology_model_motor_only" else "3d_motor_only"
     }
     mapping_coverage <- if (base::any(base::is.finite(x$mapping_coverage))) {
@@ -471,6 +490,11 @@
         base::sprintf("3D+FS\nlocal\n%d/%d", n_compatible, base::nrow(x))
       } else {
         base::sprintf("3D+FS\n%d/%d", n_compatible, base::nrow(x))
+      },
+      `3d_fold_supported_moderate` = if (model_scope == "partial_model") {
+        base::sprintf("3D+FS modQ\nlocal\n%d/%d", n_compatible, base::nrow(x))
+      } else {
+        base::sprintf("3D+FS modQ\n%d/%d", n_compatible, base::nrow(x))
       },
       `3d_geometry_supported` = if (model_scope == "partial_model") {
         base::sprintf("3D\nlocal\n%d/%d", n_compatible, base::nrow(x))

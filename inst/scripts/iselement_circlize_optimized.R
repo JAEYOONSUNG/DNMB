@@ -21,6 +21,21 @@ iv_verify_path <- .dnmb_iselement_ctx_get("insertion_verify_path", file.path(out
 iv_verify_tsv <- .dnmb_iselement_ctx_get("insertion_verify_tsv_path", file.path(output_dir, "dnmb_module_ISelement", "insertion_verify", "insertion_verification.tsv"))
 out_file <- .dnmb_iselement_ctx_get("out_file", file.path(plot_dir, "ISelement_overview.pdf"))
 
+.dnmb_iselement_panel_title <- function(label, title) {
+  paste0(label, "   ", title)
+}
+.dnmb_iselement_panel_title_size <- 11
+.dnmb_iselement_panel_title_inset <- 0.01
+
+if (!exists(".dnmb_plot_pdf_device", mode = "function")) {
+  plot_style_path <- file.path(pkg_dir, "R", "plot_style.R")
+  if (file.exists(plot_style_path)) {
+    source(plot_style_path, local = FALSE)
+  } else {
+    stop("DNMB Arial PDF helper is unavailable: ", plot_style_path)
+  }
+}
+
 # Source only if functions not already available (standalone mode)
 if (!exists(".dnmb_parse_genbank_features", mode = "function")) {
   for (f in c("R/db_modules.R","R/module_api.R","R/Mobileome_pipeline.R",
@@ -678,12 +693,20 @@ panel_subtitle <- paste0(
   n_empty, "/", n_total_verified, " empty-site verified"
 )
 
-# B title aligned with B label (both at top of panel)
+# Panel letter and title share one inset title line.
 p_panel_title <- cowplot::ggdraw() +
-  cowplot::draw_label("IS Element Family Summary",
-                      fontface = "bold", size = 14, x = 0.025, y = 0.92, hjust = 0, vjust = 1) +
-  cowplot::draw_label(panel_subtitle, size = 9, x = 0.025, y = 0.55,
-                      hjust = 0, vjust = 1, color = "grey45")
+  cowplot::draw_label(
+    .dnmb_iselement_panel_title("B", "IS Element Family Summary"),
+    fontface = "bold", size = .dnmb_iselement_panel_title_size,
+    fontfamily = .dnmb_plot_font_family(),
+    x = .dnmb_iselement_panel_title_inset, y = 0.92, hjust = 0, vjust = 1
+  ) +
+  cowplot::draw_label(
+    panel_subtitle, size = 8,
+    fontfamily = .dnmb_plot_font_family(),
+    x = .dnmb_iselement_panel_title_inset, y = 0.55,
+    hjust = 0, vjust = 1, color = "grey45"
+  )
 
 # ── Column headers ──
 p_col_headers <- cowplot::ggdraw() +
@@ -746,10 +769,7 @@ if (n_rows > 0) {
     row_grid,
     combined_legends,
     ncol = 1,
-    rel_heights = c(0.05, 0.03, 0.87, 0.05),
-    labels = c("B", "", "", ""),
-    label_size = 22, label_fontface = "bold",
-    label_x = 0, label_y = 1, hjust = 0, vjust = 1
+    rel_heights = c(0.05, 0.03, 0.87, 0.05)
   )
 } else {
   gg_combined <- cowplot::ggdraw() +
@@ -768,7 +788,7 @@ total_height <- top_height + bottom_height
 frac_top <- top_height / total_height
 frac_bot <- bottom_height / total_height
 
-cairo_pdf(out_file, width = 24, height = total_height, bg = "white")
+.dnmb_plot_pdf_device(out_file, width = 24, height = total_height, bg = "white")
 
 # --- Panel A: Circos plot (base R graphics in top portion) ---
 par(fig = c(0, 1, 1 - frac_top, 1), new = FALSE, mar = c(0.5, 0.2, 2.5, 0.2))
@@ -789,16 +809,34 @@ genome_len <- max(contig_lens$len)
 circos.genomicInitialize(genome_bed, plotType = NULL,
                          major.by = 200000, axis.labels.cex = 0.9)
 
-# Title — offset right to leave room for A label in cowplot
+# Panel letter and title share the same inset title line as Panel B.
 total_len_mb <- round(sum(contig_lens$len)/1e6, 2)
 genome_accessions <- paste(contig_lens$contig, collapse = ", ")
-mtext("IS Element Genome Distribution & Landing Pad Map", side = 3, line = 1.3,
-      adj = 0.03, cex = 1.2, font = 2)
+mtext(
+  .dnmb_iselement_panel_title("A", "IS Element Genome Distribution & Landing Pad Map"),
+  side = 3, line = 1.3,
+  at = graphics::grconvertX(
+    .dnmb_iselement_panel_title_inset,
+    from = "ndc",
+    to = "user"
+  ),
+  adj = 0,
+  cex = .dnmb_iselement_panel_title_size / 12,
+  font = 2,
+  family = .dnmb_plot_font_family()
+)
 mtext(paste0(genome_accessions, "  |  ",
              nrow(contig_lens), " replicon(s), ", total_len_mb, " Mb  |  ",
              nrow(is_track), " IS elements, ",
              length(unique(is_track$fam)), " families"),
-      side = 3, line = 0.2, adj = 0.03, cex = 0.85, col = "grey40")
+      side = 3, line = 0.2,
+      at = graphics::grconvertX(
+        .dnmb_iselement_panel_title_inset,
+        from = "ndc",
+        to = "user"
+      ),
+      adj = 0,
+      cex = 0.67, col = "grey40", family = .dnmb_plot_font_family())
 
 # Track style constants
 TH <- 0.07      # uniform track height
@@ -1046,10 +1084,6 @@ popViewport()
 popViewport()
 
 # (Footer note removed per user request)
-
-# "A" label — top-left corner of Panel A
-grid.text("A", x = unit(0.3, "lines"), y = unit(1, "npc") - unit(0.2, "lines"),
-          just = c("left", "top"), gp = gpar(fontsize = 22, fontface = "bold"))
 
 circos.clear()
 

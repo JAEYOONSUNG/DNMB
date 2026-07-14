@@ -3074,25 +3074,38 @@
 }
 
 .dnmb_rebasefinder_structure_dirs <- function(output_dir, structure_validation_path = NULL) {
-  dirs <- c(
-    base::file.path(output_dir, "query_structures"),
-    base::file.path(output_dir, "alphafold_query_structures"),
-    base::file.path(output_dir, "rebasefinder_query_structures"),
-    base::file.path(output_dir, "dnmb_module_rebasefinder", "query_structures"),
-    base::file.path(output_dir, "dnmb_module_rebasefinder", "alphafold_query_structures"),
-    base::file.path(output_dir, "dnmb_module_rebasefinder", "promod3_query_structures"),
-    base::file.path(output_dir, "promod3_query_structures")
+  roots <- c(
+    output_dir,
+    base::file.path(output_dir, "dnmb_module_rebasefinder")
   )
   if (!base::is.null(structure_validation_path) && !base::is.na(structure_validation_path) && base::nzchar(structure_validation_path)) {
-    root <- base::dirname(structure_validation_path)
-    dirs <- c(
-      dirs,
-      base::file.path(root, "query_structures"),
-      base::file.path(root, "alphafold_query_structures"),
-      base::file.path(root, "rebasefinder_query_structures"),
-      base::file.path(root, "promod3_query_structures")
+    validation_root <- if (base::dir.exists(structure_validation_path)) {
+      structure_validation_path
+    } else {
+      base::dirname(structure_validation_path)
+    }
+    roots <- c(
+      roots,
+      validation_root,
+      base::file.path(validation_root, "dnmb_module_rebasefinder")
     )
   }
+
+  roots <- base::unique(roots)
+  independent_names <- c(
+    "query_structures",
+    "alphafold_query_structures",
+    "esmfold_query_structures",
+    "rebasefinder_query_structures"
+  )
+  independent_dirs <- base::unlist(base::lapply(
+    roots,
+    function(root) base::file.path(root, independent_names)
+  ), use.names = FALSE)
+  managed_dirs <- base::file.path(roots, "promod3_query_structures")
+  # Independently predicted or user-supplied structures must win over managed
+  # homology models, even when they live beside a validation result elsewhere.
+  dirs <- c(independent_dirs, managed_dirs)
   base::unique(dirs[base::dir.exists(dirs)])
 }
 
@@ -3122,11 +3135,14 @@
   safe_query <- base::gsub("[^A-Za-z0-9_.-]+", "_", query)
   hit <- character()
   if (base::length(dirs)) {
-    candidates <- base::as.vector(base::outer(
+    filenames <- base::paste0(
+      base::rep(c(query, safe_query), each = 2L),
+      c(".pdb", ".cif")
+    )
+    candidates <- base::unlist(base::lapply(
       dirs,
-      base::paste0(base::rep(c(query, safe_query), each = 2L), c(".pdb", ".cif")),
-      base::file.path
-    ))
+      function(dir) base::file.path(dir, filenames)
+    ), use.names = FALSE)
     candidates <- base::unique(candidates)
     hit <- candidates[base::file.exists(candidates)]
   }

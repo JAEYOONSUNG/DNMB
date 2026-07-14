@@ -631,7 +631,15 @@ RBS_extractor <- function(target = NULL,
         plot_path <- file.path(getwd(), "RBS_plots.pdf")
       }
       combined_plot <- arrangeGrob(seqlogo_plot, spacer_histogram, nrow = 2)
-      ggsave(plot_path, plot = combined_plot)
+      ggsave(
+        plot_path,
+        plot = combined_plot,
+        device = if (identical(tolower(tools::file_ext(plot_path)), "pdf")) {
+          .dnmb_plot_pdf_device
+        } else {
+          NULL
+        }
+      )
       message(paste("Plot saved at:", plot_path))
     }
   }

@@ -466,7 +466,10 @@ dnmb_export_translation_efficiency <- function(results,
   org_label <- if (!base::is.null(organism)) base::paste0(" — ", organism) else ""
   ok_repel <- requireNamespace("ggrepel", quietly = TRUE)
 
-  refined_theme <- ggplot2::theme_minimal(base_size = 9, base_family = "") +
+  refined_theme <- ggplot2::theme_minimal(
+    base_size = 9,
+    base_family = .dnmb_plot_font_family()
+  ) +
     ggplot2::theme(
       plot.title = ggplot2::element_text(face = "bold", size = 10, color = "#0F172A"),
       plot.subtitle = ggplot2::element_text(size = 8, color = "#475569"),
@@ -510,7 +513,7 @@ dnmb_export_translation_efficiency <- function(results,
                         x = rng[2] - 0.02 * span, y = Inf,
                         label = stat_label,
                         hjust = 1, vjust = 1.4, size = 2.5, color = "#475569",
-                        family = "mono") +
+                        family = .dnmb_plot_font_family()) +
       ggplot2::scale_fill_manual(values = expr_cols, drop = FALSE, na.value = "#94A3B8") +
       ggplot2::coord_cartesian(xlim = rng + c(-0.02, 0.02) * span, expand = FALSE) +
       ggplot2::labs(title = title, subtitle = subtitle, x = xlab, y = "Density",
@@ -761,7 +764,10 @@ dnmb_export_translation_efficiency <- function(results,
     th <- gridExtra::ttheme_minimal(
       base_size = 7,
       core = list(
-        fg_params = list(fontfamily = "mono", col = "#0F172A"),
+        fg_params = list(
+          fontfamily = .dnmb_plot_font_family(),
+          col = "#0F172A"
+        ),
         bg_params = list(fill = c("#FFFFFF", "#F8FAFC"))
       ),
       colhead = list(
@@ -802,7 +808,11 @@ dnmb_export_translation_efficiency <- function(results,
     ) +
     cowplot::draw_label(
       band_summary,
-      x = 0.5, y = 0.10, size = 8, color = "#0F172A", fontfamily = "mono"
+      x = 0.5,
+      y = 0.10,
+      size = 8,
+      color = "#0F172A",
+      fontfamily = .dnmb_plot_font_family()
     )
 
   hist_grid <- cowplot::plot_grid(p1, p2, p3, p4, ncol = 2, rel_heights = c(1, 1), align = "hv")
@@ -819,6 +829,14 @@ dnmb_export_translation_efficiency <- function(results,
     ncol = 1,
     rel_heights = c(0.18, 1.55, 1.30, 0.09, table_rel_h)
   )
-  ggplot2::ggsave(path, full, width = 12, height = pdf_height, bg = "white", limitsize = FALSE)
+  ggplot2::ggsave(
+    path,
+    full,
+    width = 12,
+    height = pdf_height,
+    bg = "white",
+    limitsize = FALSE,
+    device = .dnmb_plot_pdf_device
+  )
   TRUE
 }

@@ -29,6 +29,13 @@ run_DNMB(
   module_asset_urls = NULL,
   module_cpu = .dnmb_default_cpu(),
   module_results = NULL,
+  rebasefinder_structure_tsv = NULL,
+  rebasefinder_structure_max_evalue = 0.001,
+  rebasefinder_structure_min_probability = 0.5,
+  rebasefinder_structure_min_tmscore = 0.45,
+  rebasefinder_homology_modeling = TRUE,
+  rebasefinder_homology_max_candidates = 24L,
+  rebasefinder_typeiii_context_genes = 3L,
   iselement_analysis_depth = "full",
   iselement_related_genbanks = NULL,
   iselement_related_metadata = NULL,
@@ -105,6 +112,26 @@ missing.}
 
 \item{module_results}{Optional precomputed module runs, such as the output
 from \code{run_module_set()}.}
+
+\item{rebasefinder_structure_tsv}{Optional Foldseek/structure validation TSV
+passed through to the REBASEfinder module.}
+
+\item{rebasefinder_structure_max_evalue}{Maximum accepted Foldseek e-value.}
+
+\item{rebasefinder_structure_min_probability}{Minimum accepted Foldseek
+probability when present in the structure TSV.}
+
+\item{rebasefinder_structure_min_tmscore}{Minimum accepted alignment TM-score
+when present in the structure TSV.}
+
+\item{rebasefinder_homology_modeling}{Logical; build eligible local ProMod3
+homology models during REBASEfinder analysis.}
+
+\item{rebasefinder_homology_max_candidates}{Maximum number of ranked
+REBASEfinder candidates screened for homology modeling.}
+
+\item{rebasefinder_typeiii_context_genes}{Number of upstream/downstream genes
+inspected around Type III candidates.}
 
 \item{interproscan_applications}{Character vector of InterProScan analyses
 (e.g., \code{c("Pfam", "TIGRFAM")}). \code{NULL} runs all.}

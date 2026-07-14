@@ -10,6 +10,10 @@
   4.0
 }
 
+.dnmb_defensepredictor_input_schema_version <- function() {
+  2L
+}
+
 .dnmb_defensepredictor_status_row <- function(component, status, detail = NA_character_) {
   tibble::tibble(
     component = as.character(component)[1],
@@ -55,6 +59,7 @@
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   payload <- list(
     input_mode = "genbank_workdir",
+    input_schema_version = .dnmb_defensepredictor_input_schema_version(),
     written_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
     genbank_signature = genbank_signature,
     module_version = if (is.null(version)) NA_character_ else as.character(version)[1]
@@ -90,6 +95,16 @@
       reusable = FALSE,
       reason = sprintf("version_changed (%s -> %s)",
                        cached_version, current_version)
+    ))
+  }
+  cached_schema <- suppressWarnings(as.integer(metadata$input_schema_version %||% 1L))
+  current_schema <- .dnmb_defensepredictor_input_schema_version()
+  if (!identical(cached_schema, current_schema)) {
+    return(list(
+      reusable = FALSE,
+      reason = sprintf(
+        "input_schema_changed (%s -> %s)", cached_schema, current_schema
+      )
     ))
   }
   list(

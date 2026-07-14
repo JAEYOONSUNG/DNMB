@@ -207,6 +207,123 @@ test_that("REBASEfinder structure coverage reports missing and unchecked Foldsee
   expect_true(any(grepl("^>q_missing\\b", readLines(cov$missing_faa, warn = FALSE))))
 })
 
+test_that("REBASE overview tightens around the actual motif column count", {
+  narrow <- DNMB:::.dnmb_rebasefinder_overview_widths(0L)
+  target <- DNMB:::.dnmb_rebasefinder_overview_widths(9L)
+  wide <- DNMB:::.dnmb_rebasefinder_overview_widths(30L)
+
+  expect_equal(unname(target[c("blast", "domain")]), c(6.9, 2.35))
+  expect_equal(unname(target[["motif"]]), 4.87, tolerance = 1e-8)
+  expect_equal(unname(target[["total"]]), 14.12, tolerance = 1e-8)
+  expect_equal(unname(narrow[["motif"]]), 4.6)
+  expect_equal(unname(wide[["motif"]]), 5.5)
+  expect_equal(unname(target[["total"]]), sum(target[c("blast", "domain", "motif")]))
+})
+
+test_that("REBASE role fills are stable and distinct from R-M type colors", {
+  tbl <- data.frame(
+    REBASEfinder_enzyme_role = c("M", "R", "S", "RM"),
+    stringsAsFactors = FALSE
+  )
+  role <- DNMB:::.dnmb_rebasefinder_role_palette(tbl)
+  type <- DNMB:::.dnmb_rebasefinder_palette(c("Type I", "Type II"))
+
+  expect_identical(
+    unname(role[c("M", "R", "S", "RM")]),
+    c("#6A51A3", "#E69F00", "#4DBBD5", "#8C564B")
+  )
+  expect_length(intersect(unname(role[c("M", "R")]), unname(type)), 0L)
+})
+
+test_that("REBASE plotting overlays recovered structural results from module TSV", {
+  root <- tempfile("rebase-plot-structure-overlay-")
+  module_dir <- file.path(root, "dnmb_module_rebasefinder")
+  dir.create(module_dir, recursive = TRUE)
+  on.exit(unlink(root, recursive = TRUE, force = TRUE), add = TRUE)
+
+  backbone <- data.frame(
+    locus_tag = c("keep", "other"),
+    REBASEfinder_homology_model_status = c("model_failed:failed_pm", NA),
+    # openxlsx reads an all-blank text column as logical NA; the overlay must
+    # recover the raw TSV's character type instead of coercing status to NA.
+    REBASEfinder_homology_geometry_status = c(NA, NA),
+    REBASEfinder_structure_file_exists = c(FALSE, NA),
+    stringsAsFactors = FALSE
+  )
+  recovered <- data.frame(
+    query = "keep",
+    homology_model_status = "template_model_built",
+    homology_geometry_status = "homology_model_supported",
+    structure_file_exists = TRUE,
+    foldseek_hit_present = TRUE,
+    nonstructural_note = "do not add",
+    stringsAsFactors = FALSE
+  )
+  utils::write.table(
+    recovered,
+    file.path(module_dir, "DNMB_REBASEfinder_augmented_hits.tsv"),
+    sep = "\t", quote = FALSE, row.names = FALSE
+  )
+
+  overlaid <- DNMB:::.dnmb_rebasefinder_overlay_structural_results(backbone, root)
+
+  expect_identical(overlaid$REBASEfinder_homology_model_status[[1]], "template_model_built")
+  expect_identical(overlaid$REBASEfinder_homology_geometry_status[[1]], "homology_model_supported")
+  expect_true(overlaid$REBASEfinder_structure_file_exists[[1]])
+  expect_true(overlaid$REBASEfinder_foldseek_hit_present[[1]])
+  expect_false("REBASEfinder_nonstructural_note" %in% names(overlaid))
+  expect_true(is.na(overlaid$REBASEfinder_homology_model_status[[2]]))
+})
+
+test_that("REBASE plotting trusts augmented curation while retaining review candidates", {
+  root <- tempfile("rebase-plot-curation-overlay-")
+  module_dir <- file.path(root, "dnmb_module_rebasefinder")
+  dir.create(module_dir, recursive = TRUE)
+  on.exit(unlink(root, recursive = TRUE, force = TRUE), add = TRUE)
+
+  backbone <- data.frame(
+    locus_tag = c("high", "review", "noise", "defense", "stale"),
+    REBASEfinder_family_id = c("Type I", NA, "Type II", "Type II", "Type III"),
+    REBASEfinder_enzyme_role = c("R", NA, "M", "R", "R"),
+    REBASEfinder_curation_tier = c("review", NA, "high", "high", "high"),
+    REBASEfinder_homology_geometry_status = NA_character_,
+    stringsAsFactors = FALSE
+  )
+  augmented <- data.frame(
+    query = c("high", "review", "noise", "defense"),
+    family_id = c("Type I", "Type I", "Type II", "Type II"),
+    enzyme_role = c("R", "R", "M", "R"),
+    final_family = c("Type II", "Type I", "non_RM", "other_defense"),
+    final_role = c("M", "M", "non_RM", "R"),
+    curation_tier = c("high", "review", "excluded_noise", "other_defense"),
+    curation_keep = c(TRUE, FALSE, FALSE, FALSE),
+    homology_geometry_status = c(
+      "homology_model_supported", "no_structure", NA, NA
+    ),
+    foldseek_hit_present = c(TRUE, FALSE, FALSE, FALSE),
+    nonstructural_note = "do not add",
+    stringsAsFactors = FALSE
+  )
+  utils::write.table(
+    augmented,
+    file.path(module_dir, "DNMB_REBASEfinder_augmented_hits.tsv"),
+    sep = "\t", quote = FALSE, row.names = FALSE
+  )
+
+  overlaid <- DNMB:::.dnmb_rebasefinder_overlay_augmented_results(backbone, root)
+  expect_identical(overlaid$REBASEfinder_family_id[1:2], c("Type II", "Type I"))
+  expect_identical(overlaid$REBASEfinder_enzyme_role[1:2], c("M", "M"))
+  expect_identical(overlaid$REBASEfinder_curation_tier[1:2], c("high", "review"))
+  expect_true(overlaid$REBASEfinder_foldseek_hit_present[[1]])
+  expect_false("REBASEfinder_nonstructural_note" %in% names(overlaid))
+
+  retained <- DNMB:::.dnmb_rebasefinder_plot_candidate_rows(overlaid)
+  expect_identical(retained$locus_tag, c("high", "review"))
+  expect_identical(retained$REBASEfinder_curation_tier, c("high", "review"))
+  expect_false(retained$REBASEfinder_curation_keep[[2]])
+  expect_false(".dnmb_rebasefinder_augmented_present" %in% names(retained))
+})
+
 test_that("partial structure coverage maps safely onto a larger hit table", {
   hits <- data.frame(
     query = c("covered", "not_covered", "also_not_covered"),
@@ -840,6 +957,20 @@ test_that("motif geometry detects sequence-distant residues that form a 3D activ
     motifs, proteins, structure_dirs = structure_dir
   )
   expect_identical(low_confidence$pairs$geometry_status, "low_local_confidence")
+
+  write_model(model, sequence, close = TRUE, plddt = 65)
+  moderate <- DNMB:::.dnmb_rebasefinder_verify_motif_geometry(
+    motifs, proteins, structure_dirs = structure_dir
+  )
+  expect_identical(
+    moderate$pairs$geometry_status,
+    "geometry_compatible_moderate_confidence"
+  )
+  expect_identical(moderate$pairs$combined_status, "3d_fold_supported_moderate")
+  expect_identical(
+    moderate$summary$structural_adjacency_status,
+    "3d_fold_supported_moderate"
+  )
 })
 
 test_that("MmeI geometry checks the MTase pocket without forcing nuclease-domain proximity", {
@@ -913,8 +1044,8 @@ test_that("ESM-2 motif contacts become pair outlines instead of heatmap columns"
   expect_identical(as.character(boxes$pair_state), "contact_supported")
   expect_identical(boxes$motif_a, "SAM")
   expect_identical(boxes$motif_b, "Amino-IV")
-  expect_equal(boxes$xmin, 0.53)
-  expect_equal(boxes$xmax, length(levels(plot$data$motif_label)) + 0.47)
+  expect_equal(boxes$xmin, 0.5)
+  expect_equal(boxes$xmax, length(levels(plot$data$motif_label)) + 0.5)
   expect_false(any(plot$data$motif %in% c("ESM2-contact", "3D-adjacency")))
   expect_false(any(levels(plot$data$motif_label) %in% c("Contact\nmap", "3D\nmotifs")))
   expect_true(all(c("SAM", "MTase\nIV") %in% levels(plot$data$motif_label)))
@@ -925,33 +1056,35 @@ test_that("catalytic pair outlines use aggregate 3D status and core motifs only"
     strrep("A", 9), "FAGAA", strrep("A", 65), "NPPY", strrep("A", 17)
   )
   tbl <- data.frame(
-    locus_tag = c("verified", "unverified", "motor_only"),
+    locus_tag = c("verified", "moderate", "unverified", "motor_only"),
     product = c(
-      "DNA methyltransferase", "DNA methyltransferase",
+      "DNA methyltransferase", "DNA methyltransferase", "DNA methyltransferase",
       "Type I restriction enzyme R subunit"
     ),
-    translation = c(mtase_sequence, mtase_sequence, strrep("A", 500)),
-    REBASEfinder_family_id = c("Type II", "Type II", "Type I"),
-    REBASEfinder_enzyme_role = c("M", "M", "R"),
-    REBASEfinder_hit_label = c("M.Verified", "M.Unverified", "R.Motor"),
+    translation = c(mtase_sequence, mtase_sequence, mtase_sequence, strrep("A", 500)),
+    REBASEfinder_family_id = c("Type II", "Type II", "Type II", "Type I"),
+    REBASEfinder_enzyme_role = c("M", "M", "M", "R"),
+    REBASEfinder_hit_label = c("M.Verified", "M.Moderate", "M.Unverified", "R.Motor"),
     REBASEfinder_homology_geometry_status = c(
-      "homology_model_supported", "no_structure", "homology_model_motor_only"
+      "homology_model_supported", NA, "no_structure", "homology_model_motor_only"
     ),
     stringsAsFactors = FALSE
   )
   geometry_pairs <- data.frame(
-    locus_tag = c("verified", "unverified", "motor_only"),
-    motif_a = c("SAM", "SAM", "P-loop"),
-    motif_b = c("Amino-IV", "Amino-IV", "HsdR-WB"),
+    locus_tag = c("verified", "moderate", "unverified", "motor_only"),
+    motif_a = c("SAM", "SAM", "SAM", "P-loop"),
+    motif_b = c("Amino-IV", "Amino-IV", "Amino-IV", "HsdR-WB"),
     combined_status = c(
-      "homology_model_supported", "no_structure", "homology_model_supported"
+      "homology_model_supported", "3d_fold_supported_moderate",
+      "no_structure", "homology_model_supported"
     ),
     stringsAsFactors = FALSE
   )
   geometry_summary <- data.frame(
-    locus_tag = c("verified", "unverified", "motor_only"),
+    locus_tag = c("verified", "moderate", "unverified", "motor_only"),
     structural_adjacency_status = c(
-      "homology_model_supported", "no_structure", "homology_model_motor_only"
+      "homology_model_supported", "3d_fold_supported_moderate",
+      "no_structure", "homology_model_motor_only"
     ),
     stringsAsFactors = FALSE
   )
@@ -967,13 +1100,22 @@ test_that("catalytic pair outlines use aggregate 3D status and core motifs only"
   rownames(boxes) <- boxes$locus_tag
 
   expect_identical(as.character(boxes["verified", "pair_state"]), "verified")
-  expect_identical(as.character(boxes["unverified", "pair_state"]), "not_verified")
+  expect_identical(as.character(boxes["moderate", "pair_state"]), "moderate")
+  expect_identical(
+    unname(plot$scales$get_scales("linetype")$palette(5)[[2]]),
+    "11"
+  )
+  expect_equal(plot$guides$guides$fill$params$nrow, 1)
+  expect_identical(as.character(boxes["unverified", "pair_state"]), "unassessed")
   expect_identical(as.character(boxes["motor_only", "pair_state"]), "not_verified")
   expect_identical(boxes["motor_only", "pair_group"], "hsdr_nuclease_motor")
   expect_identical(boxes["motor_only", "motif_a"], "HsdR-PD")
   expect_identical(boxes["motor_only", "motif_b"], "P-loop")
-  expect_true(all(boxes$xmin == 0.53))
-  expect_true(all(boxes$xmax == length(levels(plot$data$motif_label)) + 0.47))
+  expect_true(all(boxes$xmin >= 0.5 - 1e-8))
+  expect_true(all(boxes$xmax <= length(levels(plot$data$motif_label)) + 0.5 + 1e-8))
+  expect_true(any(
+    boxes$xmax - boxes$xmin < length(levels(plot$data$motif_label)) - 0.06
+  ))
   expect_false(any(boxes$pair_group %in% c("hsdr_motor_WA-WB", "hsdr_motor_WB-MIII")))
   expect_false(any(plot$data$motif %in% c("ESM2-contact", "3D-adjacency")))
 })
@@ -1107,6 +1249,10 @@ test_that("REBASE BLAST panel preserves context-only rows for y-axis alignment",
   expect_equal(length(y_limits), 2L)
   expect_true(any(grepl("Type III R (operon)", y_limits, fixed = TRUE)))
   expect_true(any(grepl("M.Example", y_limits, fixed = TRUE)))
+  expect_identical(p$theme[["legend.box"]], "horizontal")
+  expect_identical(p$theme[["legend.location"]], "plot")
+  expect_identical(p$scales$get_scales("fill")$name, "Enzyme Role (fill)")
+  expect_identical(p$scales$get_scales("colour")$name, "R-M Type (outline)")
 })
 
 test_that("REBASE display order keeps operon-context partners adjacent", {

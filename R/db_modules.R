@@ -942,16 +942,43 @@ dnmb_detect_binary <- function(binary, required = FALSE) {
   result
 }
 
+.dnmb_external_timeout_seconds <- function(timeout) {
+  # 0 == no limit, matching system()'s own convention.
+  if (is.null(timeout) || length(timeout) == 0L) {
+    return(0L)
+  }
+  timeout <- suppressWarnings(as.numeric(timeout)[1])
+  if (is.na(timeout) || !is.finite(timeout) || timeout <= 0) {
+    return(0L)
+  }
+  as.integer(min(timeout, .Machine$integer.max))
+}
+
+.dnmb_makedb_timeout <- function() {
+  # Building a DIAMOND/BLAST database is bounded work (minutes even for the
+  # largest reference we ship), but diamond can deadlock on a malformed residue
+  # line instead of erroring, so cap it rather than hanging the pipeline.
+  .dnmb_external_timeout_seconds(getOption("dnmb.makedb_timeout", 3600))
+}
+
 dnmb_run_external <- function(command,
                               args = character(),
                               required = FALSE,
                               wd = NULL,
                               env = character(),
-                              stream_stderr = FALSE) {
+                              stream_stderr = FALSE,
+                              timeout = getOption("dnmb.external_timeout", 0)) {
   command <- as.character(command)[1]
   if (is.na(command) || !nzchar(trimws(command))) {
     stop("`command` must be a non-empty string.", call. = FALSE)
   }
+
+  # A wedged external tool must not stall the whole pipeline forever: some tools
+  # (e.g. diamond makedb on a malformed FASTA) deadlock instead of erroring out.
+  # Default stays 0 (no limit) so legitimately long modules such as InterProScan
+  # and EggNOG are unaffected; callers with a bounded runtime pass an explicit
+  # timeout, and `options(dnmb.external_timeout = )` caps everything if desired.
+  timeout <- .dnmb_external_timeout_seconds(timeout)
 
   args <- as.character(args)
   if (!is.null(wd)) {
@@ -977,6 +1004,7 @@ dnmb_run_external <- function(command,
       stdout = character(),
       stderr = character(),
       ok = FALSE,
+      timed_out = FALSE,
       error = paste0("Binary not found in PATH: ", command)
     )
     class(result) <- c("dnmb_external_command_result", "list")
@@ -1027,7 +1055,8 @@ dnmb_run_external <- function(command,
           " 2>&1 | tee ", shQuote(stderr_path, type = "sh"), " >&2"
         ),
         intern = FALSE,
-        wait = TRUE
+        wait = TRUE,
+        timeout = timeout
       ),
       error = function(e) e
     )
@@ -1040,7 +1069,8 @@ dnmb_run_external <- function(command,
           " 2>", shQuote(stderr_path, type = "sh")
         ),
         intern = FALSE,
-        wait = TRUE
+        wait = TRUE,
+        timeout = timeout
       ),
       error = function(e) e
     )
@@ -1052,8 +1082,19 @@ dnmb_run_external <- function(command,
   error <- NULL
   exit_status <- if (inherits(status, "error")) NA_integer_ else as.integer(status)
 
+  # system() reports a timeout kill as status 124.
+  timed_out <- timeout > 0L && identical(exit_status, 124L)
+
   if (inherits(status, "error")) {
     error <- conditionMessage(status)
+  } else if (timed_out) {
+    detail <- c(stderr, stdout)
+    detail <- detail[nzchar(detail)]
+    error <- paste0(
+      "Command timed out after ", timeout, "s: ",
+      paste(c(command, args), collapse = " "),
+      if (length(detail)) paste0("\n", paste(detail, collapse = "\n")) else ""
+    )
   } else if (!identical(exit_status, 0L)) {
     detail <- c(stderr, stdout)
     detail <- detail[nzchar(detail)]
@@ -1073,6 +1114,7 @@ dnmb_run_external <- function(command,
     stdout = stdout,
     stderr = stderr,
     ok = !failed,
+    timed_out = timed_out,
     error = error
   )
   class(result) <- c("dnmb_external_command_result", "list")

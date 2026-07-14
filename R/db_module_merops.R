@@ -926,7 +926,7 @@ dnmb_merops_normalize_hits <- function(hits) {
     writeLines(ref_lines, stage_ref)
     makedb_args <- c("makedb", "--in", stage_ref, "-d", stage_db)
     if (!is.null(trace_log)) .dnmb_merops_trace(trace_log, sprintf("[%s] diamond makedb", Sys.time()))
-    makedb_run <- dnmb_run_external("diamond", args = makedb_args, required = FALSE)
+    makedb_run <- dnmb_run_external("diamond", args = makedb_args, required = FALSE, timeout = .dnmb_makedb_timeout())
     if (!isTRUE(makedb_run$ok)) {
       return(list(ok = FALSE, resolved_command = diamond_check$resolved_command, error = "diamond makedb failed", blast_out = blast_out))
     }

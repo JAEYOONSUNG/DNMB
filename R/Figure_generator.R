@@ -45,7 +45,7 @@ Figure_generator <- function(output_pdf = NULL,
   spacer_histogram <- spacer_histogram + theme(plot.margin = unit(c(3, 0, 3, 0), "cm"))
 
   # Open PDF device first to prevent Rplots.pdf
-  pdf(output_pdf, width = pdf_width, height = pdf_height)
+  .dnmb_plot_pdf_device(output_pdf, width = pdf_width, height = pdf_height)
   on.exit(dev.off(), add = TRUE)
 
   # Adjust padding in ComplexHeatmap (grabExpr renders into current device)

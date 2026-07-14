@@ -344,14 +344,25 @@ dnmb_extract_design_rules <- function(results,
   } else {
     cowplot::plot_grid(hero, p_top, ncol = 1, rel_heights = c(0.2, 1))
   }
-  ggplot2::ggsave(path, combined, width = 10, height = if (!base::is.null(p_bot)) 7 else 4.5, bg = "white")
+  ggplot2::ggsave(
+    path,
+    combined,
+    width = 10,
+    height = if (!base::is.null(p_bot)) 7 else 4.5,
+    bg = "white",
+    device = if (base::identical(base::tolower(tools::file_ext(path)), "pdf")) {
+      .dnmb_plot_pdf_device
+    } else {
+      NULL
+    }
+  )
   TRUE
 }
 
 .dnmb_design_summary_plot <- function(path, summary_tbl, codon_table, spacer_tbl,
                                       start_tbl, rbs_pwm, organism, n_top, n_bot,
                                       cai_top, cai_bot) {
-  grDevices::pdf(path, width = 12, height = 13)
+  .dnmb_plot_pdf_device(path, width = 12, height = 13)
   on.exit(grDevices::dev.off(), add = TRUE)
   graphics::layout(base::matrix(c(1, 1, 2, 3, 4, 4, 5, 5, 6, 6), ncol = 2, byrow = TRUE),
                    heights = c(1.7, 1.3, 1.3, 1.7, 0.9))
@@ -485,6 +496,11 @@ dnmb_extract_design_rules <- function(results,
     "negative (red) features are avoided. Use these as design hints for synthetic\n",
     "constructs targeted at this organism. No proteomics data needed."
   )
-  graphics::text(0.02, 0.95, msg, adj = c(0, 1), cex = 0.85, family = "mono")
+  graphics::text(
+    0.02, 0.95, msg,
+    adj = c(0, 1),
+    cex = 0.85,
+    family = .dnmb_plot_font_family()
+  )
   TRUE
 }

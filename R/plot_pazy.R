@@ -8,40 +8,47 @@
       size = 3.5, color = "#D1D5DB") +
     ggplot2::theme_void(base_size = 11) +
     ggplot2::labs(title = "Prophage Region Overview") +
-    ggplot2::theme(
-      plot.title = ggplot2::element_text(face = "bold", hjust = 0, size = 14),
-      plot.margin = ggplot2::margin(20, 20, 20, 20)) +
+    .dnmb_overview_title_theme() +
+    ggplot2::theme(plot.margin = ggplot2::margin(20, 20, 20, 20)) +
     ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
   plot_dir <- .dnmb_module_plot_dir(output_dir)
   pdf_path <- file.path(plot_dir, "Prophage_overview.pdf")
-  ggplot2::ggsave(pdf_path, p, width = 14, height = 4, bg = "white")
+  ggplot2::ggsave(pdf_path, p, width = 14, height = 4, bg = "white",
+                  device = .dnmb_plot_pdf_device)
   list(pdf = pdf_path)
 }
 
-.dnmb_prophage_region_header_plot <- function(title_text, subtitle_text = NULL) {
+.dnmb_prophage_region_header_plot <- function(title_text, subtitle_text = NULL, label = NULL) {
   subtitle_text <- subtitle_text %||% ""
   subtitle_alpha <- if (nzchar(trimws(subtitle_text))) 1 else 0
+  heading <- .dnmb_overview_title(label, title_text)
   p <- ggplot2::ggplot() +
     ggplot2::annotate(
       "text",
-      x = -0.035, y = 0.80,
-      label = title_text,
+      x = 0, y = 0.80,
+      label = heading,
       hjust = 0, vjust = 1,
-      size = 4.6,
+      size = 11 / (72.27 / 25.4),
+      family = .dnmb_plot_font_family(),
       fontface = "bold",
       color = "#111827"
     ) +
     ggplot2::annotate(
       "text",
-      x = -0.035, y = 0.18,
+      x = 0, y = 0.18,
       label = subtitle_text,
       hjust = 0, vjust = 0,
       size = 2.85,
+      family = .dnmb_plot_font_family(),
       color = grDevices::adjustcolor("#4B5563", alpha.f = subtitle_alpha)
     ) +
     ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), clip = "off") +
     ggplot2::theme_void() +
-    ggplot2::theme(plot.margin = ggplot2::margin(2, 8, 0, 0))
+    ggplot2::theme(
+      text = ggplot2::element_text(family = .dnmb_plot_font_family()),
+      plot.margin = ggplot2::margin(2, 8, 0, 12)
+    )
+  attr(p, "dnmb_overview_heading") <- list(label = label, title = title_text, size = 11)
   list(plot = p, height = 0.34)
 }
 
@@ -369,7 +376,9 @@
     error = function(e) data.frame()
   )
 
-  region_panels <- lapply(top_regions, function(region_id) {
+  region_panels <- .dnmb_with_plot_pdf_device({
+    lapply(seq_along(top_regions), function(region_idx) {
+      region_id <- top_regions[[region_idx]]
     body_width <- 1.00
     sub_tbl <- gene_tbl[gene_tbl$Prophage_prophage_id == region_id, , drop = FALSE]
     sub_tbl <- .dnmb_prophage_apply_detected_bounds(sub_tbl, output_dir = output_dir, region_id = region_id)
@@ -511,7 +520,7 @@
         )
       }
     }
-    header <- .dnmb_prophage_region_header_plot(title_text, summary_line)
+    integrated_header_height <- 0.34
     # Always embedded: storyboard above already shows the query at natural scale,
     # so the ref panel below only needs ref rows (no duplicated query row).
     p_ref_below <- tryCatch(
@@ -524,29 +533,27 @@
     # ribbons from query bp → ref bp no longer line up vertically between the two.
     top_right_margin <- attr(p_ref_below, "plot_right_margin_pt") %||% 8
     top_left_margin <- attr(p_ref_below, "plot_left_margin_pt") %||% 12
-    p <- p +
-      ggplot2::labs(title = NULL, subtitle = NULL) +
+    p <- .dnmb_overview_tag_plot(
+      p,
+      base::LETTERS[[region_idx]],
+      title_text
+    ) +
+      ggplot2::labs(subtitle = summary_line) +
       ggplot2::theme(
-        plot.title = ggplot2::element_blank(),
-        plot.subtitle = ggplot2::element_blank(),
-        plot.margin = ggplot2::margin(t = 0, r = top_right_margin, b = 12, l = top_left_margin)
+        plot.margin = ggplot2::margin(t = 4, r = top_right_margin, b = 12, l = top_left_margin)
       )
     body_pair <- .dnmb_compose_prophage_region_pair(
       top_plot = p,
       ref_plot = p_ref_below,
       embedded = TRUE
     )
-    list(
-      plot = cowplot::plot_grid(
-        header$plot,
-        body_pair$plot,
-        ncol = 1,
-        rel_heights = c(header$height, body_pair$height)
-      ),
-      height = header$height + body_pair$height,
-      has_reference = body_pair$has_reference
-    )
-  })
+      list(
+        plot = body_pair$plot,
+        height = integrated_header_height + body_pair$height,
+        has_reference = body_pair$has_reference
+      )
+    })
+  }, width = 14, height = max(8, min(45, 3 * length(top_regions))))
   score_tbl <- tbl
   score_tbl$panel_label <- paste0("Prophage ", score_tbl$Prophage_prophage_id)
   score_tbl$plot_start <- pmin(suppressWarnings(as.numeric(score_tbl$start)), suppressWarnings(as.numeric(score_tbl$end)), na.rm = TRUE)
@@ -883,6 +890,12 @@
     })
     att_panels <- Filter(Negate(is.null), att_panels)
     if (length(att_panels)) {
+      att_panels <- lapply(seq_along(att_panels), function(i) {
+        .dnmb_overview_tag_plot(
+          att_panels[[i]],
+          base::LETTERS[[length(region_panels) + i]]
+        )
+      })
       p_att_validation <- if (length(att_panels) == 1L) att_panels[[1]] else cowplot::plot_grid(plotlist = att_panels, ncol = 1)
     }
   }
@@ -900,40 +913,31 @@
   if (!is.null(category_legend_row)) {
     plots_to_save <- c(region_plotlist, list(category_legend_row), if (!is.null(p_att_validation)) list(p_att_validation) else list(), if (!is.null(reference_shared_legend)) list(reference_shared_legend) else list())
     legend_h <- if (length(.dnmb_gene_arrow_palette_prophage()) > 5L) 0.22 else 0.12
-    next_letter <- length(region_panels)
     rel_heights <- c(region_heights, legend_h, if (!is.null(p_att_validation)) 0.85 else NULL, if (!is.null(reference_shared_legend)) 0.32 else NULL)
-    labels_to_use <- c(
-      base::LETTERS[seq_along(region_panels)],
-      "",
-      if (!is.null(p_att_validation)) base::LETTERS[[next_letter + 1L]] else NULL,
-      if (!is.null(reference_shared_legend)) "" else NULL
-    )
   } else {
     plots_to_save <- c(region_plotlist, if (!is.null(p_att_validation)) list(p_att_validation) else list(), if (!is.null(reference_shared_legend)) list(reference_shared_legend) else list())
-    next_letter <- length(region_panels)
     rel_heights <- c(region_heights, if (!is.null(p_att_validation)) 0.85 else NULL, if (!is.null(reference_shared_legend)) 0.32 else NULL)
-    labels_to_use <- c(
-      base::LETTERS[seq_along(region_panels)],
-      if (!is.null(p_att_validation)) base::LETTERS[[next_letter + 1L]] else NULL,
-      if (!is.null(reference_shared_legend)) "" else NULL
-    )
   }
-  composite <- cowplot::plot_grid(
-    plotlist = plots_to_save,
-    labels = labels_to_use,
-    ncol = 1,
-    rel_heights = rel_heights,
-    align = "v",
-    axis = "lr",
-    label_size = 11.5,
-    label_fontface = "bold",
-    label_x = 0.003,
-    label_y = 0.988,
-    hjust = 0,
-    vjust = 1
-  )
   total_panels <- length(region_panels) + 1L + (if (!is.null(p_summary)) 1L else 0L) + (if (!is.null(reference_shared_legend)) 1L else 0L)
-  ggplot2::ggsave(pdf_path, composite, width = 14, height = 3.0 * length(region_panels) + total_panels * 0.6 + 2.5, bg = "white")
+  output_height <- 3.0 * length(region_panels) + total_panels * 0.6 + 2.5
+  composite <- .dnmb_with_plot_pdf_device(
+    cowplot::plot_grid(
+      plotlist = plots_to_save,
+      ncol = 1,
+      rel_heights = rel_heights,
+      align = "v",
+      axis = "lr"
+    ),
+    width = 14,
+    height = output_height
+  )
+  ggplot2::ggsave(
+    pdf_path, composite,
+    width = 14,
+    height = output_height,
+    bg = "white",
+    device = .dnmb_plot_pdf_device
+  )
   list(pdf = pdf_path)
 }
 
@@ -1447,6 +1451,186 @@
 #          alignment-validated catalytic triad (Biostrings)
 # --------------------------------------------------------------------------
 
+.dnmb_pazy_max_line_chars <- function(x) {
+  vapply(
+    strsplit(as.character(x), "\n", fixed = TRUE),
+    function(lines) max(nchar(lines), 1L),
+    numeric(1)
+  )
+}
+
+.dnmb_pazy_html_escape <- function(x) {
+  x <- gsub("&", "&amp;", as.character(x), fixed = TRUE)
+  x <- gsub("<", "&lt;", x, fixed = TRUE)
+  gsub(">", "&gt;", x, fixed = TRUE)
+}
+
+.dnmb_pazy_pack_hit_annotations <- function(hit_tbl, loc_start, loc_end,
+                                             panel_width_in = 3.65,
+                                             base_y = 1.20,
+                                             tier_step = 0.66) {
+  if (!nrow(hit_tbl)) {
+    hit_tbl$annotation_tier <- integer()
+    hit_tbl$annotation_x <- numeric()
+    hit_tbl$product_label <- character()
+    return(hit_tbl)
+  }
+
+  hit_tbl$product_label <- stringr::str_wrap(
+    as.character(hit_tbl$product), width = 22
+  )
+  hit_chars <- .dnmb_pazy_max_line_chars(hit_tbl$pazy_label)
+  product_chars <- .dnmb_pazy_max_line_chars(hit_tbl$product_label)
+  width_in <- pmax(
+    hit_chars * 6.55 * 0.52 / 72,
+    product_chars * 5.12 * 0.52 / 72
+  )
+  span <- max(as.numeric(loc_end) - as.numeric(loc_start), 1)
+  half_width <- pmin(0.34, width_in / panel_width_in / 2 + 0.012) * span
+  midpoint <- (hit_tbl$start + hit_tbl$end) / 2
+  gap <- 0.018 * span
+  ord <- order(midpoint)
+  tier <- integer(nrow(hit_tbl))
+  tier_width <- numeric()
+  tier_count <- integer()
+  for (ii in ord) {
+    item_width <- 2 * half_width[ii]
+    needed <- tier_width + item_width + ifelse(tier_count > 0L, gap, 0)
+    available <- which(needed <= span)
+    chosen <- if (length(available)) available[[1]] else length(tier_width) + 1L
+    if (chosen > length(tier_width)) {
+      tier_width <- c(tier_width, 0)
+      tier_count <- c(tier_count, 0L)
+    }
+    tier[ii] <- chosen - 1L
+    tier_width[chosen] <- tier_width[chosen] + item_width +
+      ifelse(tier_count[chosen] > 0L, gap, 0)
+    tier_count[chosen] <- tier_count[chosen] + 1L
+  }
+
+  annotation_x <- midpoint
+  for (tt in sort(unique(tier))) {
+    ii <- which(tier == tt)
+    ii <- ii[order(midpoint[ii])]
+    centers <- pmin(
+      pmax(midpoint[ii], loc_start + half_width[ii]),
+      loc_end - half_width[ii]
+    )
+    if (length(ii) > 1L) {
+      for (jj in 2:length(ii)) {
+        centers[jj] <- max(
+          centers[jj],
+          centers[jj - 1L] + half_width[ii[jj - 1L]] + half_width[ii[jj]] + gap
+        )
+      }
+      centers[length(ii)] <- min(
+        centers[length(ii)],
+        loc_end - half_width[ii[length(ii)]]
+      )
+      for (jj in (length(ii) - 1L):1L) {
+        centers[jj] <- min(
+          centers[jj],
+          centers[jj + 1L] - half_width[ii[jj + 1L]] - half_width[ii[jj]] - gap
+        )
+      }
+      centers[1] <- max(centers[1], loc_start + half_width[ii[1]])
+      for (jj in 2:length(ii)) {
+        centers[jj] <- max(
+          centers[jj],
+          centers[jj - 1L] + half_width[ii[jj - 1L]] + half_width[ii[jj]] + gap
+        )
+      }
+    }
+    annotation_x[ii] <- centers
+  }
+
+  hit_tbl$annotation_tier <- tier
+  hit_tbl$annotation_x <- annotation_x
+  hit_tbl$product_lines <- lengths(strsplit(hit_tbl$product_label, "\n", fixed = TRUE))
+  hit_tbl$annotation_y <- base_y + tier_step * tier
+  product_html <- gsub(
+    "\n", "<br>", .dnmb_pazy_html_escape(hit_tbl$product_label), fixed = TRUE
+  )
+  hit_tbl$combined_label <- paste0(
+    "<span style='font-size:5.1pt'><i>", product_html,
+    "</i></span><br><span style='font-size:6.5pt'><b>",
+    .dnmb_pazy_html_escape(hit_tbl$pazy_label),
+    "</b></span>"
+  )
+  hit_tbl
+}
+
+.dnmb_pazy_pack_context_labels <- function(gene_tbl, loc_start, loc_end,
+                                            panel_width_in = 3.65,
+                                            max_tiers = 3L,
+                                            base_y = 0.83,
+                                            tier_step = -0.20) {
+  if (!nrow(gene_tbl)) {
+    return(gene_tbl)
+  }
+
+  span <- max(as.numeric(loc_end) - as.numeric(loc_start), 1)
+  midpoint <- (gene_tbl$start + gene_tbl$end) / 2
+  named_gene <- !is.na(gene_tbl$gene) & nzchar(trimws(gene_tbl$gene))
+  priority <- ifelse(gene_tbl$is_pazy, 3L, ifelse(named_gene, 2L, 1L))
+  # The horizontal projection of a 45-degree label is used for packing.  This
+  # catches the collision class that geom_text(check_overlap=TRUE) misses for
+  # rotated text and for labels drawn in different layers.
+  width_in <- pmax(nchar(gene_tbl$gene_label), 1) * 3.70 * 0.52 / 72 * cos(pi / 180 * 45)
+  half_width <- pmin(0.24, width_in / panel_width_in / 2 + 0.006) * span
+  label_x <- pmin(pmax(midpoint, loc_start + half_width), loc_end - half_width)
+  left <- label_x - half_width
+  right <- label_x + half_width
+
+  occupied <- vector("list", max_tiers)
+  selected <- rep(FALSE, nrow(gene_tbl))
+  tier <- rep(NA_integer_, nrow(gene_tbl))
+  ord <- order(-priority, label_x)
+  for (ii in ord) {
+    for (tt in seq_len(max_tiers)) {
+      intervals <- occupied[[tt]]
+      fits <- is.null(intervals) || !any(
+        left[ii] < intervals[, "right"] & right[ii] > intervals[, "left"]
+      )
+      if (fits) {
+        selected[ii] <- TRUE
+        tier[ii] <- tt - 1L
+        occupied[[tt]] <- rbind(
+          intervals,
+          c(left = left[ii] - 0.005 * span, right = right[ii] + 0.005 * span)
+        )
+        break
+      }
+    }
+  }
+
+  out <- gene_tbl[selected, , drop = FALSE]
+  out$context_tier <- tier[selected]
+  out$context_label_x <- label_x[selected]
+  # Keep locus tags in dedicated lanes immediately below their gene arrows.
+  # Higher packing tiers grow downward; the caller reserves the full lower
+  # lane so rotated labels are visible without leaking into the next row.
+  out$context_label_y <- base_y + tier_step * out$context_tier
+  out
+}
+
+.dnmb_pazy_locus_view_bounds <- function(gene_tbl, loc_start, loc_end,
+                                          genome_len = Inf,
+                                          pad_fraction = 0.015,
+                                          min_pad_bp = 150) {
+  starts <- suppressWarnings(as.numeric(gene_tbl$start))
+  ends <- suppressWarnings(as.numeric(gene_tbl$end))
+  starts <- starts[is.finite(starts)]
+  ends <- ends[is.finite(ends)]
+  raw_start <- min(c(as.numeric(loc_start), starts), na.rm = TRUE)
+  raw_end <- max(c(as.numeric(loc_end), ends), na.rm = TRUE)
+  span <- max(raw_end - raw_start, 1)
+  pad <- max(as.numeric(min_pad_bp), as.numeric(pad_fraction) * span)
+  upper <- suppressWarnings(as.numeric(genome_len))
+  if (!length(upper) || !is.finite(upper)) upper <- Inf
+  c(start = max(0, raw_start - pad), end = min(upper, raw_end + pad))
+}
+
 .dnmb_plot_pazy_pub <- function(genbank_table, output_dir, cache_root = NULL) {
 
   # --- check optional dependencies ---
@@ -1632,6 +1816,8 @@
 
   locus_plots <- base::lapply(base::seq_along(loci), function(li) {
     loc <- loci[[li]]
+    loc_start <- base::max(0, loc$start)
+    loc_end <- base::min(genome_len, loc$end)
     hit_names <- base::paste(
       base::sapply(base::strsplit(loc$hits, " \\("), `[`, 1),
       collapse = " / "
@@ -1655,9 +1841,40 @@
                        " (", base::round(sig$PAZy_pident[base::match(.data$locus_tag, sig$locus_tag)]), "%)"),
           NA_character_
         ),
-        gene_label = base::ifelse(!base::is.na(.data$gene) & base::nzchar(.data$gene),
-                                  .data$gene, .data$locus_tag)
+        # Locus tags are stable identifiers and remain useful after Illustrator
+        # editing; do not silently replace them with optional gene symbols.
+        gene_label = base::as.character(.data$locus_tag)
       )
+    view_bounds <- .dnmb_pazy_locus_view_bounds(
+      genes_in_range,
+      loc_start = loc_start,
+      loc_end = loc_end,
+      genome_len = genome_len
+    )
+    view_start <- unname(view_bounds[["start"]])
+    view_end <- unname(view_bounds[["end"]])
+    context_labels <- .dnmb_pazy_pack_context_labels(
+      genes_in_range,
+      loc_start = view_start,
+      loc_end = view_end
+    )
+    hit_annotations <- .dnmb_pazy_pack_hit_annotations(
+      genes_in_range |> dplyr::filter(.data$is_pazy),
+      loc_start = view_start,
+      loc_end = view_end,
+      base_y = 1.20
+    )
+    hit_top <- if (base::nrow(hit_annotations)) {
+      base::max(
+        hit_annotations$annotation_y +
+          0.24 * (hit_annotations$product_lines + 1L) + 0.20,
+        na.rm = TRUE
+      )
+    } else {
+      1.55
+    }
+    locus_ymax <- hit_top + 0.10
+    locus_ymin <- 0.02
     ggplot2::ggplot(genes_in_range,
                     ggplot2::aes(xmin = .data$start, xmax = .data$end,
                                 y = 1, fill = .data$substrate,
@@ -1668,44 +1885,62 @@
         arrow_body_height = grid::unit(3, "mm"),
         color = "grey45", size = 0.2
       ) +
-      ggplot2::geom_text(
-        data = genes_in_range |> dplyr::filter(.data$is_pazy),
-        ggplot2::aes(x = (.data$start + .data$end) / 2, y = 1.22,
-                     label = .data$pazy_label, color = .data$substrate),
-        size = 2.3, fontface = "bold", show.legend = FALSE
+      ggplot2::geom_segment(
+        data = hit_annotations,
+        ggplot2::aes(
+          x = (.data$start + .data$end) / 2,
+          xend = .data$annotation_x,
+          y = 1.08,
+          yend = .data$annotation_y - 0.02
+        ),
+        inherit.aes = FALSE,
+        color = "grey55", linewidth = 0.22, alpha = 0.75
+      ) +
+      ggtext::geom_richtext(
+        data = hit_annotations,
+        ggplot2::aes(x = .data$annotation_x, y = .data$annotation_y,
+                     label = .data$combined_label, color = .data$substrate),
+        inherit.aes = FALSE,
+        size = 1.8, lineheight = 1.02, vjust = 0,
+        fill = NA, label.color = NA,
+        label.padding = grid::unit(0, "pt"),
+        label.margin = grid::unit(0, "pt"),
+        show.legend = FALSE, family = .dnmb_plot_font_family()
       ) +
       ggplot2::geom_text(
-        data = genes_in_range |> dplyr::filter(.data$is_pazy),
-        ggplot2::aes(x = (.data$start + .data$end) / 2, y = 1.38,
-                     label = base::ifelse(
-                       base::nchar(.data$product) > 35,
-                       base::paste0(base::substr(.data$product, 1, 33), "..."),
-                       .data$product
-                     ),
-                     color = .data$substrate),
-        size = 1.8, fontface = "italic", show.legend = FALSE
-      ) +
-      ggplot2::geom_text(
-        data = genes_in_range |> dplyr::filter(!.data$is_pazy),
-        ggplot2::aes(x = (.data$start + .data$end) / 2, y = 0.88,
+        data = context_labels,
+        ggplot2::aes(x = .data$context_label_x, y = .data$context_label_y,
                      label = .data$gene_label),
-        size = 1.4, color = "grey65", angle = 45, hjust = 1, vjust = 1,
-        check_overlap = TRUE
-      ) +
-      ggplot2::geom_text(
-        data = genes_in_range |> dplyr::filter(.data$is_pazy),
-        ggplot2::aes(x = (.data$start + .data$end) / 2, y = 0.88,
-                     label = .data$gene_label, color = .data$substrate),
-        size = 1.6, angle = 45, hjust = 1, vjust = 1,
-        fontface = "bold", show.legend = FALSE
+        inherit.aes = FALSE,
+        size = 1.3, color = "grey55", angle = 45,
+        hjust = 0.5, vjust = 1, family = .dnmb_plot_font_family()
       ) +
       ggplot2::scale_fill_manual(values = all_fill_colors, drop = FALSE) +
       ggplot2::scale_color_manual(values = sub_colors_dark, guide = "none") +
       ggplot2::scale_x_continuous(
         labels = function(x) base::paste0(base::round(x / 1e3), " kb"),
-        expand = ggplot2::expansion(mult = 0.04)
+        breaks = function(limits) {
+          span <- base::diff(limits)
+          if (!base::length(span) || !base::is.finite(span) || span <= 0) {
+            return(base::mean(limits))
+          }
+          br <- scales::breaks_pretty(n = 3)(limits)
+          br <- br[br > limits[1] + 0.10 * span & br < limits[2] - 0.10 * span]
+          if (!base::length(br)) br <- base::mean(limits)
+          if (base::length(br) > 3L) {
+            br <- br[base::round(base::seq(1, base::length(br), length.out = 3))]
+          }
+          br
+        },
+        guide = ggplot2::guide_axis(check.overlap = TRUE),
+        expand = ggplot2::expansion(mult = 0)
       ) +
-      ggplot2::scale_y_continuous(limits = base::c(0.55, 1.55), expand = base::c(0, 0)) +
+      ggplot2::scale_y_continuous(expand = base::c(0, 0)) +
+      ggplot2::coord_cartesian(
+        xlim = base::c(view_start, view_end),
+        ylim = base::c(locus_ymin, locus_ymax),
+        clip = "on"
+      ) +
       ggplot2::labs(title = locus_label, x = NULL, y = NULL) +
       theme_pub +
       ggplot2::theme(
@@ -1717,7 +1952,7 @@
                                              color = "grey30",
                                              margin = ggplot2::margin(0, 0, 1, 0)),
         legend.position = "none",
-        plot.margin     = ggplot2::margin(2, 4, 2, 4)
+        plot.margin     = ggplot2::margin(4, 8, 4, 8)
       )
   })
 
@@ -1812,6 +2047,9 @@
   p_legend <- patchwork::wrap_elements(cowplot::get_legend(p_legend_src))
 
   nrow_val   <- base::ceiling(n_loci / ncol_val)
+  pazy_panel_a_height <- 1.0 + 1.62 * nrow_val
+  pazy_bottom_height <- 6.2
+  pazy_overview_height <- pazy_panel_a_height + pazy_bottom_height
   locus_rows <- base::list()
   for (r in base::seq_len(nrow_val)) {
     idx <- ((r - 1) * ncol_val + 1):base::min(r * ncol_val, n_loci)
@@ -1860,7 +2098,8 @@
     )) +
     ggplot2::geom_text(
       ggplot2::aes(x = -5, label = .data$ec_label),
-      size = 2.0, color = "grey30", hjust = 1, family = "mono", fontface = "bold"
+      size = 2.0, color = "grey30", hjust = 1,
+      family = .dnmb_plot_font_family(), fontface = "bold"
     ) +
     ggnewscale::new_scale_fill() +
     ggplot2::geom_col(
@@ -1887,7 +2126,8 @@
     ) +
     ggplot2::geom_text(
       ggplot2::aes(x = .data$PAZy_bitscore, label = .data$annot),
-      hjust = -0.03, size = 2.1, color = "grey35", family = "mono"
+      hjust = -0.03, size = 2.1, color = "grey35",
+      family = .dnmb_plot_font_family()
     ) +
     ggplot2::scale_x_continuous(
       expand = ggplot2::expansion(mult = base::c(0.08, 0.45)),
@@ -2022,13 +2262,13 @@
   if (!has_ref_fasta || !base::length(ref_seqs)) {
     # Skip Panel C — assemble with Panels A + B only
     p_genome_full <- p_overview / p_genome / p_legend +
-      patchwork::plot_layout(heights = base::c(0.35, 1, 0.08))
+      patchwork::plot_layout(heights = base::c(0.22, 1, 0.07))
     p_genome_grob <- patchwork::wrap_elements(
       full = patchwork::patchworkGrob(p_genome_full)
     )
 
     combined <- p_genome_grob / p_score +
-      patchwork::plot_layout(heights = base::c(1.05, 1)) +
+      patchwork::plot_layout(heights = base::c(pazy_panel_a_height, pazy_bottom_height)) +
       patchwork::plot_annotation(
         title    = "PAZy Substrate Map",
         subtitle = base::unique(d$contig[!base::is.na(d$contig)])[1],
@@ -2043,8 +2283,8 @@
       )
 
     out_path <- base::file.path(plot_dir, "PAZy_overview.pdf")
-    ggplot2::ggsave(out_path, combined, width = 17, height = 13,
-                    device = grDevices::cairo_pdf)
+    ggplot2::ggsave(out_path, combined, width = 17, height = pazy_overview_height,
+                    device = .dnmb_plot_pdf_device)
     return(base::list(pdf = out_path))
   }
 
@@ -2249,7 +2489,7 @@
     ggplot2::scale_fill_identity() +
     ggplot2::geom_text(
       ggplot2::aes(label = .data$residue, color = .data$res_color),
-      size = 2.8, family = "mono",
+      size = 2.8, family = .dnmb_plot_font_family(),
       fontface = base::ifelse(motif_plot_data$is_motif, "bold", "plain")
     ) +
     ggplot2::scale_color_identity() +
@@ -2257,7 +2497,8 @@
       data = motif_labels,
       ggplot2::aes(x = base::max(motif_plot_data$pos) + 1.2,
                    y = .data$hit_id, label = .data$pos_label),
-      size = 1.8, color = "grey50", hjust = 0, family = "mono"
+      size = 1.8, color = "grey50", hjust = 0,
+      family = .dnmb_plot_font_family()
     ) +
     ggplot2::scale_x_continuous(breaks = NULL,
                                 expand = ggplot2::expansion(mult = base::c(0.02, 0.28))) +
@@ -2316,7 +2557,14 @@
       info_label = base::paste0(.data$seq_length, " aa  ", .data$validation)
     )
 
-  max_seq <- base::max(cat_df$seq_length, na.rm = TRUE)
+  # Reserve a true text column to the right of every residue summary.  The
+  # former fixed max_seq + 70 anchor overlapped the summary for long proteins.
+  # Arial at this panel size occupies about 7.5 residue units per glyph.
+  triad_summary$summary_x <- triad_summary$seq_length + 5
+  summary_right <- triad_summary$summary_x +
+    base::nchar(triad_summary$summary_label) * 7.5
+  triad_info_x <- base::max(summary_right, na.rm = TRUE) + 22
+  triad_summary$info_x <- triad_info_x
 
   p_triad <- ggplot2::ggplot(cat_df, ggplot2::aes(y = .data$hit_id)) +
     ggplot2::geom_segment(
@@ -2349,14 +2597,16 @@
     ) +
     ggplot2::geom_text(
       data = triad_summary,
-      ggplot2::aes(x = .data$seq_length + 5, y = .data$hit_id,
+      ggplot2::aes(x = .data$summary_x, y = .data$hit_id,
                    label = .data$summary_label),
-      size = 2.0, color = "grey25", hjust = 0, fontface = "bold", family = "mono"
+      size = 2.0, color = "grey25", hjust = 0, fontface = "bold",
+      family = .dnmb_plot_font_family()
     ) +
     ggplot2::geom_text(
       data = triad_summary,
-      ggplot2::aes(x = max_seq + 70, y = .data$hit_id, label = .data$info_label),
-      size = 1.7, color = "grey50", hjust = 0, family = "mono"
+      ggplot2::aes(x = .data$info_x, y = .data$hit_id, label = .data$info_label),
+      size = 1.7, color = "grey50", hjust = 0,
+      family = .dnmb_plot_font_family()
     ) +
     ggplot2::scale_color_manual(
       values = base::c("ser_pos" = "#C0392B", "asp_pos" = "#2980B9",
@@ -2408,7 +2658,7 @@
   # Assemble: A / (B | C)
   # ================================================================
   p_genome_full <- p_overview / p_genome / p_legend +
-    patchwork::plot_layout(heights = base::c(0.35, 1, 0.08))
+    patchwork::plot_layout(heights = base::c(0.22, 1, 0.07))
   p_genome_grob <- patchwork::wrap_elements(
     full = patchwork::patchworkGrob(p_genome_full)
   )
@@ -2432,7 +2682,7 @@
     patchwork::plot_layout(widths = base::c(1, 1.3))
 
   combined <- p_genome_grob / bottom_row +
-    patchwork::plot_layout(heights = base::c(1.05, 1)) +
+    patchwork::plot_layout(heights = base::c(pazy_panel_a_height, pazy_bottom_height)) +
     patchwork::plot_annotation(
       title    = "PAZy Substrate Map",
       subtitle = base::unique(d$contig[!base::is.na(d$contig)])[1],
@@ -2447,8 +2697,8 @@
     )
 
   out_path <- base::file.path(plot_dir, "PAZy_overview.pdf")
-  ggplot2::ggsave(out_path, combined, width = 17, height = 13,
-                  device = grDevices::cairo_pdf)
+  ggplot2::ggsave(out_path, combined, width = 17, height = pazy_overview_height,
+                  device = .dnmb_plot_pdf_device)
 
   base::list(pdf = out_path)
 }

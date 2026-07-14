@@ -290,7 +290,7 @@ DefenseFinder_Heatmap <- function(
     gap = grid::unit(5, "mm")
   )
 
-  pdf(output_file, width = 14, height = 12)
+  .dnmb_plot_pdf_device(output_file, width = 14, height = 12)
 
   dot_hm <- ComplexHeatmap::Heatmap(mat, name = "subtype",
                                     cluster_rows = FALSE,

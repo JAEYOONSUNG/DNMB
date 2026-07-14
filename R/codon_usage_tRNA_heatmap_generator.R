@@ -183,7 +183,7 @@ codon_usage_tRNA_heatmap_generator <- function(codon_usage = NULL,
 
   # Conditionally save the heatmap as a PDF if save_pdf is TRUE
   if (save_pdf) {
-    pdf(output_pdf, width = width, height = height)
+    .dnmb_plot_pdf_device(output_pdf, width = width, height = height)
     ComplexHeatmap::draw(my_heatmap)
     .dnmb_draw_aa_block_labels(fontsize = 8)
     dev.off()

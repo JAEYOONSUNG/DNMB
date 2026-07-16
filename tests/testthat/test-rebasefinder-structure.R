@@ -1105,7 +1105,7 @@ test_that("catalytic pair outlines use aggregate 3D status and core motifs only"
     unname(plot$scales$get_scales("linetype")$palette(5)[[2]]),
     "11"
   )
-  expect_equal(plot$guides$guides$fill$params$nrow, 1)
+  expect_equal(plot$guides$guides$fill$params$nrow, 2)
   expect_identical(as.character(boxes["unverified", "pair_state"]), "unassessed")
   expect_identical(as.character(boxes["motor_only", "pair_state"]), "not_verified")
   expect_identical(boxes["motor_only", "pair_group"], "hsdr_nuclease_motor")

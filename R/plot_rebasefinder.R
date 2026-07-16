@@ -20,17 +20,56 @@
   base::invisible(existing)
 }
 
-.dnmb_rebasefinder_overview_widths <- function(n_motif_columns = 0L) {
+.dnmb_rebasefinder_overview_widths <- function(n_motif_columns = 0L,
+                                                blast_label_width_in = 0) {
   n_motif_columns <- suppressWarnings(as.integer(n_motif_columns)[[1]])
   if (!is.finite(n_motif_columns) || n_motif_columns < 0L) n_motif_columns <- 0L
+  blast_label_width_in <- suppressWarnings(as.numeric(blast_label_width_in)[[1]])
+  if (!is.finite(blast_label_width_in) || blast_label_width_in < 0) {
+    blast_label_width_in <- 0
+  }
   widths <- c(
-    blast = 6.90,
+    blast = max(6.90, min(9.50, blast_label_width_in + 2.40)),
     domain = 2.35,
     # Give the motif panel the small amount of width saved from BLAST so its
     # shared-size title remains inside the page at the common 9-column layout.
     motif = max(4.60, min(5.50, 0.48 * n_motif_columns + 0.55))
   )
   c(widths, total = sum(widths))
+}
+
+.dnmb_rebasefinder_display_line_metrics <- function(display_info,
+                                                     baseline_lines = 2L,
+                                                     text_size_pt = 8.3) {
+  labels <- if (!base::is.null(display_info) &&
+                "display" %in% base::names(display_info)) {
+    base::as.character(display_info$display)
+  } else {
+    character()
+  }
+  labels[base::is.na(labels)] <- ""
+  split_labels <- base::strsplit(labels, "\n", fixed = TRUE)
+  line_counts <- if (base::length(split_labels)) {
+    base::lengths(split_labels)
+  } else {
+    integer()
+  }
+  max_chars <- if (base::length(split_labels)) {
+    base::max(base::vapply(split_labels, function(lines) {
+      base::max(base::nchar(lines, type = "width"), 0L)
+    }, numeric(1)))
+  } else {
+    0
+  }
+  list(
+    max_line_width_in = max_chars * (text_size_pt / 72.27) * 0.56 + 0.22,
+    max_lines = if (base::length(line_counts)) base::max(line_counts) else 0L,
+    extra_lines = if (base::length(line_counts)) {
+      base::sum(base::pmax(0L, line_counts - base::as.integer(baseline_lines)))
+    } else {
+      0L
+    }
+  )
 }
 
 .dnmb_rebasefinder_read_augmented_hits <- function(output_dir) {
@@ -51,6 +90,30 @@
   hits
 }
 
+.dnmb_rebasefinder_match_plot_ids <- function(query_ids, source_ids) {
+  query_raw <- base::trimws(base::as.character(query_ids))
+  source_raw <- base::trimws(base::as.character(source_ids))
+  matched <- base::match(query_raw, source_raw)
+
+  unresolved <- base::is.na(matched) & !base::is.na(query_raw) &
+    base::nzchar(query_raw)
+  if (!base::any(unresolved)) return(matched)
+
+  query_clean <- .dnmb_module_clean_annotation_key(query_raw)
+  source_clean <- .dnmb_module_clean_annotation_key(source_raw)
+  source_unique <- !base::duplicated(source_clean) &
+    !base::duplicated(source_clean, fromLast = TRUE) &
+    !base::is.na(source_clean)
+  query_unique <- !base::duplicated(query_clean) &
+    !base::duplicated(query_clean, fromLast = TRUE) &
+    !base::is.na(query_clean)
+  fallback <- base::match(query_clean, source_clean)
+  safe_fallback <- unresolved & query_unique & !base::is.na(fallback) &
+    source_unique[fallback]
+  matched[safe_fallback] <- fallback[safe_fallback]
+  matched
+}
+
 .dnmb_rebasefinder_overlay_fields <- function(tbl, hits, fields) {
   tbl <- base::as.data.frame(tbl, stringsAsFactors = FALSE)
   if (!base::nrow(tbl) || !"locus_tag" %in% base::names(tbl) ||
@@ -59,10 +122,7 @@
   }
   fields <- base::intersect(base::unique(fields), base::names(hits))
   if (!base::length(fields)) return(tbl)
-  hit_index <- base::match(
-    .dnmb_module_clean_annotation_key(tbl$locus_tag),
-    .dnmb_module_clean_annotation_key(hits$query)
-  )
+  hit_index <- .dnmb_rebasefinder_match_plot_ids(tbl$locus_tag, hits$query)
   matched <- !base::is.na(hit_index)
   if (!base::any(matched)) return(tbl)
 
@@ -102,11 +162,53 @@
   .dnmb_rebasefinder_overlay_fields(tbl, hits, structural_fields)
 }
 
+.dnmb_rebasefinder_read_type1s_predictions <- function(output_dir) {
+  module_dir <- if (base::basename(output_dir) == "dnmb_module_rebasefinder") {
+    output_dir
+  } else {
+    base::file.path(output_dir, "dnmb_module_rebasefinder")
+  }
+  path <- base::file.path(
+    module_dir,
+    "DNMB_REBASEfinder_type1s_predictions.tsv"
+  )
+  if (!base::file.exists(path)) return(NULL)
+  predictions <- tryCatch(
+    utils::read.delim(
+      path,
+      stringsAsFactors = FALSE,
+      check.names = FALSE,
+      na.strings = c("", "NA"),
+      quote = ""
+    ),
+    error = function(e) NULL
+  )
+  if (base::is.null(predictions) || !base::nrow(predictions) ||
+      !"locus_tag" %in% base::names(predictions)) {
+    return(NULL)
+  }
+  predictions$query <- base::as.character(predictions$locus_tag)
+  predictions
+}
+
+.dnmb_rebasefinder_overlay_type1s_results <- function(tbl, output_dir) {
+  predictions <- .dnmb_rebasefinder_read_type1s_predictions(output_dir)
+  if (base::is.null(predictions)) return(tbl)
+  type1s_fields <- base::grep(
+    "^type1s_",
+    base::names(predictions),
+    value = TRUE
+  )
+  .dnmb_rebasefinder_overlay_fields(tbl, predictions, type1s_fields)
+}
+
 .dnmb_rebasefinder_overlay_augmented_results <- function(tbl, output_dir) {
   tbl <- base::as.data.frame(tbl, stringsAsFactors = FALSE)
   if (!base::nrow(tbl) || !"locus_tag" %in% base::names(tbl)) return(tbl)
   hits <- .dnmb_rebasefinder_read_augmented_hits(output_dir)
-  if (base::is.null(hits)) return(tbl)
+  if (base::is.null(hits)) {
+    return(.dnmb_rebasefinder_overlay_type1s_results(tbl, output_dir))
+  }
 
   # The final curation is authoritative for plotting.  Preserve the raw/final
   # columns as separate audit fields, but use final family and role in the
@@ -138,12 +240,10 @@
       base::names(hits), value = TRUE
     )
   ))
-  hit_index <- base::match(
-    .dnmb_module_clean_annotation_key(tbl$locus_tag),
-    .dnmb_module_clean_annotation_key(hits$query)
-  )
+  hit_index <- .dnmb_rebasefinder_match_plot_ids(tbl$locus_tag, hits$query)
   tbl$.dnmb_rebasefinder_augmented_present <- !base::is.na(hit_index)
-  .dnmb_rebasefinder_overlay_fields(tbl, hits, plot_fields)
+  tbl <- .dnmb_rebasefinder_overlay_fields(tbl, hits, plot_fields)
+  .dnmb_rebasefinder_overlay_type1s_results(tbl, output_dir)
 }
 
 .dnmb_rebasefinder_plot_candidate_rows <- function(tbl) {
@@ -354,7 +454,11 @@
   } else {
     0L
   }
-  panel_widths <- .dnmb_rebasefinder_overview_widths(n_motif_columns)
+  display_metrics <- .dnmb_rebasefinder_display_line_metrics(display_info)
+  panel_widths <- .dnmb_rebasefinder_overview_widths(
+    n_motif_columns,
+    blast_label_width_in = display_metrics$max_line_width_in
+  )
   overview_width <- unname(panel_widths[["total"]])
   legend_context <- .dnmb_with_plot_pdf_device(
     cowplot::get_legend(p_context_leg),
@@ -371,12 +475,25 @@
   pdf_path <- file.path(plot_dir, "REBASE_overview.pdf")
 
   n_hits <- nrow(display_info)
-  cd_inch <- max(2.8, 0.42 * n_hits + 0.8)
+  cd_inch <- max(
+    2.8,
+    0.49 * n_hits + 0.8 + 0.18 * display_metrics$extra_lines
+  )
+
+  context_layout <- base::attr(p_context, "dnmb_context_layout")
+  if (base::is.null(context_layout)) {
+    context_layout <- list(max_label_lines = 3L, n_contigs = 1L)
+  }
+  context_y_upper <- context_layout$y_upper %||% 1.9
+  context_inch <- 2.0 +
+    0.62 * base::max(0, context_y_upper - 1.9) +
+    0.40 * base::max(0L, context_layout$n_contigs - 1L)
+  context_inch <- base::min(14, base::max(2.0, context_inch))
 
   n_rm_types <- length(unique(inventory_tbl$REBASEfinder_family_id))
   a_inch <- max(0.7, 0.45 * n_rm_types + 0.5)
-  total_height <- a_inch + 2.0 + 0.35 + cd_inch
-  overview_height <- min(22, max(10, total_height))
+  total_height <- a_inch + context_inch + 0.35 + cd_inch
+  overview_height <- min(36, max(10, total_height))
   bottom_row_height_pt <- overview_height * 72 * cd_inch / total_height
   title_top_inset_pdf_pt <- 4 * 72 / 72.27
 
@@ -422,20 +539,20 @@
         cowplot::plot_grid(
           p_inventory, p_context, legend_row, bottom_row,
           ncol = 1,
-          rel_heights = c(a_inch, 2.0, 0.35, cd_inch)
+          rel_heights = c(a_inch, context_inch, 0.35, cd_inch)
         )
       } else {
         cowplot::plot_grid(
           p_inventory, p_context, legend_row,
           ncol = 1,
-          rel_heights = c(a_inch, 2.0, 0.35)
+          rel_heights = c(a_inch, context_inch, 0.35)
         )
       }
     }, error = function(e) {
       cowplot::plot_grid(
         p_inventory, p_context, legend_row,
         ncol = 1,
-        rel_heights = c(a_inch, 2.0, 0.35)
+        rel_heights = c(a_inch, context_inch, 0.35)
       )
     })
   }, width = overview_width, height = overview_height)
@@ -781,6 +898,170 @@
   )
 }
 
+.dnmb_rebasefinder_compact_recognition <- function(x) {
+  x <- base::toupper(base::as.character(x))
+  base::vapply(x, function(sequence) {
+    if (base::is.na(sequence) || !base::nzchar(sequence) || sequence == "?") {
+      return(NA_character_)
+    }
+    if (base::grepl("-N[0-9]+-", sequence)) return(sequence)
+    match <- base::regexpr("N+", sequence, perl = TRUE)
+    if (match[[1]] < 1L) return(sequence)
+    run_length <- base::attr(match, "match.length")
+    left <- if (match[[1]] > 1L) {
+      base::substr(sequence, 1L, match[[1]] - 1L)
+    } else {
+      ""
+    }
+    right_start <- match[[1]] + run_length
+    right <- if (right_start <= base::nchar(sequence)) {
+      base::substr(sequence, right_start, base::nchar(sequence))
+    } else {
+      ""
+    }
+    base::paste0(left, "-N", run_length, "-", right)
+  }, character(1), USE.NAMES = FALSE)
+}
+
+.dnmb_rebasefinder_type1s_display_annotations <- function(tbl) {
+  tbl <- base::as.data.frame(tbl, stringsAsFactors = FALSE)
+  n <- base::nrow(tbl)
+  value <- function(column, default = NA_character_) {
+    if (column %in% base::names(tbl)) tbl[[column]] else base::rep(default, n)
+  }
+
+  predicted <- base::as.character(value(
+    "REBASEfinder_type1s_predicted_recognition"
+  ))
+  status <- base::as.character(value("REBASEfinder_type1s_prediction_status"))
+  confidence <- base::tolower(base::as.character(value(
+    "REBASEfinder_type1s_overall_confidence"
+  )))
+  valid_prediction <- .dnmb_rebasefinder_valid_recognition(predicted) &
+    (base::is.na(status) |
+       status %in% c("known_gold_match", "predicted_complete"))
+  known_gold <- valid_prediction & !base::is.na(status) &
+    status == "known_gold_match"
+  inferred <- valid_prediction & !known_gold
+
+  compact <- .dnmb_rebasefinder_compact_recognition(predicted)
+  confidence_suffix <- base::ifelse(
+    !base::is.na(confidence) & base::nzchar(confidence),
+    base::paste0(" [", confidence, "]"),
+    ""
+  )
+  prediction_line <- base::rep("", n)
+  prediction_line[known_gold] <- base::paste0(
+    "Gold recognition: ", compact[known_gold]
+  )
+  prediction_line[inferred] <- base::paste0(
+    "TRD prediction: ", compact[inferred], confidence_suffix[inferred]
+  )
+
+  pfam <- base::as.character(value("Signature accession_Pfam"))
+  pfam_count <- base::vapply(pfam, function(entry) {
+    if (base::is.na(entry) || !base::nzchar(entry)) return(0L)
+    hits <- base::gregexpr("PF01420", entry, fixed = TRUE)[[1]]
+    if (hits[[1]] < 0L) 0L else base::length(hits)
+  }, integer(1), USE.NAMES = FALSE)
+  cdd <- base::as.character(value("Signature description_CDD"))
+  two_trd <- pfam_count >= 2L |
+    (base::grepl("TRD1", cdd, fixed = TRUE) &
+       base::grepl("TRD2", cdd, fixed = TRUE))
+  two_trd[base::is.na(two_trd)] <- FALSE
+
+  spacer <- base::suppressWarnings(base::as.integer(value(
+    "REBASEfinder_type1s_spacer_length", NA_integer_
+  )))
+  method <- base::as.character(value("REBASEfinder_type1s_spacer_method"))
+  agreement <- base::as.logical(value(
+    "REBASEfinder_type1s_spacer_model_agreement", FALSE
+  ))
+  tael_applied <- base::as.logical(value(
+    "REBASEfinder_type1s_spacer_tael_ruler_applied", FALSE
+  ))
+  ensemble_support <- base::suppressWarnings(base::as.numeric(value(
+    "REBASEfinder_type1s_spacer_vote_support", NA_real_
+  )))
+  scaffold_support <- base::suppressWarnings(base::as.numeric(value(
+    "REBASEfinder_type1s_spacer_scaffold_vote_support", NA_real_
+  )))
+  spacer_label <- base::ifelse(
+    base::is.na(spacer), "", base::paste0("N", spacer)
+  )
+  support_suffix <- base::ifelse(
+    base::is.finite(ensemble_support) & base::is.finite(scaffold_support),
+    base::paste0(
+      " (ens/scaf ", base::round(100 * ensemble_support), "/",
+      base::round(100 * scaffold_support), "%)"
+    ),
+    ""
+  )
+  compact_support <- base::ifelse(
+    base::is.finite(ensemble_support) & base::is.finite(scaffold_support),
+    base::paste0(
+      "E", base::round(100 * ensemble_support),
+      "/S", base::round(100 * scaffold_support)
+    ),
+    ""
+  )
+  spacer_proxy <- base::rep("", n)
+  compact_spacer <- base::rep("", n)
+  ensemble_agreement <- !base::is.na(agreement) & agreement &
+    base::grepl("scaffold", method, ignore.case = TRUE)
+  spacer_proxy[ensemble_agreement] <- base::paste0(
+    spacer_label[ensemble_agreement], " agree",
+    support_suffix[ensemble_agreement]
+  )
+  compact_spacer[ensemble_agreement] <- base::paste0(
+    spacer_label[ensemble_agreement], " match",
+    base::ifelse(
+      base::nzchar(compact_support[ensemble_agreement]),
+      base::paste0(" · ", compact_support[ensemble_agreement]),
+      ""
+    )
+  )
+  use_tael <- !ensemble_agreement & !base::is.na(tael_applied) & tael_applied
+  spacer_proxy[use_tael] <- base::paste0(
+    "TAEL ruler supports ", spacer_label[use_tael]
+  )
+  compact_spacer[use_tael] <- base::paste0(
+    spacer_label[use_tael], " TAEL"
+  )
+  other_scaffold <- !ensemble_agreement & !use_tael &
+    base::grepl("scaffold", method, ignore.case = TRUE)
+  spacer_proxy[other_scaffold] <- base::paste0(
+    "scaffold ensemble supports ", spacer_label[other_scaffold]
+  )
+  compact_spacer[other_scaffold] <- base::paste0(
+    spacer_label[other_scaffold], " scaffold"
+  )
+
+  evidence_line <- context_evidence_line <- base::rep("", n)
+  for (i in base::seq_len(n)) {
+    if (!valid_prediction[[i]]) next
+    parts <- c(
+      if (two_trd[[i]]) "2×TRD" else NULL,
+      if (base::nzchar(compact_spacer[[i]])) compact_spacer[[i]] else NULL
+    )
+    if (base::length(parts)) {
+      evidence_line[[i]] <- context_evidence_line[[i]] <- base::paste0(
+        "TRD: ", base::paste(parts, collapse = " · ")
+      )
+    }
+  }
+
+  base::data.frame(
+    is_prediction = inferred,
+    prediction_line = prediction_line,
+    evidence_line = evidence_line,
+    context_evidence_line = context_evidence_line,
+    two_trd_confirmed = two_trd,
+    spacer_proxy = spacer_proxy,
+    stringsAsFactors = FALSE
+  )
+}
+
 .dnmb_rebasefinder_display_labels <- function(tbl) {
   has_hit      <- "REBASEfinder_hit_label" %in% names(tbl)
   has_rec      <- "REBASEfinder_rec_seq" %in% names(tbl)
@@ -795,8 +1076,16 @@
   group_info <- .dnmb_rebasefinder_operon_groups_for_plot(tbl)
 
   hit_label <- if (has_hit) .dnmb_rebasefinder_pretty_hit_label(tbl$REBASEfinder_hit_label) else tbl$locus_tag
-  rec_seq   <- if (has_rec) as.character(tbl$REBASEfinder_rec_seq) else NA_character_
-  ref_rec_seq <- if (has_ref_rec) as.character(tbl$REBASEfinder_reference_rec_seq) else NA_character_
+  rec_seq <- if (has_rec) {
+    as.character(tbl$REBASEfinder_rec_seq)
+  } else {
+    rep(NA_character_, nrow(tbl))
+  }
+  ref_rec_seq <- if (has_ref_rec) {
+    as.character(tbl$REBASEfinder_reference_rec_seq)
+  } else {
+    rep(NA_character_, nrow(tbl))
+  }
   valid_rec <- !is.na(rec_seq) & nzchar(rec_seq) & rec_seq != "?"
   valid_ref_rec <- !is.na(ref_rec_seq) & nzchar(ref_rec_seq) & ref_rec_seq != "?"
   identity  <- if (has_identity) tbl$REBASEfinder_blast_identity else rep(NA_real_, nrow(tbl))
@@ -841,16 +1130,33 @@
   } else {
     rep("", nrow(tbl))
   }
-  second_line <- ifelse(
+  recognition_line <- ifelse(
     valid_rec,
-    paste0("rec: ", rec_seq, " | ", tbl$locus_tag),
+    paste0("rec: ", rec_seq),
     ifelse(
       valid_ref_rec,
-      paste0("ref rec: ", ref_rec_seq, " | ", tbl$locus_tag),
-      as.character(tbl$locus_tag)
+      paste0("ref rec: ", ref_rec_seq),
+      ""
     )
   )
-  display <- paste0(base_label, qual_tag, partial_tag, "\n", second_line)
+  annotations <- .dnmb_rebasefinder_type1s_display_annotations(tbl)
+  locus_line <- base::as.character(tbl$locus_tag)
+  add_recognition <- base::nzchar(recognition_line)
+  locus_line[add_recognition] <- base::paste0(
+    locus_line[add_recognition], " | ", recognition_line[add_recognition]
+  )
+  display <- paste0(
+    locus_line, "\n",
+    base_label, qual_tag, partial_tag
+  )
+  add_prediction <- base::nzchar(annotations$prediction_line)
+  display[add_prediction] <- base::paste0(
+    display[add_prediction], "\n", annotations$prediction_line[add_prediction]
+  )
+  add_evidence <- base::nzchar(annotations$evidence_line)
+  display[add_evidence] <- base::paste0(
+    display[add_evidence], "\n", annotations$evidence_line[add_evidence]
+  )
 
   has_role <- "REBASEfinder_enzyme_role" %in% names(tbl)
   has_rmtype <- "REBASEfinder_family_id" %in% names(tbl)
@@ -865,6 +1171,12 @@
     operon = operon,
     role = role,
     rm_type = rm_type,
+	    is_prediction = annotations$is_prediction,
+	    prediction_line = annotations$prediction_line,
+	    evidence_line = annotations$evidence_line,
+	    context_evidence_line = annotations$context_evidence_line,
+	    two_trd_confirmed = annotations$two_trd_confirmed,
+	    spacer_proxy = annotations$spacer_proxy,
 	    stringsAsFactors = FALSE
 	  )
   group_info <- group_info[match(out$locus_tag, group_info$locus_tag), , drop = FALSE]
@@ -1118,14 +1430,20 @@
     sl <- sub("ORF[0-9]+P$", "", hit_lab)
     ifelse(nzchar(sl), sl, hit_lab)
   } else as.character(rm_tbl$REBASEfinder_family_id)
-  # Add locus_tag, then recognition sequence at the bottom
-  short_label <- paste0(short_label, "\n", rm_tbl$locus_tag)
   rec <- if (has_rec) as.character(rm_tbl$REBASEfinder_rec_seq) else rep(NA_character_, nrow(rm_tbl))
   ref_rec <- if (has_ref_rec) as.character(rm_tbl$REBASEfinder_reference_rec_seq) else rep(NA_character_, nrow(rm_tbl))
   valid_rec <- !is.na(rec) & nzchar(rec) & rec != "?"
   valid_ref_rec <- !is.na(ref_rec) & nzchar(ref_rec) & ref_rec != "?"
-  short_label <- ifelse(valid_rec, paste0(short_label, "\n(", rec, ")"), short_label)
-  short_label <- ifelse(!valid_rec & valid_ref_rec, paste0(short_label, "\n(ref: ", ref_rec, ")"), short_label)
+  locus_line <- as.character(rm_tbl$locus_tag)
+  locus_line <- ifelse(valid_rec, paste0(locus_line, " (", rec, ")"), locus_line)
+  locus_line <- ifelse(
+    !valid_rec & valid_ref_rec,
+    paste0(locus_line, " (ref: ", ref_rec, ")"),
+    locus_line
+  )
+  # Lead with the stable locus identifier and keep recognition on that same
+  # line; this preserves locus-first reading without creating a five-line box.
+  short_label <- paste0(locus_line, "\n", short_label)
   if ("REBASEfinder_partial_status" %in% names(rm_tbl)) {
     is_partial <- !is.na(rm_tbl$REBASEfinder_partial_status) &
       rm_tbl$REBASEfinder_partial_status == "partial_or_short"
@@ -1133,68 +1451,90 @@
     partial_label <- ifelse(!is.na(len), paste0("partial/short ", len, " aa"), "partial/short")
     short_label <- ifelse(is_partial, paste0(short_label, "\n", partial_label), short_label)
   }
+  annotations <- .dnmb_rebasefinder_type1s_display_annotations(rm_tbl)
+  add_prediction <- base::nzchar(annotations$prediction_line)
+  short_label[add_prediction] <- base::paste0(
+    short_label[add_prediction], "\n", annotations$prediction_line[add_prediction]
+  )
+  add_evidence <- base::nzchar(annotations$context_evidence_line)
+  short_label[add_evidence] <- base::paste0(
+    short_label[add_evidence], "\n",
+    annotations$context_evidence_line[add_evidence]
+  )
   rm_genes$label <- short_label
+  label_line_counts <- base::lengths(base::strsplit(
+    base::as.character(rm_genes$label), "\n", fixed = TRUE
+  ))
+  max_label_lines <- if (base::length(label_line_counts)) {
+    base::max(label_line_counts)
+  } else {
+    1L
+  }
+  rm_genes$is_prediction <- annotations$is_prediction
+  rm_genes$label_color <- base::ifelse(
+    rm_genes$is_prediction,
+    "#006D77",
+    base::ifelse(rm_genes$confidence == "High", "#262626", "#777777")
+  )
+  rm_genes$label_face <- base::ifelse(
+    rm_genes$is_prediction,
+    "bold.italic",
+    base::ifelse(rm_genes$confidence == "High", "bold", "italic")
+  )
+  density_extra <- 0.06 * base::max(0L, base::nrow(rm_genes) - 8L)
+  context_y_upper <- base::min(
+    3.4,
+    2.10 + 0.27 * base::max(0L, max_label_lines - 3L) + density_extra
+  )
   rm_hc <- rm_genes[rm_genes$confidence == "High", , drop = FALSE]
   rm_lc <- rm_genes[rm_genes$confidence != "High", , drop = FALSE]
-
-  # Split labels into isolated (geom_text) vs crowded (geom_text_repel)
-  # based on proximity of midpoints within each contig
-  .split_crowded <- function(df, genome_frac = 0.06) {
-    if (!nrow(df)) return(list(isolated = df[0, , drop = FALSE], crowded = df[0, , drop = FALSE]))
-    is_crowded <- rep(FALSE, nrow(df))
-    for (ctg in unique(df$contig)) {
-      idx <- which(df$contig == ctg)
-      if (length(idx) < 2) next
-      mids <- df$midpoint[idx]
-      clen <- max(df$end[idx]) - min(df$start[idx])
-      if (clen <= 0) clen <- max(mids)
-      thresh <- clen * genome_frac
-      for (k in seq_along(idx)) {
-        dists <- abs(mids[k] - mids[-k])
-        if (any(dists < thresh)) is_crowded[idx[k]] <- TRUE
-      }
-    }
-    list(isolated = df[!is_crowded, , drop = FALSE], crowded = df[is_crowded, , drop = FALSE])
-  }
 
   p <- ggplot2::ggplot() +
     ggplot2::geom_segment(data = contig_lengths, ggplot2::aes(x = 0, xend = .data$length_bp, y = .data$track, yend = .data$track), linewidth = 1.2, color = "grey85", lineend = "round")
 	  if (nrow(rm_lc)) {
 	    p <- p + ggplot2::geom_rect(data = rm_lc, ggplot2::aes(xmin = .data$start, xmax = .data$end, ymin = .data$track - 0.12, ymax = .data$track + 0.12), fill = rm_lc$fill_color, color = "grey65", linewidth = 0.15, linetype = "dashed")
-	    p <- p + ggrepel::geom_label_repel(
-	      data = rm_lc,
-	      ggplot2::aes(x = .data$midpoint, y = .data$track + 0.18, label = .data$label),
-	      size = 1.7, color = "grey55", fontface = "italic", lineheight = 0.9,
-	      fill = scales::alpha("white", 0.88), label.size = 0.08,
-	      label.padding = grid::unit(0.06, "lines"),
-	      direction = "both", nudge_y = 0.10,
-	      segment.size = 0.10, segment.color = "grey65",
-	      max.overlaps = Inf, seed = 42, min.segment.length = 0.1,
-	      force = 2, force_pull = 0.5, box.padding = 0.25
-	    )
 	  }
 	  if (nrow(rm_hc)) {
 	    p <- p + ggplot2::geom_rect(data = rm_hc, ggplot2::aes(xmin = .data$start, xmax = .data$end, ymin = .data$track - 0.12, ymax = .data$track + 0.12), fill = rm_hc$fill_color, color = NA, linewidth = 0) +
 	      ggplot2::geom_segment(data = rm_hc, ggplot2::aes(x = .data$midpoint, xend = .data$midpoint, y = .data$track + 0.12, yend = .data$track + 0.20, color = .data$rm_type), linewidth = 0.5, show.legend = FALSE)
-	    p <- p + ggrepel::geom_label_repel(
-	      data = rm_hc,
-	      ggplot2::aes(x = .data$midpoint, y = .data$track + 0.22, label = .data$label),
-	      size = 1.9, color = "grey20", fontface = "bold", lineheight = 0.9,
-	      fill = scales::alpha("white", 0.90), label.size = 0.08,
-	      label.padding = grid::unit(0.06, "lines"),
-	      direction = "both", nudge_y = 0.12,
-	      segment.size = 0.12, segment.color = "grey55",
-	      max.overlaps = Inf, seed = 42,
-	      min.segment.length = 0.1,
-      force = 2, force_pull = 0.5,
-      box.padding = 0.3, point.padding = 0.1
-    )
   }
+  # One shared repel layer lets high- and medium/review-confidence labels avoid
+  # each other. Type I-S predictions retain a distinct teal bold-italic style.
+  p <- p +
+    ggplot2::scale_color_manual(values = rm_palette, guide = "none") +
+    ggnewscale::new_scale_color() +
+    ggrepel::geom_text_repel(
+      data = rm_genes,
+      ggplot2::aes(
+        x = .data$midpoint,
+        y = .data$track + 0.24,
+        label = .data$label,
+        color = .data$label_color,
+        fontface = .data$label_face
+      ),
+      size = 1.85,
+      lineheight = 1.02,
+      direction = "both",
+      box.padding = grid::unit(0.24, "lines"),
+      point.padding = grid::unit(0.08, "lines"),
+      min.segment.length = 0,
+      segment.size = 0.12,
+      segment.color = "grey65",
+      max.overlaps = Inf,
+      max.iter = 30000,
+      max.time = 3,
+      force = 1.5,
+      force_pull = 0.28,
+      nudge_y = 0.18,
+      ylim = c(1.28, context_y_upper - 0.06),
+      seed = 42,
+      show.legend = FALSE
+    ) +
+    ggplot2::scale_color_identity(guide = "none")
   # R-M Type legend (full opacity) + Identity gradient legend
   legend_df <- data.frame(rm_type = names(rm_palette), x = NA_real_, y = NA_real_, stringsAsFactors = FALSE)
   p <- p + ggplot2::geom_point(data = legend_df, ggplot2::aes(x = .data$x, y = .data$y, fill = .data$rm_type), shape = 22, size = 3, na.rm = TRUE) +
     ggplot2::scale_fill_manual(values = rm_palette, name = "R-M Type") +
-    ggplot2::scale_color_manual(values = rm_palette, guide = "none") +
     # Identity gradient colorbar via ggnewscale
     ggnewscale::new_scale_color() +
     ggplot2::geom_point(data = rm_genes, ggplot2::aes(x = .data$midpoint, y = .data$track, color = .data$identity), size = 0, na.rm = TRUE) +
@@ -1208,7 +1548,7 @@
                                      ticks.colour = "grey40"
                                    )) +
     ggplot2::facet_wrap(~ contig_short, ncol = 1, scales = "free_x") +
-    ggplot2::scale_y_continuous(limits = c(0.4, 1.9), expand = c(0, 0)) +
+    ggplot2::scale_y_continuous(limits = c(0.4, context_y_upper), expand = c(0, 0)) +
     ggplot2::scale_x_continuous(labels = function(x) ifelse(x >= 1e6, paste0(round(x / 1e6, 1), " Mb"), ifelse(x >= 1e3, paste0(round(x / 1e3), " kb"), x)), expand = ggplot2::expansion(mult = c(0.01, 0.01))) +
     ggplot2::labs(title = "R-M system genome context", subtitle = "solid = high-confidence, dashed = medium/review | color intensity = BLAST identity", x = "Position", y = NULL) +
     ggplot2::theme_bw(base_size = 10) +
@@ -1222,6 +1562,12 @@
                    legend.box.just = "left",
                    legend.spacing.x = ggplot2::unit(0.8, "cm"),
                    plot.margin = ggplot2::margin(4, 8, 4, 18))
+  base::attr(p, "dnmb_context_layout") <- list(
+    max_label_lines = max_label_lines,
+    n_contigs = base::nrow(contig_lengths),
+    y_upper = context_y_upper
+  )
+  p
 }
 
 
@@ -1274,9 +1620,24 @@
   miss_rm <- setdiff(all_rm, names(rm_palette))
   if (length(miss_rm)) rm_palette <- c(rm_palette, stats::setNames(rep("grey60", length(miss_rm)), miss_rm))
 
-  # Build y-axis labels with rm_type prefix
-  type_label <- ifelse(!is.na(plot_tbl$rm_type), paste0("[", plot_tbl$rm_type, "] "), "")
-  plot_tbl$display_typed <- paste0(type_label, as.character(plot_tbl$display))
+  # Keep the stable locus identifier first.  The R-M type qualifies the hit
+  # description on the following line instead of preceding the locus tag.
+  plot_tbl$display_typed <- base::mapply(
+    function(display, rm_type) {
+      lines <- base::strsplit(display, "\n", fixed = TRUE)[[1]]
+      type_label <- if (!base::is.na(rm_type) && base::nzchar(rm_type)) {
+        base::paste0("[", rm_type, "] ")
+      } else {
+        ""
+      }
+      target_line <- if (base::length(lines) >= 2L) 2L else 1L
+      lines[[target_line]] <- base::paste0(type_label, lines[[target_line]])
+      base::paste(lines, collapse = "\n")
+    },
+    base::as.character(plot_tbl$display),
+    base::as.character(plot_tbl$rm_type),
+    USE.NAMES = FALSE
+  )
   # Preserve factor order from display
   lvls <- display_lvls
   type_map <- stats::setNames(plot_tbl$display_typed, as.character(plot_tbl$display))
@@ -1508,7 +1869,11 @@
       panel.grid.major.y = ggplot2::element_line(color = "grey92"),
       plot.title = ggplot2::element_text(face = "bold"),
       plot.subtitle = if (has_ggtext) ggtext::element_markdown(size = 8) else ggplot2::element_text(size = 8),
-      axis.text.y = if (has_ggtext) ggtext::element_markdown(size = 8.3) else ggplot2::element_text(size = 8.3),
+      axis.text.y = if (has_ggtext) {
+        ggtext::element_markdown(size = 8.3, lineheight = 1.08)
+      } else {
+        ggplot2::element_text(size = 8.3, lineheight = 1.08)
+      },
       legend.position = "bottom",
       legend.location = "plot",
       legend.justification = "left",
@@ -2751,7 +3116,7 @@
 	    ggplot2::scale_y_discrete(limits = display_lvls, drop = FALSE) +
 	    ggplot2::coord_fixed(ratio = 1, clip = "off") +
 	    ggplot2::guides(
-	      fill = ggplot2::guide_legend(nrow = 1, byrow = TRUE, order = 2),
+	      fill = ggplot2::guide_legend(nrow = 2, byrow = TRUE, order = 2),
 	      color = ggplot2::guide_legend(nrow = 1, byrow = TRUE, order = 1),
 	      linetype = ggplot2::guide_legend(nrow = 1, byrow = TRUE, order = 1)
 	    ) +

@@ -923,6 +923,49 @@
   }, character(1), USE.NAMES = FALSE)
 }
 
+.dnmb_rebasefinder_authoritative_type1s_rows <- function(tbl) {
+  tbl <- base::as.data.frame(tbl, stringsAsFactors = FALSE)
+  n <- base::nrow(tbl)
+  if (!n) return(logical())
+
+  # Final curation is authoritative whenever it is available.  The canonical
+  # family/role columns remain fallbacks for older combined tables that predate
+  # the explicit final_* columns.
+  first_nonblank <- function(columns) {
+    out <- base::rep(NA_character_, n)
+    for (column in columns) {
+      if (!column %in% base::names(tbl)) next
+      candidate <- base::as.character(tbl[[column]])
+      candidate_present <- !base::is.na(candidate) &
+        base::nzchar(base::trimws(candidate))
+      out_missing <- base::is.na(out) | !base::nzchar(base::trimws(out))
+      use <- out_missing & candidate_present
+      out[use] <- candidate[use]
+    }
+    out
+  }
+  normalize <- function(x) {
+    base::gsub(
+      "[^a-z0-9]", "",
+      base::tolower(base::trimws(base::as.character(x)))
+    )
+  }
+
+  family <- normalize(first_nonblank(c(
+    "REBASEfinder_final_family", "final_family",
+    "REBASEfinder_family_id", "family_id"
+  )))
+  role <- normalize(first_nonblank(c(
+    "REBASEfinder_final_role", "final_role",
+    "REBASEfinder_final_component", "final_component",
+    "REBASEfinder_enzyme_role", "enzyme_role"
+  )))
+  keep <- family %in% c("typei", "i") &
+    role %in% c("s", "hsds", "specificity", "specificitysubunit", "ssubunit")
+  keep[base::is.na(keep)] <- FALSE
+  keep
+}
+
 .dnmb_rebasefinder_type1s_display_annotations <- function(tbl) {
   tbl <- base::as.data.frame(tbl, stringsAsFactors = FALSE)
   n <- base::nrow(tbl)
@@ -937,7 +980,8 @@
   confidence <- base::tolower(base::as.character(value(
     "REBASEfinder_type1s_overall_confidence"
   )))
-  valid_prediction <- .dnmb_rebasefinder_valid_recognition(predicted) &
+  valid_prediction <- .dnmb_rebasefinder_authoritative_type1s_rows(tbl) &
+    .dnmb_rebasefinder_valid_recognition(predicted) &
     (base::is.na(status) |
        status %in% c("known_gold_match", "predicted_complete"))
   known_gold <- valid_prediction & !base::is.na(status) &

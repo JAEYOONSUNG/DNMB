@@ -51,6 +51,71 @@ test_that("Type I-S plotting sidecar joins by exact locus without touching 3D fi
   )
 })
 
+test_that("Type I-S labels obey authoritative final family and role", {
+  root <- tempfile("dnmb-type1s-final-gate-")
+  module_dir <- file.path(root, "dnmb_module_rebasefinder")
+  dir.create(module_dir, recursive = TRUE)
+  on.exit(unlink(root, recursive = TRUE, force = TRUE), add = TRUE)
+
+  loci <- c("final_hsds", "reclassified_type2", "reclassified_type1_r")
+  predictions <- data.frame(
+    locus_tag = loci,
+    type1s_prediction_status = "predicted_complete",
+    type1s_predicted_recognition = c(
+      "GGCANNNNNNTTC", "CAANNNNNNCTC", "ACGNNNNNNGTG"
+    ),
+    type1s_overall_confidence = "low",
+    stringsAsFactors = FALSE
+  )
+  sidecar <- file.path(
+    module_dir, "DNMB_REBASEfinder_type1s_predictions.tsv"
+  )
+  write.table(
+    predictions, sidecar,
+    sep = "\t", quote = FALSE, row.names = FALSE
+  )
+
+  backbone <- data.frame(
+    locus_tag = loci,
+    REBASEfinder_family_id = "Type I",
+    REBASEfinder_enzyme_role = "S",
+    stringsAsFactors = FALSE
+  )
+  augmented <- data.frame(
+    query = loci,
+    family_id = "Type I",
+    enzyme_role = "S",
+    final_family = c("Type I", "Type II", "Type I"),
+    final_role = c("S", "S", "R"),
+    stringsAsFactors = FALSE
+  )
+  write.table(
+    augmented,
+    file.path(module_dir, "DNMB_REBASEfinder_augmented_hits.tsv"),
+    sep = "\t", quote = FALSE, row.names = FALSE
+  )
+
+  observed <- DNMB:::.dnmb_rebasefinder_overlay_augmented_results(
+    backbone, root
+  )
+  annotations <- DNMB:::.dnmb_rebasefinder_type1s_display_annotations(
+    observed
+  )
+
+  # Keep every predictor row and its joined metadata available for audit.
+  expect_identical(nrow(read.delim(sidecar, check.names = FALSE)), 3L)
+  expect_identical(
+    observed$REBASEfinder_type1s_predicted_recognition,
+    predictions$type1s_predicted_recognition
+  )
+  # Only the row whose final call remains Type I/S is allowed into labels.
+  expect_identical(
+    annotations$prediction_line,
+    c("TRD prediction: GGCA-N6-TTC [low]", "", "")
+  )
+  expect_identical(annotations$is_prediction, c(TRUE, FALSE, FALSE))
+})
+
 .type1s_plot_fixture <- function() {
   data.frame(
     locus_tag = "ACHFCC_RS05295",

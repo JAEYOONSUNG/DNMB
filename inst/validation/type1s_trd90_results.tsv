@@ -1,0 +1,16 @@
+evaluation	metric	backend	precision	coverage	n_correct	n_called	n_total
+exact_loo	left	diamond	0.8356	0.9797	564	675	689
+exact_loo	right	diamond	0.7813	0.9623	518	663	689
+exact_loo	both_halves	diamond	0.6692	0.9434	435	650	689
+exact_loo	spacer	diamond	0.6226	1.0000	429	689	689
+exact_loo	full	diamond	0.4615	0.9434	300	650	689
+trd90	left	diamond	0.8015	0.9797	541	675	689
+trd90	right	diamond	0.7104	0.9623	471	663	689
+trd90	both_halves	diamond	0.5831	0.9434	379	650	689
+trd90	spacer	diamond	0.5907	1.0000	407	689	689
+trd90	full	diamond	0.3785	0.9434	246	650	689
+trd90	baseline_full	diamond	0.2119	0.9797	143	675	689
+exact_loo	final_high_halves	diamond	1.0000	0.1408	97	97	689
+exact_loo	final_high_full	diamond	1.0000	0.1248	86	86	689
+trd90	final_high_halves	diamond	NA	0.0000	0	0	689
+trd90	final_high_full	diamond	NA	0.0000	0	0	689

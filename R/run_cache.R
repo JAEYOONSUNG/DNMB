@@ -129,6 +129,113 @@
   fields
 }
 
+.dnmb_optional_internal_version <- function(helper_name,
+                                            fallback = "unavailable") {
+  helper_name <- base::as.character(helper_name)[1]
+  fallback <- base::as.character(fallback)[1]
+
+  tryCatch({
+    helper <- base::get0(
+      helper_name,
+      envir = base::parent.env(base::environment()),
+      mode = "function",
+      inherits = TRUE
+    )
+    if (base::is.null(helper)) {
+      return(fallback)
+    }
+
+    value <- base::trimws(base::as.character(helper())[1])
+    if (base::is.na(value) || !base::nzchar(value)) fallback else value
+  }, error = function(e) fallback)
+}
+
+.dnmb_rebasefinder_type1s_artifact_identity <- function(cache_dir,
+                                                        parser_version,
+                                                        database_version,
+                                                        spacer_model_version) {
+  gold_path <- file.path(
+    cache_dir,
+    "Type_I_S_subunit_Gold_Standards_Protein.txt"
+  )
+  source_signature <- .dnmb_file_signature(gold_path)
+  source_md5 <- if (!is.null(source_signature) &&
+                    !is.null(source_signature$files) &&
+                    nrow(source_signature$files)) {
+    as.character(source_signature$files$md5[[1]])
+  } else {
+    NA_character_
+  }
+
+  has_source_md5 <- length(source_md5) == 1L &&
+    !is.na(source_md5) && nzchar(source_md5)
+  reference_key <- if (has_source_md5) {
+    paste(
+      parser_version,
+      database_version,
+      spacer_model_version,
+      substr(source_md5, 1L, 12L),
+      sep = "-"
+    )
+  } else {
+    NA_character_
+  }
+  reference_dir <- if (!is.na(reference_key)) {
+    file.path(cache_dir, "type1s", reference_key)
+  } else {
+    NA_character_
+  }
+  reference_paths <- if (!is.na(reference_dir) && dir.exists(reference_dir)) {
+    list.files(
+      reference_dir,
+      pattern = "^(reference\\.rds|type1s_)",
+      full.names = TRUE,
+      recursive = TRUE,
+      all.files = FALSE,
+      include.dirs = FALSE
+    )
+  } else {
+    character()
+  }
+
+  list(
+    source = source_signature,
+    reference_key = reference_key,
+    reference_artifacts = .dnmb_file_signature(reference_paths)
+  )
+}
+
+.dnmb_rebasefinder_type1s_cache_identity <- function(cache_dir) {
+  parser_version <- .dnmb_optional_internal_version(
+    ".dnmb_type1s_parser_version"
+  )
+  database_version <- .dnmb_optional_internal_version(
+    ".dnmb_type1s_database_version"
+  )
+  prediction_version <- .dnmb_optional_internal_version(
+    ".dnmb_type1s_prediction_version"
+  )
+  spacer_model_version <- .dnmb_optional_internal_version(
+    ".dnmb_type1s_spacer_model_version"
+  )
+
+  c(
+    list(
+      signature_version = 2L,
+      parser_version = parser_version,
+      database_version = database_version,
+      prediction_version = prediction_version,
+      spacer_model_version = spacer_model_version
+    ),
+    .dnmb_rebasefinder_type1s_artifact_identity(
+      cache_dir = cache_dir,
+      parser_version = parser_version,
+      database_version = database_version,
+      spacer_model_version = spacer_model_version
+    )
+  )
+}
+
 .dnmb_rebasefinder_cache_identity <- function(cache_root = NULL) {
   cache_dir <- file.path(.dnmb_db_cache_root(cache_root = cache_root, create = FALSE), "rebasefinder", "cache")
   files <- c(
@@ -184,7 +291,8 @@
       format(file.info(promod3_cli)$mtime, "%Y-%m-%d %H:%M:%S %z")
     } else {
       NA_character_
-    }
+    },
+    type1s = .dnmb_rebasefinder_type1s_cache_identity(cache_dir = cache_dir)
   )
 }
 

@@ -3978,6 +3978,367 @@
   .dnmb_module_output_table(genes = genes, hits = selected_hits)
 }
 
+.dnmb_rebasefinder_empty_type1s_predictions <- function() {
+  empty_fn <- base::get0(
+    ".dnmb_type1s_empty_prediction",
+    mode = "function",
+    inherits = TRUE
+  )
+  if (base::is.function(empty_fn)) return(empty_fn(character()))
+  base::data.frame(
+    locus_tag = character(),
+    type1s_prediction_status = character(),
+    type1s_predicted_recognition = character(),
+    type1s_prediction_eligible = logical(),
+    stringsAsFactors = FALSE
+  )
+}
+
+.dnmb_rebasefinder_atomic_replace_pair <- function(staged,
+                                                    destination,
+                                                    rename_file = base::file.rename) {
+  staged <- base::as.character(staged)
+  destination <- base::as.character(destination)
+  if (!base::length(staged) || base::length(staged) != base::length(destination)) {
+    base::stop("REBASEfinder staged and destination sidecars must have equal lengths.", call. = FALSE)
+  }
+  if (base::anyDuplicated(destination)) {
+    base::stop("REBASEfinder sidecar destinations must be unique.", call. = FALSE)
+  }
+  if (!base::is.function(rename_file)) {
+    base::stop("rename_file must be a function.", call. = FALSE)
+  }
+
+  staged_info <- base::file.info(staged)
+  invalid <- !base::file.exists(staged) |
+    base::dir.exists(staged) |
+    base::is.na(staged_info$size) |
+    staged_info$size <= 0L
+  if (base::any(invalid)) {
+    base::stop(
+      "REBASEfinder staged sidecar is missing or empty: ",
+      staged[[base::which(invalid)[[1L]]]],
+      call. = FALSE
+    )
+  }
+
+  had_destination <- base::file.exists(destination)
+  backups <- base::vapply(
+    base::seq_along(destination),
+    function(i) {
+      base::tempfile(
+        base::paste0(".", base::basename(destination[[i]]), "-previous-"),
+        tmpdir = base::dirname(destination[[i]])
+      )
+    },
+    character(1)
+  )
+  backed_up <- base::rep(FALSE, base::length(destination))
+  installed <- base::rep(FALSE, base::length(destination))
+  committed <- FALSE
+
+  rollback <- function() {
+    ok <- TRUE
+    for (i in base::rev(base::which(installed))) {
+      if (base::file.exists(destination[[i]])) {
+        base::unlink(destination[[i]], force = TRUE)
+      }
+      removed <- !base::file.exists(destination[[i]])
+      ok <- ok && removed
+      if (removed) installed[[i]] <<- FALSE
+    }
+    for (i in base::rev(base::which(backed_up))) {
+      restored <- base::file.exists(backups[[i]]) &&
+        !base::file.exists(destination[[i]]) &&
+        base::isTRUE(rename_file(backups[[i]], destination[[i]]))
+      ok <- ok && restored
+      if (restored) backed_up[[i]] <<- FALSE
+    }
+    ok
+  }
+  base::on.exit({
+    if (!committed) rollback()
+    if (committed && base::any(base::file.exists(backups))) {
+      base::unlink(backups, force = TRUE)
+    }
+  }, add = TRUE)
+
+  # Move every previous artifact out of the way before installing either new
+  # artifact. If any backup or install fails, restore the complete previous
+  # pair rather than leaving a new TSV beside an old XLSX (or vice versa).
+  for (i in base::which(had_destination)) {
+    if (!base::isTRUE(rename_file(destination[[i]], backups[[i]]))) {
+      rollback_ok <- rollback()
+      detail <- if (rollback_ok) "" else " (rollback incomplete; backup retained)"
+      base::stop(
+        "Could not stage the previous REBASEfinder sidecar: ",
+        destination[[i]], detail,
+        call. = FALSE
+      )
+    }
+    backed_up[[i]] <- TRUE
+  }
+  for (i in base::seq_along(staged)) {
+    if (!base::isTRUE(rename_file(staged[[i]], destination[[i]]))) {
+      rollback_ok <- rollback()
+      detail <- if (rollback_ok) "" else " (rollback incomplete; backup retained)"
+      base::stop(
+        "Could not install REBASEfinder sidecar: ",
+        destination[[i]], detail,
+        call. = FALSE
+      )
+    }
+    installed[[i]] <- TRUE
+  }
+
+  committed <- TRUE
+  base::unlink(backups[base::file.exists(backups)], force = TRUE)
+  base::normalizePath(destination, winslash = "/", mustWork = FALSE)
+}
+
+.dnmb_rebasefinder_atomic_replace <- function(staged, destination) {
+  .dnmb_rebasefinder_atomic_replace_pair(staged, destination)[[1L]]
+}
+
+.dnmb_rebasefinder_write_type1s_predictions <- function(output_dir,
+                                                         predictions) {
+  base::dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  predictions <- base::as.data.frame(predictions, stringsAsFactors = FALSE)
+  if (!"locus_tag" %in% base::names(predictions)) {
+    base::stop("Type I HsdS predictions must contain locus_tag.", call. = FALSE)
+  }
+
+  tsv <- base::file.path(output_dir, "DNMB_REBASEfinder_type1s_predictions.tsv")
+  xlsx <- base::file.path(output_dir, "DNMB_REBASEfinder_type1s_predictions.xlsx")
+  staged_tsv <- base::tempfile(
+    ".DNMB_REBASEfinder_type1s_predictions-",
+    tmpdir = output_dir,
+    fileext = ".tsv"
+  )
+  staged_xlsx <- base::tempfile(
+    ".DNMB_REBASEfinder_type1s_predictions-",
+    tmpdir = output_dir,
+    fileext = ".xlsx"
+  )
+  base::on.exit(base::unlink(c(staged_tsv, staged_xlsx), force = TRUE), add = TRUE)
+
+  utils::write.table(
+    predictions,
+    staged_tsv,
+    sep = "\t",
+    quote = FALSE,
+    row.names = FALSE,
+    col.names = TRUE,
+    na = "NA"
+  )
+  openxlsx::write.xlsx(
+    list(Type_I_S_predictions = predictions),
+    staged_xlsx,
+    overwrite = TRUE
+  )
+
+  # Both artifacts are fully materialized before the current pair is replaced.
+  # Zero-row typed tables are intentional: they clear stale calls.
+  installed <- .dnmb_rebasefinder_atomic_replace_pair(
+    c(staged_tsv, staged_xlsx),
+    c(tsv, xlsx)
+  )
+  list(
+    type1s_predictions_tsv = installed[[1L]],
+    type1s_predictions_xlsx = installed[[2L]]
+  )
+}
+
+.dnmb_rebasefinder_predict_type1s <- function(genes,
+                                               rm_comprehensive,
+                                               cache_dir,
+                                               cpu = 1L,
+                                               verbose = TRUE) {
+  empty <- .dnmb_rebasefinder_empty_type1s_predictions()
+  required_helpers <- c(
+    ".dnmb_type1s_candidate_ids",
+    ".dnmb_type1s_candidate_rows",
+    ".dnmb_type1s_clean_id",
+    "dnmb_predict_type1s_recognition"
+  )
+  # Resolve private helpers from this function's enclosing namespace. Passing
+  # get0() directly to lapply() searches from lapply's base-package frame and
+  # therefore misses unexported helpers in an installed DNMB namespace.
+  helper_env <- base::environment(.dnmb_rebasefinder_predict_type1s)
+  helpers <- base::lapply(
+    required_helpers,
+    function(helper) {
+      base::get0(
+        helper,
+        envir = helper_env,
+        mode = "function",
+        inherits = TRUE
+      )
+    }
+  )
+  base::names(helpers) <- required_helpers
+  if (!base::all(base::vapply(helpers, base::is.function, logical(1)))) {
+    return(list(
+      predictions = empty,
+      status = .dnmb_rebasefinder_status_row(
+        "type1s_prediction", "unavailable",
+        "Type I HsdS prediction helpers are not installed"
+      )
+    ))
+  }
+
+  candidate_ids <- helpers[[".dnmb_type1s_candidate_ids"]](
+    genes,
+    rm_comprehensive
+  )
+  if (!base::length(candidate_ids)) {
+    return(list(
+      predictions = empty,
+      status = .dnmb_rebasefinder_status_row(
+        "type1s_prediction", "skipped", "No Type I HsdS candidate"
+      )
+    ))
+  }
+
+  genes_df <- base::as.data.frame(genes, stringsAsFactors = FALSE)
+  if (!base::all(c("locus_tag", "translation") %in% base::names(genes_df))) {
+    return(list(
+      predictions = empty,
+      status = .dnmb_rebasefinder_status_row(
+        "type1s_prediction", "failed",
+        "Type I HsdS candidates require locus_tag and translation columns"
+      )
+    ))
+  }
+  gene_ids <- helpers[[".dnmb_type1s_clean_id"]](genes_df$locus_tag)
+  candidate_rows <- helpers[[".dnmb_type1s_candidate_rows"]](
+    gene_ids,
+    candidate_ids
+  )
+  candidates <- genes_df[candidate_rows %in% TRUE, , drop = FALSE]
+  if (!base::nrow(candidates)) {
+    return(list(
+      predictions = empty,
+      status = .dnmb_rebasefinder_status_row(
+        "type1s_prediction", "failed",
+        "Type I HsdS candidate identifiers did not map uniquely to input genes"
+      )
+    ))
+  }
+
+  prediction <- base::tryCatch(
+    helpers[["dnmb_predict_type1s_recognition"]](
+      candidates = candidates,
+      seq_col = "translation",
+      id_col = "locus_tag",
+      cache_dir = cache_dir,
+      download = TRUE,
+      force_reference = FALSE,
+      cpu = cpu,
+      backend = "auto",
+      verbose = verbose
+    ),
+    error = function(e) e
+  )
+  if (base::inherits(prediction, "error")) {
+    return(list(
+      predictions = empty,
+      status = .dnmb_rebasefinder_status_row(
+        "type1s_prediction", "failed", base::conditionMessage(prediction)
+      )
+    ))
+  }
+  prediction <- base::as.data.frame(prediction, stringsAsFactors = FALSE)
+  prediction_status <- if ("type1s_prediction_status" %in% base::names(prediction)) {
+    base::as.character(prediction$type1s_prediction_status)
+  } else {
+    base::rep(NA_character_, base::nrow(prediction))
+  }
+  eligible <- if ("type1s_prediction_eligible" %in% base::names(prediction)) {
+    prediction$type1s_prediction_eligible %in% TRUE
+  } else {
+    base::rep(FALSE, base::nrow(prediction))
+  }
+  n_complete <- base::sum(
+    prediction_status %in% c("known_gold_match", "predicted_complete"),
+    na.rm = TRUE
+  )
+  n_failed <- base::sum(prediction_status == "search_failed", na.rm = TRUE)
+  aggregate_status <- if (base::nrow(prediction) > 0L &&
+                          n_failed == base::nrow(prediction)) {
+    "failed"
+  } else if (n_failed > 0L) {
+    "partial"
+  } else {
+    "ok"
+  }
+  list(
+    predictions = prediction,
+    status = .dnmb_rebasefinder_status_row(
+      "type1s_prediction",
+      aggregate_status,
+      base::sprintf(
+        "%d HsdS candidates; %d complete; %d high-confidence; %d search failures",
+        base::nrow(prediction), n_complete, base::sum(eligible), n_failed
+      )
+    )
+  )
+}
+
+.dnmb_rebasefinder_attach_type1s_metadata <- function(hits, predictions) {
+  hits <- base::as.data.frame(hits, stringsAsFactors = FALSE)
+  predictions <- base::as.data.frame(predictions, stringsAsFactors = FALSE)
+  if (!base::nrow(hits) || !base::nrow(predictions) ||
+      !"query" %in% base::names(hits) ||
+      !"locus_tag" %in% base::names(predictions)) {
+    return(hits)
+  }
+
+  hit_ids <- base::trimws(base::as.character(hits$query))
+  prediction_ids <- base::trimws(base::as.character(predictions$locus_tag))
+  matches <- base::match(hit_ids, prediction_ids)
+  unresolved <- base::is.na(matches) & !base::is.na(hit_ids) & base::nzchar(hit_ids)
+  if (base::any(unresolved)) {
+    hit_keys <- .dnmb_module_clean_annotation_key(hit_ids)
+    prediction_keys <- .dnmb_module_clean_annotation_key(prediction_ids)
+    unique_hit_keys <- !base::duplicated(hit_keys) &
+      !base::duplicated(hit_keys, fromLast = TRUE) & !base::is.na(hit_keys)
+    unique_prediction_keys <- !base::duplicated(prediction_keys) &
+      !base::duplicated(prediction_keys, fromLast = TRUE) & !base::is.na(prediction_keys)
+    fallback <- base::match(hit_keys, prediction_keys)
+    safe <- unresolved & unique_hit_keys & !base::is.na(fallback) &
+      unique_prediction_keys[fallback]
+    matches[safe] <- fallback[safe]
+  }
+
+  family <- if ("family_id" %in% base::names(hits)) {
+    base::gsub("[^a-z0-9]", "", base::tolower(base::as.character(hits$family_id)))
+  } else {
+    base::rep("", base::nrow(hits))
+  }
+  role <- if ("enzyme_role" %in% base::names(hits)) {
+    base::gsub("[^a-z0-9]", "", base::tolower(base::as.character(hits$enzyme_role)))
+  } else {
+    base::rep("", base::nrow(hits))
+  }
+  existing_hsds <- family %in% c("typei", "i") &
+    role %in% c("s", "specificity", "specificitysubunit")
+  attach <- existing_hsds & !base::is.na(matches)
+
+  prediction_columns <- base::grep(
+    "^type1s_",
+    base::names(predictions),
+    value = TRUE
+  )
+  for (column in prediction_columns) {
+    if (!column %in% base::names(hits)) {
+      hits[[column]] <- .dnmb_na_vector_like(predictions[[column]], base::nrow(hits))
+    }
+    hits[[column]][attach] <- predictions[[column]][matches[attach]]
+  }
+  hits
+}
+
 dnmb_run_rebasefinder_module <- function(genes,
                                          output_dir,
                                          genbank = NULL,
@@ -4001,6 +4362,13 @@ dnmb_run_rebasefinder_module <- function(genes,
 
   base::dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   status <- .dnmb_rebasefinder_empty_status()
+  # Clear any sidecar left by an earlier run before work begins. The typed
+  # zero-row artifacts also make early failures safe for downstream plotting.
+  type1s_predictions <- .dnmb_rebasefinder_empty_type1s_predictions()
+  type1s_files <- .dnmb_rebasefinder_write_type1s_predictions(
+    output_dir,
+    type1s_predictions
+  )
 
   if (!.dnmb_rebasefinder_check_package()) {
     if (base::isTRUE(install)) {
@@ -4013,8 +4381,10 @@ dnmb_run_rebasefinder_module <- function(genes,
         return(list(
           ok = FALSE,
           status = status,
+          files = type1s_files,
           hits = .dnmb_module_empty_optional_long_table(),
-          output_table = base::data.frame()
+          output_table = base::data.frame(),
+          type1s_predictions = type1s_predictions
         ))
       }
     } else {
@@ -4025,8 +4395,10 @@ dnmb_run_rebasefinder_module <- function(genes,
       return(list(
         ok = FALSE,
         status = status,
+        files = type1s_files,
         hits = .dnmb_module_empty_optional_long_table(),
-        output_table = base::data.frame()
+        output_table = base::data.frame(),
+        type1s_predictions = type1s_predictions
       ))
     }
   }
@@ -4037,7 +4409,10 @@ dnmb_run_rebasefinder_module <- function(genes,
 
   # Override DefenseViz cache dir -> DNMB's db_modules/rebasefinder/cache.
   # This works regardless of DefenseViz version (no env var dependency).
-  .dnmb_rebasefinder_set_defenseviz_cache(cache_root = cache_root, verbose = verbose)
+  rebase_cache <- .dnmb_rebasefinder_set_defenseviz_cache(
+    cache_root = cache_root,
+    verbose = verbose
+  )
 
   if (base::isTRUE(compare_rebase) && base::isTRUE(install)) {
     reference_refresh <- .dnmb_rebasefinder_refresh_reference(cache_root = cache_root, verbose = verbose)
@@ -4111,8 +4486,10 @@ dnmb_run_rebasefinder_module <- function(genes,
     return(list(
       ok = FALSE,
       status = status,
+      files = type1s_files,
       hits = .dnmb_module_empty_optional_long_table(),
-      output_table = base::data.frame()
+      output_table = base::data.frame(),
+      type1s_predictions = type1s_predictions
     ))
   }
 
@@ -4120,6 +4497,20 @@ dnmb_run_rebasefinder_module <- function(genes,
   if (base::is.null(rm_comprehensive) || !base::is.data.frame(rm_comprehensive)) {
     rm_comprehensive <- base::data.frame()
   }
+
+  type1s_result <- .dnmb_rebasefinder_predict_type1s(
+    genes = genes,
+    rm_comprehensive = rm_comprehensive,
+    cache_dir = rebase_cache,
+    cpu = cpu,
+    verbose = verbose
+  )
+  type1s_predictions <- type1s_result$predictions
+  status <- dplyr::bind_rows(status, type1s_result$status)
+  type1s_files <- .dnmb_rebasefinder_write_type1s_predictions(
+    output_dir,
+    type1s_predictions
+  )
 
 	  hits <- .dnmb_rebasefinder_normalize_hits(rm_comprehensive)
 	  metadata_blast <- if (base::is.data.frame(pipeline_result$blast_filtered)) {
@@ -4279,7 +4670,7 @@ dnmb_run_rebasefinder_module <- function(genes,
 	  ))
 		  hits <- .dnmb_rebasefinder_add_sequence_partial_status(hits, genes)
 		  hits <- .dnmb_rebasefinder_curate_hits(hits, genes)
-		  augmented_files <- list()
+		  augmented_files <- type1s_files
 		  if (base::isTRUE(homology_modeling)) {
 		    homology <- .dnmb_rebasefinder_run_homology_models(
 		      hits = hits,
@@ -4338,6 +4729,10 @@ dnmb_run_rebasefinder_module <- function(genes,
 	      )
 	    ))
 	  }
+	  # Prediction provenance is observational metadata. Attach it only after
+	  # all curation/structure decisions so it cannot seed, promote, or rescue a
+	  # candidate. No new hit rows are created.
+	  hits <- .dnmb_rebasefinder_attach_type1s_metadata(hits, type1s_predictions)
 	  augmented_result_files <- .dnmb_rebasefinder_write_augmented_results(output_dir, hits)
 	  augmented_files <- c(augmented_result_files, augmented_files)
 	  curation_workbook <- .dnmb_rebasefinder_write_curation_workbook(
@@ -4414,6 +4809,7 @@ dnmb_run_rebasefinder_module <- function(genes,
     hits = hits,
     all_hits = all_hits,
     output_table = output_table,
+    type1s_predictions = type1s_predictions,
     pipeline_result = pipeline_result
   )
 }

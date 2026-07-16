@@ -290,6 +290,25 @@ files are audit tables rather than separate plots; DefenseViz's redundant
 `RM_system_dotplot.pdf` is removed after the integrated PDF is written
 successfully.
 
+### Type I-S TRD recognition prediction
+
+DNMB can build separate TRD1 and TRD2 specificity-core databases from the
+official REBASE Type I S Gold Standard, then predict both recognition
+half-sites and their spacer for canonical 300--700 aa, two-TRD HsdS proteins.
+Spacer inference combines full-HsdS neighbors with a sequence-derived
+structural scaffold (coiled-coil length, helix-breaking residues, and repeat
+phase); a conservative Type-IC TAEL-repeat ruler can distinguish N6 from N7.
+
+```r
+db <- dnmb_build_type1s_trd_databases(backend = "both")
+predictions <- dnmb_predict_type1s_recognition(hsds_candidates, cpu = 8)
+```
+
+The TRD windows are validation-selected specificity cores, not experimentally
+curated domain boundaries. Remote structural calls remain exploratory and
+cannot enter the high-confidence tier. Frozen validation results and ablations
+are documented in `inst/validation/type1s_gold_validation.md`.
+
 ### REBASEfinder structural validation
 
 The automatic coordinate path is deliberately limited to one API-free method:

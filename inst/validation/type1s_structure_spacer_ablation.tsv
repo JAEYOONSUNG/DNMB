@@ -1,0 +1,73 @@
+evaluation	split	method	metric	comparator	n_correct	n_called	n_total	precision	coverage	n_changed	n_wins	n_losses
+exact_loo	development	weighted5	spacer		212	346	346	0.6127	1.0000	NA	NA	NA
+exact_loo	development	weighted5	full		153	334	346	0.4581	0.9653	NA	NA	NA
+exact_loo	development	scaffold70_30	spacer	weighted5	221	346	346	0.6387	1.0000	21	14	5
+exact_loo	development	scaffold70_30	full	weighted5	159	334	346	0.4760	0.9653	NA	NA	NA
+exact_loo	development	helix15	spacer	weighted5	217	346	346	0.6272	1.0000	81	38	33
+exact_loo	development	helix15	full	weighted5	153	334	346	0.4581	0.9653	NA	NA	NA
+exact_loo	development	combined_F20_S05_H75	spacer	scaffold70_30	224	346	346	0.6474	1.0000	46	22	19
+exact_loo	development	combined_F20_S05_H75	full	scaffold70_30	159	334	346	0.4760	0.9653	NA	NA	NA
+exact_loo	development	tael_v1.1.0	spacer	scaffold70_30	222	346	346	0.6416	1.0000	1	1	0
+exact_loo	development	tael_v1.1.0	full	scaffold70_30	159	334	346	0.4760	0.9653	NA	NA	NA
+exact_loo	test	weighted5	spacer		202	343	343	0.5889	1.0000	NA	NA	NA
+exact_loo	test	weighted5	full		136	316	343	0.4304	0.9213	NA	NA	NA
+exact_loo	test	scaffold70_30	spacer	weighted5	205	343	343	0.5977	1.0000	16	9	6
+exact_loo	test	scaffold70_30	full	weighted5	139	316	343	0.4399	0.9213	NA	NA	NA
+exact_loo	test	helix15	spacer	weighted5	210	343	343	0.6122	1.0000	63	31	23
+exact_loo	test	helix15	full	weighted5	140	316	343	0.4430	0.9213	NA	NA	NA
+exact_loo	test	combined_F20_S05_H75	spacer	scaffold70_30	207	343	343	0.6035	1.0000	40	17	15
+exact_loo	test	combined_F20_S05_H75	full	scaffold70_30	140	316	343	0.4430	0.9213	NA	NA	NA
+exact_loo	test	tael_v1.1.0	spacer	scaffold70_30	207	343	343	0.6035	1.0000	2	2	0
+exact_loo	test	tael_v1.1.0	full	scaffold70_30	141	316	343	0.4462	0.9213	NA	NA	NA
+exact_loo	all	weighted5	spacer		414	689	689	0.6009	1.0000	NA	NA	NA
+exact_loo	all	weighted5	full		289	650	689	0.4446	0.9434	NA	NA	NA
+exact_loo	all	scaffold70_30	spacer	weighted5	426	689	689	0.6183	1.0000	37	23	11
+exact_loo	all	scaffold70_30	full	weighted5	298	650	689	0.4585	0.9434	NA	NA	NA
+exact_loo	all	helix15	spacer	weighted5	427	689	689	0.6197	1.0000	144	69	56
+exact_loo	all	helix15	full	weighted5	293	650	689	0.4508	0.9434	NA	NA	NA
+exact_loo	all	combined_F20_S05_H75	spacer	scaffold70_30	431	689	689	0.6255	1.0000	86	39	34
+exact_loo	all	combined_F20_S05_H75	full	scaffold70_30	299	650	689	0.4600	0.9434	NA	NA	NA
+exact_loo	all	tael_v1.1.0	spacer	scaffold70_30	429	689	689	0.6226	1.0000	3	3	0
+exact_loo	all	tael_v1.1.0	full	scaffold70_30	300	650	689	0.4615	0.9434	NA	NA	NA
+trd90	development	weighted5	spacer		191	346	346	0.5520	1.0000	NA	NA	NA
+trd90	development	weighted5	full		114	334	346	0.3413	0.9653	NA	NA	NA
+trd90	development	scaffold70_30	spacer	weighted5	204	346	346	0.5896	1.0000	37	24	11
+trd90	development	scaffold70_30	full	weighted5	130	334	346	0.3892	0.9653	NA	NA	NA
+trd90	development	helix15	spacer	weighted5	198	346	346	0.5723	1.0000	107	47	40
+trd90	development	helix15	full	weighted5	123	334	346	0.3683	0.9653	NA	NA	NA
+trd90	development	combined_F20_S05_H75	spacer	scaffold70_30	205	346	346	0.5925	1.0000	56	25	24
+trd90	development	combined_F20_S05_H75	full	scaffold70_30	128	334	346	0.3832	0.9653	NA	NA	NA
+trd90	development	tael_v1.1.0	spacer	scaffold70_30	205	346	346	0.5925	1.0000	1	1	0
+trd90	development	tael_v1.1.0	full	scaffold70_30	130	334	346	0.3892	0.9653	NA	NA	NA
+trd90	test	weighted5	spacer		192	343	343	0.5598	1.0000	NA	NA	NA
+trd90	test	weighted5	full		105	316	343	0.3323	0.9213	NA	NA	NA
+trd90	test	scaffold70_30	spacer	weighted5	202	343	343	0.5889	1.0000	27	17	7
+trd90	test	scaffold70_30	full	weighted5	116	316	343	0.3671	0.9213	NA	NA	NA
+trd90	test	helix15	spacer	weighted5	201	343	343	0.5860	1.0000	83	39	30
+trd90	test	helix15	full	weighted5	111	316	343	0.3513	0.9213	NA	NA	NA
+trd90	test	combined_F20_S05_H75	spacer	scaffold70_30	201	343	343	0.5860	1.0000	47	18	19
+trd90	test	combined_F20_S05_H75	full	scaffold70_30	113	316	343	0.3576	0.9213	NA	NA	NA
+trd90	test	tael_v1.1.0	spacer	scaffold70_30	202	343	343	0.5889	1.0000	0	0	0
+trd90	test	tael_v1.1.0	full	scaffold70_30	116	316	343	0.3671	0.9213	NA	NA	NA
+trd90	all	weighted5	spacer		383	689	689	0.5559	1.0000	NA	NA	NA
+trd90	all	weighted5	full		219	650	689	0.3369	0.9434	NA	NA	NA
+trd90	all	scaffold70_30	spacer	weighted5	406	689	689	0.5893	1.0000	64	41	18
+trd90	all	scaffold70_30	full	weighted5	246	650	689	0.3785	0.9434	NA	NA	NA
+trd90	all	helix15	spacer	weighted5	399	689	689	0.5791	1.0000	190	86	70
+trd90	all	helix15	full	weighted5	234	650	689	0.3600	0.9434	NA	NA	NA
+trd90	all	combined_F20_S05_H75	spacer	scaffold70_30	406	689	689	0.5893	1.0000	103	43	43
+trd90	all	combined_F20_S05_H75	full	scaffold70_30	241	650	689	0.3708	0.9434	NA	NA	NA
+trd90	all	tael_v1.1.0	spacer	scaffold70_30	407	689	689	0.5907	1.0000	1	1	0
+trd90	all	tael_v1.1.0	full	scaffold70_30	246	650	689	0.3785	0.9434	NA	NA	NA
+trd80	all	weighted5	spacer		379	689	689	0.5501	1.0000	NA	NA	NA
+trd80	all	tael_v1.1.0	spacer	weighted5	398	689	689	0.5776	1.0000	NA	NA	NA
+trd80	all	tael_v1.1.0	full	weighted5	229	648	689	0.3534	0.9405	NA	NA	NA
+trd70	all	weighted5	spacer		354	689	689	0.5138	1.0000	NA	NA	NA
+trd70	all	tael_v1.1.0	spacer	weighted5	389	689	689	0.5646	1.0000	NA	NA	NA
+trd70	all	tael_v1.1.0	full	weighted5	217	648	689	0.3349	0.9405	NA	NA	NA
+trd60	all	weighted5	spacer		352	689	689	0.5109	1.0000	NA	NA	NA
+trd60	all	tael_v1.1.0	spacer	weighted5	361	689	689	0.5239	1.0000	NA	NA	NA
+trd60	all	tael_v1.1.0	full	weighted5	170	641	689	0.2652	0.9303	NA	NA	NA
+trd50	all	weighted5	spacer		356	689	689	0.5167	1.0000	NA	NA	NA
+trd50	all	tael_v1.1.0	spacer	weighted5	378	689	689	0.5486	1.0000	NA	NA	NA
+trd50	all	tael_v1.1.0	full	weighted5	157	606	689	0.2591	0.8795	NA	NA	NA

@@ -1,0 +1,5 @@
+holdout	reference_id	truth_spacer	base_spacer	corrected_spacer	gate	query_repeat_count	ruler_reference_id	ruler_reference_repeat_count	ruler_reference_spacer	identity	reciprocal_coverage	base_vote_margin	spacer_win	complete_motif_win	eligible_after
+exact_loo	R0237	6	7	6	close_full	2	R0262	3	7	96.8	100.0000	0.445267	TRUE	TRUE	TRUE
+exact_loo	R0262	7	6	7	close_full	3	R0237	2	6	96.8	100.0000	0.010931	TRUE	TRUE	TRUE
+exact_loo	R0688	7	6	7	remote	3	R0625	2	6	76.8	98.8208	0.383795	TRUE	FALSE	FALSE
+trd90	R0688	7	6	7	remote	3	R0625	2	6	76.8	98.8208	0.383795	TRUE	FALSE	FALSE

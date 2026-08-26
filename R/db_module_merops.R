@@ -901,11 +901,74 @@ dnmb_merops_normalize_hits <- function(hits) {
   out
 }
 
+# The DIAMOND database belongs to the *reference*, not to the genome being
+# searched. It was built into `output_dir`, so every genome run left its own
+# 445 MB copy of a database derived from the same `pepunit.lib`: measured on
+# this machine, **36 copies** under `data/<genome>/dnmb_module_merops` holding
+# **15.2 GB**, one per genome ever run, dated April to July.
+#
+# They are all exactly 466,447,025 bytes and they are *not* byte-identical —
+# five distinct hashes over the 36, while `pepunit.lib` has not been touched
+# since 1 April. Same input, same length, different bytes: what differs is
+# DIAMOND's own header, not the reference. It is recorded here rather than
+# assumed, because "they are all the same file" was the obvious reading and it
+# is false, and because it is the reason the cleanup rebuilt the database once
+# instead of promoting one of the 36 into the shared cache — a database whose
+# provenance cannot be established should not become the one every future run
+# uses.
+#
+# The BLAST database beside the same FASTA has always been cached correctly.
+# Only this one was not.
+#
+# It goes next to the reference it was built from, which is the module directory
+# under `dnmb_db_home()` (`~/.dnmb-cache/db_modules/merops/<version>`), so it is
+# built once per MEROPS release and shared by every run. Nothing new has to be
+# configured: `DNMB_CACHE_ROOT` already moves the whole cache.
+.dnmb_merops_diamond_db_path <- function(reference_fasta, output_dir) {
+  cache_dir <- dirname(reference_fasta)
+  # a cache we cannot write to is not a cache; fall back to the old behaviour
+  # rather than failing, and say which one was used in the trace
+  writable <- dir.exists(cache_dir) && file.access(cache_dir, mode = 2L) == 0L
+  dir <- if (isTRUE(writable)) cache_dir else output_dir
+  list(
+    dir = dir,
+    shared = isTRUE(writable),
+    prefix = file.path(dir, "merops_reference"),
+    file = file.path(dir, "merops_reference.dmnd"),
+    # the key is the reference the database was built from: a MEROPS update
+    # replaces pepunit.lib in place, and a database built from the old one must
+    # not be reused for the new
+    stamp = file.path(dir, "merops_reference.dmnd.source")
+  )
+}
+
+.dnmb_merops_diamond_stamp <- function(reference_fasta) {
+  info <- file.info(reference_fasta)
+  paste(basename(reference_fasta), format(info$size), format(info$mtime, "%Y-%m-%dT%H:%M:%OS3"), sep = "\t")
+}
+
+.dnmb_merops_diamond_db_current <- function(paths, reference_fasta) {
+  if (!file.exists(paths$file)) return(FALSE)
+  if (!isTRUE(file.info(paths$file)$size > 0)) return(FALSE)
+  # a database with no stamp beside it is one an older DNMB built; it was built
+  # from whatever pepunit.lib was there at the time, and the honest reading is
+  # that we cannot tell — keep it rather than rebuild, and stamp it now
+  if (!file.exists(paths$stamp)) {
+    try(writeLines(.dnmb_merops_diamond_stamp(reference_fasta), paths$stamp), silent = TRUE)
+    return(TRUE)
+  }
+  identical(
+    trimws(paste(readLines(paths$stamp, warn = FALSE), collapse = "\n")),
+    trimws(.dnmb_merops_diamond_stamp(reference_fasta))
+  )
+}
+
 .dnmb_merops_run_diamond <- function(query_fasta, reference_fasta, output_dir, cpu = 1L, trace_log = NULL) {
   blast_out <- file.path(output_dir, "merops_blastp.tsv")
   # diamond -d takes a prefix and appends .dmnd automatically
-  dmnd_prefix <- file.path(output_dir, "merops_reference")
-  dmnd_file <- paste0(dmnd_prefix, ".dmnd")
+  paths <- .dnmb_merops_diamond_db_path(reference_fasta, output_dir)
+  dmnd_prefix <- paths$prefix
+  dmnd_file <- paths$file
 
   # Check diamond availability
   diamond_check <- dnmb_run_external("diamond", args = "version", required = FALSE)
@@ -914,7 +977,12 @@ dnmb_merops_normalize_hits <- function(hits) {
   }
 
   # diamond makedb (uses staging dir to avoid spaces in paths)
-  if (!file.exists(dmnd_file)) {
+  if (!.dnmb_merops_diamond_db_current(paths, reference_fasta)) {
+    if (!is.null(trace_log)) {
+      .dnmb_merops_trace(trace_log, sprintf(
+        "[%s] diamond makedb into %s cache: %s", Sys.time(),
+        if (isTRUE(paths$shared)) "shared" else "per-output", paths$dir))
+    }
     stage <- tempfile("dnmb-merops-diamond-")
     dir.create(stage, recursive = TRUE, showWarnings = FALSE)
     on.exit(unlink(stage, recursive = TRUE, force = TRUE), add = TRUE)
@@ -930,7 +998,22 @@ dnmb_merops_normalize_hits <- function(hits) {
     if (!isTRUE(makedb_run$ok)) {
       return(list(ok = FALSE, resolved_command = diamond_check$resolved_command, error = "diamond makedb failed", blast_out = blast_out))
     }
-    file.copy(paste0(stage_db, ".dmnd"), dmnd_file, overwrite = TRUE)
+    # **Two runs may build it at once**, and a half-written 445 MB database that
+    # another process starts searching is worse than building it twice. Land it
+    # through a sibling temporary file so the rename is atomic on the cache's own
+    # filesystem — a copy from the staging directory is neither.
+    dir.create(dirname(dmnd_file), recursive = TRUE, showWarnings = FALSE)
+    landing <- paste0(dmnd_file, ".", Sys.getpid(), ".part")
+    if (isTRUE(file.copy(paste0(stage_db, ".dmnd"), landing, overwrite = TRUE)) &&
+        isTRUE(file.rename(landing, dmnd_file))) {
+      try(writeLines(.dnmb_merops_diamond_stamp(reference_fasta), paths$stamp), silent = TRUE)
+    } else {
+      unlink(landing, force = TRUE)
+      # the cache would not take it; keep going with a per-output database
+      dmnd_file <- file.path(output_dir, "merops_reference.dmnd")
+      dmnd_prefix <- file.path(output_dir, "merops_reference")
+      file.copy(paste0(stage_db, ".dmnd"), dmnd_file, overwrite = TRUE)
+    }
   }
 
   # diamond blastp — same outfmt 6 columns as NCBI blastp
@@ -941,7 +1024,16 @@ dnmb_merops_normalize_hits <- function(hits) {
   stage_query <- file.path(stage2, "query.faa")
   stage_out <- file.path(stage2, "hits.tsv")
   file.copy(query_fasta, stage_query, overwrite = TRUE)
-  file.copy(dmnd_file, file.path(stage2, "ref.dmnd"), overwrite = TRUE)
+  # **The staging directory exists to give DIAMOND a path with no spaces in it**,
+  # which a link satisfies as well as a copy — and copying 445 MB into the
+  # temporary directory on every search was the same waste as keeping a copy per
+  # genome, one level along. A filesystem that will not link falls back to the
+  # copy rather than failing.
+  stage_ref_db <- file.path(stage2, "ref.dmnd")
+  linked <- isTRUE(suppressWarnings(file.symlink(normalizePath(dmnd_file, mustWork = FALSE), stage_ref_db)))
+  if (!linked || !file.exists(stage_ref_db)) {
+    file.copy(dmnd_file, stage_ref_db, overwrite = TRUE)
+  }
   search_args <- c(
     "blastp",
     "-q", stage_query,
